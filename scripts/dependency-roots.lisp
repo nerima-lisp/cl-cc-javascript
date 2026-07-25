@@ -33,16 +33,41 @@
    (or (uiop:getenv env-var)
        (merge-pathnames (format nil "../~A/" sibling-name) *project-root*))))
 
+(defun dependency-roots ()
+  "Every directory that must be on the source registry, dependencies then self."
+  (append (loop for (env-var sibling-name) in *dependency-specs*
+                collect (truename (dependency-root env-var sibling-name)))
+          (list (truename *project-root*))))
+
 (defun dependency-source-registry-directives ()
-  (loop for (env-var sibling-name) in *dependency-specs*
-        collect (list :directory (truename (dependency-root env-var sibling-name)))))
+  (loop for root in (dependency-roots)
+        collect (list :directory root)))
+
+(defun dependency-source-registry-string ()
+  "The same roots as a CL_SOURCE_REGISTRY value.
+Each entry ends in a single slash, so it is scanned non-recursively: a
+recursive scan of the cl-cc checkout would also turn up
+packages/javascript/cl-cc-javascript.asd, a second, divergent definition of
+this very system. No trailing colon, so nothing further is inherited."
+  (format nil "~{~A~^:~}" (mapcar #'namestring (dependency-roots))))
 
 (defun initialize-dependency-source-registry ()
+  ;; Set CL_SOURCE_REGISTRY as well as configuring ASDF programmatically, and
+  ;; keep the two in agreement.
+  ;;
+  ;; cl-tty-kit.asd re-runs asdf:initialize-source-registry itself, at load
+  ;; time, with `(:tree <its own dir>) :inherit-configuration`. That discards
+  ;; whatever registry was in force and rebuilds it from the *environment*, so a
+  ;; registry that was only ever set programmatically does not survive. cl-cc's
+  ;; repl subsystem depends on :cl-tty-kit and :cl-boundary-kit in that order,
+  ;; so without this the load of :cl-cc fails half-way through with
+  ;; "Component :CL-BOUNDARY-KIT not found" — cl-tty-kit having erased the
+  ;; entry that would have resolved it moments earlier.
+  (setf (uiop:getenv "CL_SOURCE_REGISTRY") (dependency-source-registry-string))
   (asdf:initialize-source-registry
    (list* :source-registry
           (append (dependency-source-registry-directives)
-                  (list (list :directory (truename *project-root*))
-                        :ignore-inherited-configuration))))
+                  (list :ignore-inherited-configuration))))
   ;; cl-cc-ast/-bootstrap/-parse/-vm live under packages/*/ inside the cl-cc
   ;; checkout, one level deeper than the :directory entry above reaches.
   ;; cl-cc.asd's own load-time eval-when registers each of them by relative
