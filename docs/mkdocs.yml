@@ -1,0 +1,108 @@
+site_name: cl-cc-javascript
+site_description: "CL-CC JavaScript frontend: lexer, parser, and runtime helpers"
+site_url: https://nerima-lisp.github.io/cl-cc-javascript/
+repo_url: https://github.com/nerima-lisp/cl-cc-javascript
+repo_name: nerima-lisp/cl-cc-javascript
+edit_uri: edit/main/docs/src/
+copyright: MIT licensed. Copyright (c) takeokunn.
+
+docs_dir: src
+site_dir: ../site
+use_directory_urls: true
+
+# Also set here, not only passed as --strict by flake.nix, so that `mkdocs serve`
+# applies the same gate and no call path can forget the flag. Use
+# `mkdocs serve --no-strict` while editing if warnings should not stop the build.
+strict: true
+
+theme:
+  name: material
+  language: en
+  favicon: assets/favicon.svg
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - content.action.edit
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+# search only: every extra plugin has to be available inside the Nix sandbox that
+# builds packages.docs, and slows that build down.
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      # base_path is relative to mkdocs' working directory, and the docs build
+      # runs from the repository root via `-f docs/mkdocs.yml`, so "." is the
+      # repository root. This is what lets docs/src/changelog.md include the
+      # root CHANGELOG.md instead of duplicating it.
+      base_path:
+        - "."
+      # Fail the build on a missing snippet, matching --strict.
+      check_paths: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.keys
+  - pymdownx.smartsymbols
+  - attr_list
+  - md_in_html
+  - def_list
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+      title: On this page
+
+# Every page under docs/src/ must appear here: --strict fails the build on an
+# unlisted page, so the nav cannot silently fall behind.
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: installation.md
+      - Quick Start: quick-start.md
+  - Guide:
+      - Core Concepts: core-concepts.md
+  - Reference:
+      - API Reference: api-reference.md
+      - Conditions: conditions.md
+      - Compatibility: compatibility.md
+  - Internals:
+      - Architecture: architecture.md
+  - Project:
+      - Development: development.md
+      - Changelog: changelog.md
+
+not_in_nav: |
+  notes/
