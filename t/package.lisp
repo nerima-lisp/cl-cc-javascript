@@ -1,4 +1,4 @@
-;;;; tests/package.lisp — test package for cl-cc-javascript (cl-weave based).
+;;;; t/package.lisp — test package for cl-cc-javascript (cl-weave based).
 
 (defpackage :cl-cc-javascript/test
   (:use :cl :cl-weave)

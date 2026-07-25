@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-runtime-symbol-tests.lisp
+;;;; t/js-runtime-symbol-tests.lisp
 ;;;;
 ;;;; Unit tests for runtime-symbol.lisp: Symbol primitive, global registry
 ;;;; (Symbol.for / keyFor), well-known symbols, and Symbol-as-property-key.

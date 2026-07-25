@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-runtime-misc-tests.lisp
+;;;; t/js-runtime-misc-tests.lisp
 ;;;;
 ;;;; Unit tests for remaining uncovered runtime functions:
 ;;;; Promise.race/allSettled/finally/withResolvers/try,

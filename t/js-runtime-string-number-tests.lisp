@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-runtime-string-number-tests.lisp
+;;;; t/js-runtime-string-number-tests.lisp
 ;;;;
 ;;;; String prototype methods, Math (basic and transcendental), Number.prototype
 ;;;; methods, number format helpers, predicates (isNaN/isFinite/isInteger),

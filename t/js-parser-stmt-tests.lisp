@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-parser-stmt-tests.lisp — JS parser: statements + expressions
+;;;; t/js-parser-stmt-tests.lisp — JS parser: statements + expressions
 ;;;;
 ;;;; Covers: if/else, while, for loop variants, switch, try/catch/finally,
 ;;;;         destructuring, spread, optional chaining, nullish coalescing,

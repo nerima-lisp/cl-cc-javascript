@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-runtime-object-ops-tests.lisp
+;;;; t/js-runtime-object-ops-tests.lisp
 ;;;;
 ;;;; Unit tests for runtime-object.lisp (Object static methods, prototype ops,
 ;;;; destructuring helpers) and runtime-ops.lisp (bitwise ops, shifts, BigInt

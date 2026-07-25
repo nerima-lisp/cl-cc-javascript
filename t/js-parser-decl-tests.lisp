@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-parser-decl-tests.lisp — JS parser: declarations
+;;;; t/js-parser-decl-tests.lisp — JS parser: declarations
 ;;;;
 ;;;; Shared parse helpers (available to js-parser-stmt-tests via serial load):
 ;;;;   %js-parse SOURCE  → list of top-level AST nodes

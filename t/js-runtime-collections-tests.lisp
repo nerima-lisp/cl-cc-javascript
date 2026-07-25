@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-runtime-collections-tests.lisp
+;;;; t/js-runtime-collections-tests.lisp
 ;;;;
 ;;;; Set, Iterator, Promise, Map, Generator, BigInt, URI/base64,
 ;;;; and AggregateError/WeakRef runtime tests.

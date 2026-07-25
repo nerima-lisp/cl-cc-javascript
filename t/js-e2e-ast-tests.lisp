@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-e2e-ast-tests.lisp — JS AST structural tests
+;;;; t/js-e2e-ast-tests.lisp — JS AST structural tests
 ;;;;
 ;;;; Parse-only tests that check the AST shape produced by the JS frontend
 ;;;; without running the program through the VM.

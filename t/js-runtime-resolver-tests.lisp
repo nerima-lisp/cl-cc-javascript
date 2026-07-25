@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-runtime-resolver-tests.lisp
+;;;; t/js-runtime-resolver-tests.lisp
 ;;;;
 ;;;; Method dispatch, type resolver coverage (define-js-type-resolver),
 ;;;; RegExp, Reflect helpers, bound-method, Object property descriptor,

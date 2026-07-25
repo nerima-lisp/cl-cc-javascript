@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-e2e-advanced-tests.lisp — JS advanced execution tests
+;;;; t/js-e2e-advanced-tests.lisp — JS advanced execution tests
 ;;;;
 ;;;; Optional chaining, named function expressions, typeof, arrow params,
 ;;;; getters/setters, static namespaces, operators, coercion, class features,

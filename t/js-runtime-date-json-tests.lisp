@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-runtime-date-json-tests.lisp
+;;;; t/js-runtime-date-json-tests.lisp
 ;;;;
 ;;;; Temporal helper functions, Date.prototype, JSON stringify, JSON parse.
 ;;;;

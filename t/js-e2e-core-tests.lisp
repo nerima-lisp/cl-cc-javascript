@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-e2e-core-tests.lisp — Core JS execution tests
+;;;; t/js-e2e-core-tests.lisp — Core JS execution tests
 ;;;;
 ;;;; Shared test helpers (loaded first, so subsequent files can use them):
 ;;;;   %js-run-capture SOURCE  → string of captured console.log output

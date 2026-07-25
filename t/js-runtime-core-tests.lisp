@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-runtime-core-tests.lisp
+;;;; t/js-runtime-core-tests.lisp
 ;;;;
 ;;;; Core type coercion, equality, truthiness, for-of/in, try-catch, Object
 ;;;; basic operations, and bitwise operators.

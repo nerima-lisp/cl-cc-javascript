@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-runtime-typed-array-methods-tests.lisp
+;;;; t/js-runtime-typed-array-methods-tests.lisp
 ;;;;
 ;;;; Unit tests for runtime-typed-arrays-methods.lisp:
 ;;;; ES2023 non-mutating methods (toReversed, toSorted, with, at, findLast…),

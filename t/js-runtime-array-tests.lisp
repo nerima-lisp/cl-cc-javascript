@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-runtime-array-tests.lisp
+;;;; t/js-runtime-array-tests.lisp
 ;;;;
 ;;;; Array operations (push/pop/shift/map/filter/reduce/sort/flat/splice …),
 ;;;; ES2023 non-mutating variants (toReversed/toSorted/with/toSpliced),

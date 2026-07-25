@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-runtime-misc-platform-tests.lisp
+;;;; t/js-runtime-misc-platform-tests.lisp
 ;;;;
 ;;;; Unit tests for platform-oriented runtime functions:
 ;;;; URLSearchParams, TextEncoder/TextDecoder, Intl.*, crypto.

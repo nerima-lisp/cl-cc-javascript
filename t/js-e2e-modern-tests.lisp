@@ -1,4 +1,4 @@
-;;;; packages/javascript/tests/js-e2e-modern-tests.lisp — ES2022-ES2026 execution tests
+;;;; t/js-e2e-modern-tests.lisp — ES2022-ES2026 execution tests
 ;;;;
 ;;;; Private class fields, Promise chaining, WeakMap/WeakSet, Object static
 ;;;; methods, ES2021 strings, ES2023 arrays, ES2025 Set/Iterator, ES2025/2026
