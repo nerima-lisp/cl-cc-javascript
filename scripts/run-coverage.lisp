@@ -1,9 +1,9 @@
 ;;;; run-coverage.lisp
 ;;;;
-;;;; Load :cl-cc-javascript-test with sb-cover instrumentation enabled and run
+;;;; Load "cl-cc-javascript/test" with sb-cover instrumentation enabled and run
 ;;;; every test through cl-weave, writing an HTML coverage report. Coverage
 ;;;; instrumentation must be declaimed before the instrumented systems are
-;;;; compiled, so this force-reloads :cl-cc-javascript-test after enabling it.
+;;;; compiled, so this force-reloads the test system after enabling it.
 
 (load (merge-pathnames "dependency-roots.lisp"
                        (or *load-pathname* *compile-file-pathname*)))
@@ -14,7 +14,7 @@
 (initialize-dependency-source-registry)
 
 (handler-case
-    (asdf:load-system :cl-cc-javascript-test :force :all :verbose nil)
+    (asdf:load-system "cl-cc-javascript/test" :force :all :verbose nil)
   (error (e)
     (format t "~&FAIL: ~A~%" e)
     (finish-output)

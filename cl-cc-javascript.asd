@@ -1,11 +1,27 @@
 ;;;; cl-cc-javascript.asd — JavaScript frontend: lexer, parser, runtime helpers
+;;;;
+;;;; Both the production system and its test system live in this one file:
+;;;; the org does not use a separate cl-cc-javascript-test.asd.
 
-(asdf:defsystem :cl-cc-javascript
+(in-package #:asdf-user)
+
+;;; System names are written as STRINGS, not #:symbols or :keywords. A string
+;;; does not depend on the reader's current package state.
+;;;
+;;; The :depends-on designators below are deliberately left as keywords. They
+;;; name systems owned by other repositories (cl-cc's packages/ tree), and
+;;; rewriting them is out of scope for this migration.
+(defsystem "cl-cc-javascript"
   :description "CL-CC JavaScript frontend: lexer, parser, and runtime helpers"
-  :author "takeokunn"
+  :author "takeokunn <bararararatty@gmail.com>"
+  :maintainer "takeokunn <bararararatty@gmail.com>"
   :license "MIT"
-  :homepage "https://github.com/nerima-lisp/cl-cc-javascript"
+  ;; Single source of truth for the version: flake.nix reads this form, and
+  ;; release.yml refuses to publish a tag that disagrees with it.
   :version "0.1.0"
+  :homepage "https://github.com/nerima-lisp/cl-cc-javascript"
+  :bug-tracker "https://github.com/nerima-lisp/cl-cc-javascript/issues"
+  :source-control (:git "https://github.com/nerima-lisp/cl-cc-javascript.git")
   :depends-on (:cl-cc-ast :cl-cc-bootstrap :cl-cc-parse :cl-cc-vm)
   :pathname "src"
   :serial t
@@ -97,9 +113,9 @@
    (:file "runtime-builtins-platform-crypto")
    (:file "runtime-builtins-platform-atomics")
    (:file "runtime-builtins-object")
-    (:file "runtime-builtins-table-specs")
-    (:file "runtime-builtins-table")
-    (:file "runtime-builtins-table-globals")
+   (:file "runtime-builtins-table-specs")
+   (:file "runtime-builtins-table")
+   (:file "runtime-builtins-table-globals")
    (:file "runtime-builtins-prelude")
    (:file "runtime-method-resolver")
    (:file "runtime-method-resolver-core")
@@ -111,4 +127,49 @@
    ;; Installs the JS↔VM closure integration + prelude-global seeder, and
    ;; self-registers with cl-cc/bootstrap. Depends on the runtime specials
    ;; (*js-apply-fn* etc.) so it loads after runtime-call.
-   (:file "vm-integration")))
+   (:file "vm-integration"))
+  :in-order-to ((test-op (test-op "cl-cc-javascript/test"))))
+
+;;; The test system is `cl-cc-javascript/test` (singular, slash-separated) with
+;;; :pathname "t". It is NOT `cl-cc-javascript-test` and NOT
+;;; `cl-cc-javascript/tests`.
+(defsystem "cl-cc-javascript/test"
+  :description "Test system for cl-cc-javascript."
+  :author "takeokunn <bararararatty@gmail.com>"
+  :maintainer "takeokunn <bararararatty@gmail.com>"
+  :license "MIT"
+  :version "0.1.0"
+  :homepage "https://github.com/nerima-lisp/cl-cc-javascript"
+  :bug-tracker "https://github.com/nerima-lisp/cl-cc-javascript/issues"
+  :source-control (:git "https://github.com/nerima-lisp/cl-cc-javascript.git")
+  ;; cl-weave is the org's test framework everywhere.
+  :depends-on (:cl-cc :cl-weave :cl-cc-javascript)
+  :pathname "t"
+  :serial t
+  :components
+  ((:file "package")
+   (:file "js-lexer-tests")
+   (:file "js-parser-decl-tests")
+   (:file "js-parser-stmt-tests")
+   (:file "js-e2e-core-tests")
+   (:file "js-e2e-ast-tests")
+   (:file "js-e2e-advanced-tests")
+   (:file "js-e2e-modern-tests")
+   (:file "js-runtime-core-tests")
+   (:file "js-runtime-array-tests")
+   (:file "js-runtime-string-number-tests")
+   (:file "js-runtime-collections-tests")
+   (:file "js-runtime-resolver-tests")
+   (:file "js-runtime-date-json-tests")
+   (:file "js-runtime-object-ops-tests")
+   (:file "js-runtime-symbol-tests")
+   (:file "js-runtime-typed-array-methods-tests")
+   (:file "js-runtime-misc-tests")
+   (:file "js-runtime-misc-platform-tests"))
+  :perform (asdf:test-op (op system)
+             (declare (ignore op system))
+             (unless (uiop:symbol-call :cl-weave
+                                       :run-all
+                                       :reporter :spec
+                                       :pass-with-no-tests nil)
+               (error "cl-cc-javascript tests failed"))))
