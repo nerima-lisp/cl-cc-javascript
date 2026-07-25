@@ -55,6 +55,14 @@
       (let ((spec (find type *js-typed-array-specs* :test #'string= :key #'car)))
         (if spec (second spec) :uint8))))
 
+(defun %js-ta-spec-by-tag (tag)
+  "Return TAG's (name tag bytes cl-type min max) spec from *js-typed-array-specs*,
+or NIL if TAG is unknown. The single source of truth for a TypedArray tag's byte
+size and integer-vs-float kind (float specs have NIL min/max) — callers needing
+either should derive it from here rather than hand-copying the table, which
+drifts (e.g. a hand-copied float exclusion list omitting a newly added type)."
+  (find tag *js-typed-array-specs* :key #'second))
+
 (defun %js-ta-integer-number (val)
   "Coerce VAL through JS numeric conversion for integer TypedArray storage."
   (let ((n (%js-to-number val)))

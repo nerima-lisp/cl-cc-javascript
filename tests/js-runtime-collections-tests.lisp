@@ -5,7 +5,7 @@
 ;;;;
 ;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr, %jr-list, %jr-set)
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── Set built-ins ───────────────────────────────────────────────────────────
 
@@ -149,25 +149,14 @@
                 iter (lambda (a b &rest _) (declare (ignore _)) (+ a b)) 0)))
     (expect (= 10 sum) :to-be-truthy)))
 
-(it-sequential "js-rt-iterator-some-every some-found"
-  (destructuring-bind (fn vals pred expected) (list #'cl-cc/javascript::%js-iterator-some '(1 3 4) #'evenp t)
-    (let ((iter (cl-cc/javascript::%js-vec-to-iter (apply #'%jr-arr vals))))
-    (expect (funcall fn iter (lambda (x &rest _) (declare (ignore _)) (funcall pred x))) :to-equal expected))))
-
-(it-sequential "js-rt-iterator-some-every some-not"
-  (destructuring-bind (fn vals pred expected) (list #'cl-cc/javascript::%js-iterator-some '(1 3 5) #'evenp nil)
-    (let ((iter (cl-cc/javascript::%js-vec-to-iter (apply #'%jr-arr vals))))
-    (expect (funcall fn iter (lambda (x &rest _) (declare (ignore _)) (funcall pred x))) :to-equal expected))))
-
-(it-sequential "js-rt-iterator-some-every every-true"
-  (destructuring-bind (fn vals pred expected) (list #'cl-cc/javascript::%js-iterator-every '(2 4 6) #'evenp t)
-    (let ((iter (cl-cc/javascript::%js-vec-to-iter (apply #'%jr-arr vals))))
-    (expect (funcall fn iter (lambda (x &rest _) (declare (ignore _)) (funcall pred x))) :to-equal expected))))
-
-(it-sequential "js-rt-iterator-some-every every-false"
-  (destructuring-bind (fn vals pred expected) (list #'cl-cc/javascript::%js-iterator-every '(2 3 6) #'evenp nil)
-    (let ((iter (cl-cc/javascript::%js-vec-to-iter (apply #'%jr-arr vals))))
-    (expect (funcall fn iter (lambda (x &rest _) (declare (ignore _)) (funcall pred x))) :to-equal expected))))
+(it-sequential-each ((cl-cc/javascript::%js-iterator-some (1 3 4) t)
+                     (cl-cc/javascript::%js-iterator-some (1 3 5) nil)
+                     (cl-cc/javascript::%js-iterator-every (2 4 6) t)
+                     (cl-cc/javascript::%js-iterator-every (2 3 6) nil))
+    "js-rt-iterator-some-every ~A ~A"
+    (fn vals expected)
+  (let ((iter (cl-cc/javascript::%js-vec-to-iter (apply #'%jr-arr vals))))
+    (expect (funcall fn iter (lambda (x &rest _) (declare (ignore _)) (evenp x))) :to-equal expected)))
 
 (it-sequential "js-rt-iterator-find"
   (let* ((found    (cl-cc/javascript::%js-iterator-find
@@ -484,96 +473,41 @@
 
 ;;; ─── BigInt operations ───────────────────────────────────────────────────────
 
-(it-sequential "js-rt-bigint-val bigint-pos"
-  (destructuring-bind (raw expected) (list 42 42)
-    (let ((bi (cl-cc/javascript::%make-js-bigint raw)))
-    (expect (= expected (cl-cc/javascript::%js-bigint-val bi)) :to-be-truthy))))
+(it-sequential-each ((42 42) (-7 -7) (10 10) (3 3))
+    "js-rt-bigint-val ~A"
+    (raw expected)
+  (let ((bi (cl-cc/javascript::%make-js-bigint raw)))
+    (expect (= expected (cl-cc/javascript::%js-bigint-val bi)) :to-be-truthy)))
 
-(it-sequential "js-rt-bigint-val bigint-neg"
-  (destructuring-bind (raw expected) (list -7 -7)
-    (let ((bi (cl-cc/javascript::%make-js-bigint raw)))
-    (expect (= expected (cl-cc/javascript::%js-bigint-val bi)) :to-be-truthy))))
+(it-sequential-each ((cl-cc/javascript::%js-bigint-add 3 4 7)
+                     (cl-cc/javascript::%js-bigint-sub 9 4 5)
+                     (cl-cc/javascript::%js-bigint-mul 3 4 12)
+                     (cl-cc/javascript::%js-bigint-pow 2 8 256)
+                     (cl-cc/javascript::%js-bigint-bitwise-and #b1010 #b1100 #b1000)
+                     (cl-cc/javascript::%js-bigint-bitwise-or #b1010 #b1100 #b1110)
+                     (cl-cc/javascript::%js-bigint-bitwise-xor #b1010 #b1100 #b0110))
+    "js-rt-bigint-arithmetic ~A"
+    (fn a b expected)
+  (let ((result (funcall fn (cl-cc/javascript::%make-js-bigint a)
+                          (cl-cc/javascript::%make-js-bigint b))))
+    (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy)))
 
-(it-sequential "js-rt-bigint-val plain-int"
-  (destructuring-bind (raw expected) (list 10 10)
-    (let ((bi (cl-cc/javascript::%make-js-bigint raw)))
-    (expect (= expected (cl-cc/javascript::%js-bigint-val bi)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-val float"
-  (destructuring-bind (raw expected) (list 3 3)
-    (let ((bi (cl-cc/javascript::%make-js-bigint raw)))
-    (expect (= expected (cl-cc/javascript::%js-bigint-val bi)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-arithmetic add"
-  (destructuring-bind (fn a b expected) (list #'cl-cc/javascript::%js-bigint-add 3 4 7)
-    (let ((result (funcall fn (cl-cc/javascript::%make-js-bigint a)
-                            (cl-cc/javascript::%make-js-bigint b))))
-    (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-arithmetic sub"
-  (destructuring-bind (fn a b expected) (list #'cl-cc/javascript::%js-bigint-sub 9 4 5)
-    (let ((result (funcall fn (cl-cc/javascript::%make-js-bigint a)
-                            (cl-cc/javascript::%make-js-bigint b))))
-    (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-arithmetic mul"
-  (destructuring-bind (fn a b expected) (list #'cl-cc/javascript::%js-bigint-mul 3 4 12)
-    (let ((result (funcall fn (cl-cc/javascript::%make-js-bigint a)
-                            (cl-cc/javascript::%make-js-bigint b))))
-    (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-arithmetic pow"
-  (destructuring-bind (fn a b expected) (list #'cl-cc/javascript::%js-bigint-pow 2 8 256)
-    (let ((result (funcall fn (cl-cc/javascript::%make-js-bigint a)
-                            (cl-cc/javascript::%make-js-bigint b))))
-    (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-arithmetic band"
-  (destructuring-bind (fn a b expected) (list #'cl-cc/javascript::%js-bigint-bitwise-and #b1010 #b1100 #b1000)
-    (let ((result (funcall fn (cl-cc/javascript::%make-js-bigint a)
-                            (cl-cc/javascript::%make-js-bigint b))))
-    (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-arithmetic bor"
-  (destructuring-bind (fn a b expected) (list #'cl-cc/javascript::%js-bigint-bitwise-or #b1010 #b1100 #b1110)
-    (let ((result (funcall fn (cl-cc/javascript::%make-js-bigint a)
-                            (cl-cc/javascript::%make-js-bigint b))))
-    (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-arithmetic bxor"
-  (destructuring-bind (fn a b expected) (list #'cl-cc/javascript::%js-bigint-bitwise-xor #b1010 #b1100 #b0110)
-    (let ((result (funcall fn (cl-cc/javascript::%make-js-bigint a)
-                            (cl-cc/javascript::%make-js-bigint b))))
-    (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-as-int-n-uint-n int-n-positive"
-  (destructuring-bind (fn width val expected) (list #'cl-cc/javascript::%js-bigint-as-int-n 8 127 127)
-    (let ((result (funcall fn width (cl-cc/javascript::%make-js-bigint val))))
-    (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-as-int-n-uint-n int-n-wrap"
-  (destructuring-bind (fn width val expected) (list #'cl-cc/javascript::%js-bigint-as-int-n 8 128 -128)
-    (let ((result (funcall fn width (cl-cc/javascript::%make-js-bigint val))))
-    (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-as-int-n-uint-n uint-n"
-  (destructuring-bind (fn width val expected) (list #'cl-cc/javascript::%js-bigint-as-uint-n 8 300 44)
-    (let ((result (funcall fn width (cl-cc/javascript::%make-js-bigint val))))
-    (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy))))
+(it-sequential-each ((cl-cc/javascript::%js-bigint-as-int-n 8 127 127)
+                     (cl-cc/javascript::%js-bigint-as-int-n 8 128 -128)
+                     (cl-cc/javascript::%js-bigint-as-uint-n 8 300 44))
+    "js-rt-bigint-as-int-n-uint-n ~A ~A ~A"
+    (fn width val expected)
+  (let ((result (funcall fn width (cl-cc/javascript::%make-js-bigint val))))
+    (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy)))
 
 ;;; ─── URI encoding / base64 ───────────────────────────────────────────────────
 
-(it-sequential "js-rt-encode-uri-component space"
-  (destructuring-bind (s expected) (list "hello world" "hello%20world")
-    (expect (cl-cc/javascript::%js-encode-uri-component s) :to-equal expected)))
-
-(it-sequential "js-rt-encode-uri-component slash"
-  (destructuring-bind (s expected) (list "a/b" "a%2Fb")
-    (expect (cl-cc/javascript::%js-encode-uri-component s) :to-equal expected)))
-
-(it-sequential "js-rt-encode-uri-component plain"
-  (destructuring-bind (s expected) (list "abc123" "abc123")
-    (expect (cl-cc/javascript::%js-encode-uri-component s) :to-equal expected)))
+(it-sequential-each (("hello world" "hello%20world")
+                     ("a/b" "a%2Fb")
+                     ("abc123" "abc123"))
+    "js-rt-encode-uri-component ~S"
+    (s expected)
+  (expect (cl-cc/javascript::%js-encode-uri-component s) :to-equal expected))
 
 (it-sequential "js-rt-decode-uri-component"
   (expect (cl-cc/javascript::%js-decode-uri-component "hello%20world") :to-equal "hello world"))

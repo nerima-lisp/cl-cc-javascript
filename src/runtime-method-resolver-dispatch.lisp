@@ -70,10 +70,7 @@
   (multiple-value-bind (stored found) (gethash key obj)
     (if found
         stored
-        (let ((entry (assoc key *js-object-fallback-method-table* :test #'string=)))
-          (if entry
-              (funcall (cdr entry) obj)
-              +js-undefined+)))))
+        (%js-resolve-via-factory-table *js-object-fallback-method-table* obj key))))
 
 (defun %js-resolve-number-method (obj key)
   (%js-bound-method *js-number-method-table* obj key))
@@ -109,15 +106,11 @@
   "Alist: Function.prototype property name -> (lambda (fn) -> value).")
 
 (defun %js-resolve-function-method (obj key)
-  (let ((entry (assoc key *js-function-method-table* :test #'string=)))
-    (if entry
-        (funcall (cdr entry) obj)
-        +js-undefined+)))
+  (%js-resolve-via-factory-table *js-function-method-table* obj key))
 
 (define-js-type-resolver %js-resolve-bigint-method nil
   "toString" (lambda (&optional radix)
-               (%js-bigint-to-string obj
-                (if (eq radix +js-undefined+) 10 (truncate (%js-to-number radix)))))
+               (%js-bigint-to-string obj (%js-int-arg-or-default radix 10)))
   "valueOf" (lambda () obj)
   "toLocaleString" (lambda (&rest _) (declare (ignore _)) (%js-bigint-to-string obj)))
 

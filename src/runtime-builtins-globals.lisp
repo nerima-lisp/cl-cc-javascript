@@ -19,7 +19,7 @@
   "Parse integer from string S in the given RADIX (default 10)."
   (handler-case
     (let* ((str (string-trim '(#\Space #\Tab #\Newline) (%js-to-string s)))
-           (r (if (eq radix +js-undefined+) 10 (truncate (%js-to-number radix)))))
+           (r (%js-int-arg-or-default radix 10)))
       (or (parse-integer str :radix r :junk-allowed t) *js-nan-float*))
     (error () *js-nan-float*)))
 

@@ -184,6 +184,37 @@
        (error "JS pattern parse error: expected property key but got ~S"
               (%js-peek stream))))))
 
+(defun %js-parse-object-pattern-member (stream)
+  "Parse one named-property member of an ObjectPattern: either a renamed/
+nested binding (key: pattern [= default]) or a shorthand ({key} / {key =
+default}). Returns (values prop new-stream) where PROP is a
+(key-str local-pattern default nil) list."
+  (multiple-value-bind (key-str key-rest) (%js-parse-property-key-string stream)
+    (setf stream key-rest)
+    (let ((prop (if (eq (%js-peek-type stream) :T-COLON)
+                    ;; key: pattern (rename or nested)
+                    (progn
+                      (%js-skip-token! stream)
+                      (multiple-value-bind (local-pat rest2) (js-parse-binding-pattern stream)
+                        (setf stream rest2)
+                        (let ((default nil))
+                          (when (and (eq (%js-peek-type stream) :T-OP)
+                                     (equal (%js-peek-value stream) "="))
+                            (%js-skip-token! stream)
+                            (multiple-value-bind (dflt rest3) (%js-parse-default-expr stream)
+                              (setf default dflt stream rest3)))
+                          (list key-str local-pat default nil))))
+                    ;; Shorthand {key} or {key = default}
+                    (let ((local-pat (make-js-binding-pattern :kind :ident :name (%js-ident-sym key-str)))
+                          (default nil))
+                      (when (and (eq (%js-peek-type stream) :T-OP)
+                                 (equal (%js-peek-value stream) "="))
+                        (%js-skip-token! stream)
+                        (multiple-value-bind (dflt rest2) (%js-parse-default-expr stream)
+                          (setf default dflt stream rest2)))
+                      (list key-str local-pat default nil)))))
+      (values prop stream))))
+
 (defun js-parse-object-pattern (stream)
   "Parse an ObjectPattern starting just AFTER the opening '{' has been consumed.
   Returns (values js-binding-pattern remaining-stream)."
@@ -205,31 +236,9 @@
          (return))
         ;; Named property shorthand or renamed binding
         (t
-         (multiple-value-bind (key-str key-rest) (%js-parse-property-key-string stream)
-           (setf stream key-rest)
-           (let ((prop (if (eq (%js-peek-type stream) :T-COLON)
-                           ;; key: pattern (rename or nested)
-                           (progn
-                             (%js-skip-token! stream)
-                             (multiple-value-bind (local-pat rest2) (js-parse-binding-pattern stream)
-                               (setf stream rest2)
-                               (let ((default nil))
-                                 (when (and (eq (%js-peek-type stream) :T-OP)
-                                            (equal (%js-peek-value stream) "="))
-                                   (%js-skip-token! stream)
-                                   (multiple-value-bind (dflt rest3) (%js-parse-default-expr stream)
-                                     (setf default dflt stream rest3)))
-                                 (list key-str local-pat default nil))))
-                           ;; Shorthand {key} or {key = default}
-                           (let ((local-pat (make-js-binding-pattern :kind :ident :name (%js-ident-sym key-str)))
-                                 (default nil))
-                             (when (and (eq (%js-peek-type stream) :T-OP)
-                                        (equal (%js-peek-value stream) "="))
-                               (%js-skip-token! stream)
-                               (multiple-value-bind (dflt rest2) (%js-parse-default-expr stream)
-                                 (setf default dflt stream rest2)))
-                             (list key-str local-pat default nil)))))
-             (push prop properties)))
+         (multiple-value-bind (prop new-stream) (%js-parse-object-pattern-member stream)
+           (setf stream new-stream)
+           (push prop properties))
          ;; Consume trailing comma or closing brace
          (if (eq (%js-peek-type stream) :T-COMMA)
              (%js-skip-token! stream)

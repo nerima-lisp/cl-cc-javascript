@@ -65,6 +65,143 @@ getter FUNCTION instead of its result."
     (:setter (concatenate 'string "__set_" orig-name))
     (t orig-name)))
 
+;;; ─── %js-lower-class-to-ast: member classification ──────────────────────────
+;;;
+;;; A class's parsed MEMBERS list holds every slot (constructor, instance
+;;; methods, static methods, static fields, instance fields) undifferentiated;
+;;; these five predicates partition it by role before any of it gets lowered.
+
+(defun %js-class-member-orig-name (slot)
+  "SLOT's original (pre-mangling) JS member name, as a string."
+  (or (getf (ast-imports slot) :js-orig-name)
+      (let ((n (ast-slot-name slot)))
+        (if n (string-downcase (symbol-name n)) ""))))
+
+(defun %js-class-ctor-slot (members)
+  "The constructor slot in MEMBERS, or NIL if the class declares none."
+  (find-if (lambda (s)
+             (and (ast-slot-def-p s)
+                  (let ((n (ast-slot-name s)))
+                    (and n (string-equal (symbol-name n) "CONSTRUCTOR")))))
+           members))
+
+(defun %js-class-method-slots (members)
+  "Instance methods in MEMBERS: non-constructor, non-static, non-field."
+  (remove-if (lambda (s)
+               (or (not (%js-slot-method-p s))
+                   (getf (ast-imports s) :js-static)
+                   (and (ast-slot-name s)
+                        (string-equal (symbol-name (ast-slot-name s)) "CONSTRUCTOR"))))
+             members))
+
+(defun %js-class-static-slots (members)
+  "Static methods in MEMBERS."
+  (remove-if-not (lambda (s)
+                   (and (%js-slot-method-p s)
+                        (getf (ast-imports s) :js-static)))
+                 members))
+
+(defun %js-class-static-field-slots (members)
+  "Static fields in MEMBERS: `static x = init;' — set once on the class object."
+  (remove-if-not (lambda (s)
+                   (and (not (%js-slot-method-p s))
+                        (getf (ast-imports s) :js-static)
+                        (eq (getf (ast-imports s) :js-member-kind) :field)))
+                 members))
+
+(defun %js-class-field-slots (members)
+  "Instance fields in MEMBERS: non-method, non-static `x = init;' / `x;'.
+These initialize on every instance BEFORE the constructor body."
+  (remove-if (lambda (s)
+               (or (%js-slot-method-p s)
+                   (getf (ast-imports s) :js-static)
+                   (not (eq (getf (ast-imports s) :js-member-kind) :field))))
+             members))
+
+;;; ─── %js-lower-class-to-ast: per-role lowering ──────────────────────────────
+
+(defun %js-lower-class-field-inits (field-slots)
+  "Lower FIELD-SLOTS to (%js-set-prop this \"x\" init) forms — or the private-field
+equivalent for #x fields — to prepend to the constructor body."
+  (loop for slot in field-slots
+        for imports   = (ast-imports slot)
+        for private-p = (getf imports :js-private)
+        for orig-name = (%js-class-member-orig-name slot)
+        for initform  = (or (ast-slot-initform slot)
+                            (make-ast-quote :value +js-undefined+))
+        ;; Private fields (#x) must use the private-field-set accessor so
+        ;; they land in the __private__ table, not the public property bag.
+        collect (if private-p
+                    (%js-call '%js-class-private-field-set
+                              (make-ast-var :name '%js-this)
+                              (make-ast-quote :value orig-name)
+                              initform)
+                    (%js-call '%js-set-prop
+                              (make-ast-var :name '%js-this)
+                              (make-ast-quote :value orig-name)
+                              initform))))
+
+(defun %js-lower-class-ctor (ctor-slot field-inits super-expr)
+  "Build the class's constructor lambda: an explicit ctor gets FIELD-INITS
+prepended; a class with fields but no explicit ctor gets a synthetic one
+(forwarding to super for a derived class so the parent still initializes)."
+  (cond
+    (ctor-slot
+     (let ((lam (%js-slot-to-method-lambda ctor-slot)))
+       (when field-inits
+         (setf (ast-lambda-body lam) (append field-inits (ast-lambda-body lam))))
+       (%js-wrap-method-super lam super-expr)))
+    (field-inits
+     (make-ast-lambda
+      :params nil
+      :rest-param (when super-expr 'js-ctor-rest-args)
+      :body (append
+             (when super-expr
+               (list (%js-call '%js-run-constructor
+                               (%js-super-ref super-expr)
+                               (make-ast-var :name '%js-this)
+                               (make-ast-var :name 'js-ctor-rest-args))))
+             field-inits)))
+    (t (make-ast-quote :value nil))))
+
+(defun %js-lower-class-method-args (method-slots super-expr)
+  "Instance method args for %js-make-class: (\"name1\" fn1 \"name2\" fn2 ...)."
+  (loop for slot in method-slots
+        for orig-name = (%js-class-member-orig-name slot)
+        for fn = (%js-wrap-method-super (%js-slot-to-method-lambda slot) super-expr)
+        when fn
+          append (list (make-ast-quote :value (%js-class-member-key slot orig-name)) fn)))
+
+(defun %js-lower-class-static-args (static-slots)
+  "Static method args for %js-make-class, preceded by the caller's \"@@static\"
+marker that %js-make-class splits on to set them on the class object itself."
+  (loop for slot in static-slots
+        for orig-name = (%js-class-member-orig-name slot)
+        for fn = (%js-slot-to-method-lambda slot)
+        when fn
+          append (list (make-ast-quote :value (%js-class-member-key slot orig-name)) fn)))
+
+(defun %js-lower-class-static-field-args (static-field-slots)
+  "Static field args (name value ...) for %js-make-class, set on the class
+object alongside the static methods via the same \"@@static\" marker."
+  (loop for slot in static-field-slots
+        for orig-name = (%js-class-member-orig-name slot)
+        append (list (make-ast-quote :value orig-name)
+                     (or (ast-slot-initform slot)
+                         (make-ast-quote :value +js-undefined+)))))
+
+(defun %js-lower-class-make-class-call (super-expr ctor-lambda method-args
+                                         static-args static-field-args)
+  "The %js-make-class call itself: super ctor inst-methods... [@@static statics...]."
+  (make-ast-call
+   :func (make-ast-var :name '%js-make-class)
+   :args (list* (or super-expr (make-ast-quote :value nil))
+                ctor-lambda
+                (append method-args
+                        (when (or static-args static-field-args)
+                          (cons (make-ast-quote :value "@@static")
+                                (append static-args static-field-args)))))))
+
 ;;; ─── %js-lower-class-to-ast ──────────────────────────────────────────────────
 
 (defun %js-lower-class-to-ast (name-sym super-expr members decorators)
@@ -77,120 +214,15 @@ MEMBERS    — list of ast-slot-def nodes from %js-parse-class-body
 DECORATORS — list of AST nodes for class-level decorators"
   (declare (ignore decorators))
   (let* ((effective-name (or name-sym (gensym "JS-CLASS-")))
-         ;; Find constructor (slot whose orig-name is \"constructor\")
-         (ctor-slot (find-if (lambda (s)
-                               (and (ast-slot-def-p s)
-                                    (let ((n (ast-slot-name s)))
-                                      (and n (string-equal (symbol-name n) "CONSTRUCTOR")))))
-                             members))
-         ;; Instance methods (non-constructor, non-static, non-field)
-         (method-slots (remove-if (lambda (s)
-                                    (or (not (%js-slot-method-p s))
-                                        (getf (ast-imports s) :js-static)
-                                        (and (ast-slot-name s)
-                                             (string-equal (symbol-name (ast-slot-name s))
-                                                           "CONSTRUCTOR"))))
-                                  members))
-         ;; Static methods
-         (static-slots (remove-if-not (lambda (s)
-                                        (and (%js-slot-method-p s)
-                                             (getf (ast-imports s) :js-static)))
-                                      members))
-         ;; Static fields: `static x = init;' — set once on the class object.
-         (static-field-slots (remove-if-not (lambda (s)
-                                              (and (not (%js-slot-method-p s))
-                                                   (getf (ast-imports s) :js-static)
-                                                   (eq (getf (ast-imports s) :js-member-kind) :field)))
-                                            members))
-         ;; Instance fields (non-method, non-static): `x = init;' / `x;'.  These
-         ;; initialize on every instance BEFORE the constructor body; lower each to
-         ;; (%js-set-prop this "x" init) and prepend to the constructor.
-         (field-slots (remove-if (lambda (s)
-                                   (or (%js-slot-method-p s)
-                                       (getf (ast-imports s) :js-static)
-                                       (not (eq (getf (ast-imports s) :js-member-kind) :field))))
-                                 members))
-         (field-inits
-          (loop for slot in field-slots
-                for imports   = (ast-imports slot)
-                for private-p = (getf imports :js-private)
-                for orig-name = (or (getf imports :js-orig-name)
-                                    (let ((n (ast-slot-name slot)))
-                                      (if n (string-downcase (symbol-name n)) "")))
-                for initform  = (or (ast-slot-initform slot)
-                                    (make-ast-quote :value +js-undefined+))
-                ;; Private fields (#x) must use the private-field-set accessor so
-                ;; they land in the __private__ table, not the public property bag.
-                collect (if private-p
-                            (%js-call '%js-class-private-field-set
-                                      (make-ast-var :name '%js-this)
-                                      (make-ast-quote :value orig-name)
-                                      initform)
-                            (%js-call '%js-set-prop
-                                      (make-ast-var :name '%js-this)
-                                      (make-ast-quote :value orig-name)
-                                      initform))))
-         ;; Constructor lambda: explicit ctor gets field inits prepended; a class
-         ;; with fields but no explicit ctor gets a synthetic one (forwarding to
-         ;; super for a derived class so the parent still initializes).
-         (ctor-lambda
-          (cond
-            (ctor-slot
-             (let ((lam (%js-slot-to-method-lambda ctor-slot)))
-               (when field-inits
-                 (setf (ast-lambda-body lam) (append field-inits (ast-lambda-body lam))))
-               (%js-wrap-method-super lam super-expr)))
-            (field-inits
-             (make-ast-lambda
-              :params nil
-              :rest-param (when super-expr 'js-ctor-rest-args)
-              :body (append
-                     (when super-expr
-                       (list (%js-call '%js-run-constructor
-                                       (%js-super-ref super-expr)
-                                       (make-ast-var :name '%js-this)
-                                       (make-ast-var :name 'js-ctor-rest-args))))
-                     field-inits)))
-            (t (make-ast-quote :value nil))))
-         ;; Instance method args: ("name1" fn1 "name2" fn2 ...)
-         (method-args
-          (loop for slot in method-slots
-                for orig-name = (or (getf (ast-imports slot) :js-orig-name)
-                                    (let ((n (ast-slot-name slot)))
-                                      (if n (string-downcase (symbol-name n)) "")))
-                for fn = (%js-wrap-method-super (%js-slot-to-method-lambda slot) super-expr)
-                when fn
-                  append (list (make-ast-quote :value (%js-class-member-key slot orig-name)) fn)))
-         ;; Static method args, preceded by the "@@static" marker that
-         ;; %js-make-class splits on to set them on the class object itself.
-         (static-args
-          (loop for slot in static-slots
-                for orig-name = (or (getf (ast-imports slot) :js-orig-name)
-                                    (let ((n (ast-slot-name slot)))
-                                      (if n (string-downcase (symbol-name n)) "")))
-                for fn = (%js-slot-to-method-lambda slot)
-                when fn
-                  append (list (make-ast-quote :value (%js-class-member-key slot orig-name)) fn)))
-         ;; Static field args (name value …): set on the class object alongside
-         ;; the static methods, via the same "@@static" marker.
-         (static-field-args
-          (loop for slot in static-field-slots
-                for orig-name = (or (getf (ast-imports slot) :js-orig-name)
-                                    (let ((n (ast-slot-name slot)))
-                                      (if n (string-downcase (symbol-name n)) "")))
-                append (list (make-ast-quote :value orig-name)
-                             (or (ast-slot-initform slot)
-                                 (make-ast-quote :value +js-undefined+)))))
-         ;; %js-make-class call: super ctor inst-methods... [@@static static-methods...]
-         (make-class-call
-          (make-ast-call
-           :func (make-ast-var :name '%js-make-class)
-           :args (list* (or super-expr (make-ast-quote :value nil))
-                        ctor-lambda
-                        (append method-args
-                                (when (or static-args static-field-args)
-                                  (cons (make-ast-quote :value "@@static")
-                                        (append static-args static-field-args)))))))
+         (field-slots (%js-class-field-slots members))
+         (field-inits (%js-lower-class-field-inits field-slots))
+         (ctor-lambda (%js-lower-class-ctor (%js-class-ctor-slot members) field-inits super-expr))
+         (method-args (%js-lower-class-method-args (%js-class-method-slots members) super-expr))
+         (static-args (%js-lower-class-static-args (%js-class-static-slots members)))
+         (static-field-args (%js-lower-class-static-field-args
+                              (%js-class-static-field-slots members)))
+         (make-class-call (%js-lower-class-make-class-call
+                            super-expr ctor-lambda method-args static-args static-field-args))
          ;; Single primary ast-defclass node — carries full semantic info for
          ;; tools/tests AND encodes the runtime implementation. :php-kind
          ;; :javascript tells codegen-clos to compile the :metaclass make-class-call

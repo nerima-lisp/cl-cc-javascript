@@ -159,31 +159,13 @@ Returns (values ast rest)."
          (multiple-value-bind (tok rest) (js-consume stream)
            (declare (ignore tok))
            (multiple-value-bind (expr rest2) (js-parse-unary rest)
-             (if (ast-var-p expr)
-                 (let ((var-sym (ast-var-name expr)))
-                   (values (make-ast-setq :var var-sym
-                                          :value (make-ast-binop :op '+
-                                                                 :lhs expr
-                                                                 :rhs (make-ast-int :value 1)))
-                           rest2))
-                 (if (%js-place-get-prop-p expr)
-                     (values (%js-lower-place-incdec expr '+ t) rest2)
-                     (values (%js-call '%js-prefix-inc expr) rest2))))))
+             (values (%js-lower-incdec expr '+ t '%js-prefix-inc) rest2))))
         ;; Prefix -- (var or place)
         ((and (eq type :T-OP) (string= val "--"))
          (multiple-value-bind (tok rest) (js-consume stream)
            (declare (ignore tok))
            (multiple-value-bind (expr rest2) (js-parse-unary rest)
-             (if (ast-var-p expr)
-                 (let ((var-sym (ast-var-name expr)))
-                   (values (make-ast-setq :var var-sym
-                                          :value (make-ast-binop :op '-
-                                                                 :lhs expr
-                                                                 :rhs (make-ast-int :value 1)))
-                           rest2))
-                 (if (%js-place-get-prop-p expr)
-                     (values (%js-lower-place-incdec expr '- t) rest2)
-                     (values (%js-call '%js-prefix-dec expr) rest2))))))
+             (values (%js-lower-incdec expr '- t '%js-prefix-dec) rest2))))
         ;; yield (prefix usage)
         ((eq type :T-YIELD)
          (multiple-value-bind (tok rest) (js-consume stream)

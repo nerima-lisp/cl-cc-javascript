@@ -200,6 +200,94 @@ ATTRS is an alist of import attributes (or NIL)."
 
 ;;; ─── js-parse-import-decl ────────────────────────────────────────────────────
 
+;;; ─── js-parse-import-decl: one sub-parser per import form ──────────────────
+
+(defun %js-parse-import-bare-form (current)
+  "import \"module\" — bare side-effect import. CURRENT points at the string token."
+  (multiple-value-bind (tok rest) (js-consume current)
+    (multiple-value-bind (attrs rest2) (%js-parse-import-attributes rest)
+      (values (%js-lower-import (js-tok-value tok) nil attrs)
+              (js-skip-semis rest2)))))
+
+(defun %js-parse-import-namespace-form (current)
+  "import * as ns from \"module\" — CURRENT points past '*'."
+  (multiple-value-bind (_ rest) (js-expect :T-AS current)
+    (declare (ignore _))
+    (multiple-value-bind (ns-tok rest2) (js-expect :T-IDENT rest)
+      (multiple-value-bind (_ rest3) (js-expect :T-FROM rest2)
+        (declare (ignore _))
+        (multiple-value-bind (mod-tok rest4) (js-expect :T-STRING rest3)
+          (multiple-value-bind (attrs rest5) (%js-parse-import-attributes rest4)
+            (values (%js-lower-import (js-tok-value mod-tok)
+                                     (list (list :namespace (js-tok-value ns-tok)))
+                                     attrs)
+                    (js-skip-semis rest5))))))))
+
+(defun %js-parse-import-named-form (current)
+  "import { a, b as c } from \"module\" — CURRENT points at the '{'."
+  (multiple-value-bind (specifiers rest) (js-parse-import-specifiers current)
+    (multiple-value-bind (_ rest2) (js-expect :T-FROM rest)
+      (declare (ignore _))
+      (multiple-value-bind (mod-tok rest3) (js-expect :T-STRING rest2)
+        (multiple-value-bind (attrs rest4) (%js-parse-import-attributes rest3)
+          (values (%js-lower-import (js-tok-value mod-tok) specifiers attrs)
+                  (js-skip-semis rest4)))))))
+
+(defun %js-parse-import-default-and-namespace-form (current default-spec)
+  "import name, * as ns from \"module\" — CURRENT points past the comma and '*'."
+  (multiple-value-bind (_ rest) (js-expect :T-AS current)
+    (declare (ignore _))
+    (multiple-value-bind (ns-tok rest2) (js-expect :T-IDENT rest)
+      (multiple-value-bind (_ rest3) (js-expect :T-FROM rest2)
+        (declare (ignore _))
+        (multiple-value-bind (mod-tok rest4) (js-expect :T-STRING rest3)
+          (multiple-value-bind (attrs rest5) (%js-parse-import-attributes rest4)
+            (values (%js-lower-import
+                     (js-tok-value mod-tok)
+                     (list default-spec (list :namespace (js-tok-value ns-tok)))
+                     attrs)
+                    (js-skip-semis rest5))))))))
+
+(defun %js-parse-import-default-and-named-form (current default-spec)
+  "import name, { a, b } from \"module\" — CURRENT points past the comma, at '{'."
+  (multiple-value-bind (named-specs rest) (js-parse-import-specifiers current)
+    (multiple-value-bind (_ rest2) (js-expect :T-FROM rest)
+      (declare (ignore _))
+      (multiple-value-bind (mod-tok rest3) (js-expect :T-STRING rest2)
+        (multiple-value-bind (attrs rest4) (%js-parse-import-attributes rest3)
+          (values (%js-lower-import
+                   (js-tok-value mod-tok)
+                   (cons default-spec named-specs)
+                   attrs)
+                  (js-skip-semis rest4)))))))
+
+(defun %js-parse-import-default-only-form (current default-spec)
+  "import name from \"module\" — CURRENT points past the default identifier."
+  (multiple-value-bind (_ rest) (js-expect :T-FROM current)
+    (declare (ignore _))
+    (multiple-value-bind (mod-tok rest2) (js-expect :T-STRING rest)
+      (multiple-value-bind (attrs rest3) (%js-parse-import-attributes rest2)
+        (values (%js-lower-import (js-tok-value mod-tok) (list default-spec) attrs)
+                (js-skip-semis rest3))))))
+
+(defun %js-parse-import-default-form (current)
+  "import name ... — CURRENT points at the default-binding identifier. Covers
+import name from \"module\", import name, { a } from \"module\", and
+import name, * as ns from \"module\"."
+  (multiple-value-bind (default-tok rest) (js-consume current)
+    (let ((default-spec (list :default (js-tok-value default-tok))))
+      (if (and rest (eq (js-peek-type rest) :T-COMMA))
+          (let ((after-comma (cdr rest)))
+            (cond
+              ((and (eq (js-peek-type after-comma) :T-OP)
+                    (equal "*" (js-peek-value after-comma)))
+               (%js-parse-import-default-and-namespace-form (cdr after-comma) default-spec))
+              ((eq (js-peek-type after-comma) :T-LBRACE)
+               (%js-parse-import-default-and-named-form after-comma default-spec))
+              (t
+               (error "JS parse error: expected { or * after import default and comma"))))
+          (%js-parse-import-default-only-form rest default-spec)))))
+
 (defun js-parse-import-decl (stream)
   "Parse all import statement forms (the 'import' keyword has already been
 consumed by the caller, so STREAM points to the next token).
@@ -216,106 +304,17 @@ Forms handled:
 Lower to: (ast-call %js-import module specifiers attrs)
 
 Returns (values ast rest)."
-  (let ((current stream)
-        (specifiers nil))
+  (let ((current stream))
     (cond
-      ;; import "module"  — bare side-effect import
       ((eq (js-peek-type current) :T-STRING)
-       (multiple-value-bind (tok rest) (js-consume current)
-         (multiple-value-bind (attrs rest2) (%js-parse-import-attributes rest)
-           (values (%js-lower-import (js-tok-value tok) nil attrs)
-                   (js-skip-semis rest2)))))
-
-      ;; import * as ns from "module"
+       (%js-parse-import-bare-form current))
       ((and (eq (js-peek-type current) :T-OP)
             (equal "*" (js-peek-value current)))
-       (setf current (cdr current))   ; consume '*'
-       (multiple-value-bind (_ rest) (js-expect :T-AS current)
-         (declare (ignore _))
-         (multiple-value-bind (ns-tok rest2) (js-expect :T-IDENT rest)
-           (multiple-value-bind (_ rest3) (js-expect :T-FROM rest2)
-             (declare (ignore _))
-             (multiple-value-bind (mod-tok rest4) (js-expect :T-STRING rest3)
-               (multiple-value-bind (attrs rest5) (%js-parse-import-attributes rest4)
-                 (let ((ns-spec (list :namespace (js-tok-value ns-tok))))
-                   (values (%js-lower-import (js-tok-value mod-tok)
-                                             (list ns-spec)
-                                             attrs)
-                           (js-skip-semis rest5)))))))))
-
-      ;; import { a, b as c } from "module"
+       (%js-parse-import-namespace-form (cdr current)))
       ((eq (js-peek-type current) :T-LBRACE)
-       (multiple-value-bind (named-specs rest) (js-parse-import-specifiers current)
-         (setf specifiers named-specs
-               current rest)
-         (multiple-value-bind (_ rest2) (js-expect :T-FROM current)
-           (declare (ignore _))
-           (multiple-value-bind (mod-tok rest3) (js-expect :T-STRING rest2)
-             (multiple-value-bind (attrs rest4) (%js-parse-import-attributes rest3)
-               (values (%js-lower-import (js-tok-value mod-tok) specifiers attrs)
-                       (js-skip-semis rest4)))))))
-
-      ;; import name ...
-      ;; Covers:
-      ;;   import name from "module"
-      ;;   import name, { a } from "module"
-      ;;   import name, * as ns from "module"
+       (%js-parse-import-named-form current))
       ((eq (js-peek-type current) :T-IDENT)
-       (multiple-value-bind (default-tok rest) (js-consume current)
-         (let ((default-spec (list :default (js-tok-value default-tok))))
-           (setf current rest)
-           (if (and current (eq (js-peek-type current) :T-COMMA))
-               ;; import name, { ... } or import name, * as ns
-               (progn
-                 (setf current (cdr current))   ; consume ','
-                 (cond
-                   ;; import name, * as ns from "module"
-                   ((and (eq (js-peek-type current) :T-OP)
-                         (equal "*" (js-peek-value current)))
-                    (setf current (cdr current))  ; consume '*'
-                    (multiple-value-bind (_ rest2) (js-expect :T-AS current)
-                      (declare (ignore _))
-                      (multiple-value-bind (ns-tok rest3) (js-expect :T-IDENT rest2)
-                        (multiple-value-bind (_ rest4) (js-expect :T-FROM rest3)
-                          (declare (ignore _))
-                          (multiple-value-bind (mod-tok rest5) (js-expect :T-STRING rest4)
-                            (multiple-value-bind (attrs rest6)
-                                (%js-parse-import-attributes rest5)
-                              (values (%js-lower-import
-                                       (js-tok-value mod-tok)
-                                       (list default-spec
-                                             (list :namespace (js-tok-value ns-tok)))
-                                       attrs)
-                                      (js-skip-semis rest6))))))))
-                   ;; import name, { a, b } from "module"
-                   ((eq (js-peek-type current) :T-LBRACE)
-                    (multiple-value-bind (named-specs rest2)
-                        (js-parse-import-specifiers current)
-                      (multiple-value-bind (_ rest3) (js-expect :T-FROM rest2)
-                        (declare (ignore _))
-                        (multiple-value-bind (mod-tok rest4) (js-expect :T-STRING rest3)
-                          (multiple-value-bind (attrs rest5)
-                              (%js-parse-import-attributes rest4)
-                            (values (%js-lower-import
-                                     (js-tok-value mod-tok)
-                                     (cons default-spec named-specs)
-                                     attrs)
-                                    (js-skip-semis rest5)))))))
-                   (t
-                    (error "JS parse error: expected { or * after import default and comma"))))
-               ;; import name from "module"
-               (progn
-                 (multiple-value-bind (_ rest2) (js-expect :T-FROM current)
-                   (declare (ignore _))
-                   (multiple-value-bind (mod-tok rest3) (js-expect :T-STRING rest2)
-                     (multiple-value-bind (attrs rest4)
-                         (%js-parse-import-attributes rest3)
-                       (values (%js-lower-import
-                                (js-tok-value mod-tok)
-                                (list default-spec)
-                                attrs)
-                               (js-skip-semis rest4))))))))))
-
+       (%js-parse-import-default-form current))
       (t
        (error "JS parse error: malformed import declaration near ~S"
               (js-peek current))))))

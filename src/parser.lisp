@@ -78,22 +78,6 @@ Returns the remaining stream with or without the semicolon consumed."
 
 ;;; ─── Parser Context Variables ───────────────────────────────────────────────
 
-(defvar *js-in-function* nil
-  "Non-NIL when parsing inside a function body.
-Enables return statements and function-specific error messages.")
-
-(defvar *js-in-generator* nil
-  "Non-NIL when parsing inside a generator function (function*).
-Enables yield expressions.")
-
-(defvar *js-in-async* nil
-  "Non-NIL when parsing inside an async function.
-Enables await expressions.")
-
-(defvar *js-in-class* nil
-  "Non-NIL when parsing inside a class body.
-Enables super, private fields, and class-specific validation.")
-
 (defvar *js-strict-mode* nil
   "Non-NIL when the current parse context is strict-mode JavaScript.
 Automatically set to T in module mode and when a 'use strict' directive is seen.")
@@ -123,6 +107,13 @@ overflowing the control stack."
               *js-max-parse-depth*))
      ,@body))
 
+(defparameter *js-contextual-keyword-token-types*
+  '(:T-GET :T-SET :T-FROM :T-AS :T-OF :T-TARGET :T-META :T-USING :T-STATIC :T-LET)
+  "Token types that are keywords only in specific positions (class getter/
+setter, for-of, import ...) and otherwise parse as plain identifiers — shared
+by the expression side (parser-expr-primary.lisp) and the binding-pattern
+side (parser-stmt-binding.lisp) so the two can't silently drift apart.")
+
 ;;; ─── Name Helpers ───────────────────────────────────────────────────────────
 
 (defun js-ident-sym (str)
@@ -132,13 +123,6 @@ so `a'/`A', `foo'/`Foo', and a lowercase instance var vs its Class name must be
 distinct symbols.  Must stay in sync with %js-binding-sym (binding side) and the
 parser-class.lisp copy."
   (intern (if (stringp str) str (symbol-name str))
-          :cl-cc/javascript))
-
-(defun js-private-sym (str)
-  "Convert a #privateField name STR to an interned CL symbol in :cl-cc/javascript.
-The resulting symbol name has a PRIVATE/ prefix so it is visually distinct."
-  (intern (concatenate 'string "PRIVATE/"
-                       (string-upcase (if (stringp str) str (symbol-name str))))
           :cl-cc/javascript))
 
 ;;; ─── Forward Reference Declarations ────────────────────────────────────────

@@ -70,13 +70,6 @@
     (%js-funcall fn x x s))
   +js-undefined+)
 
-(defun %js-set-like-size (obj)
-  (cond
-      ((js-set-p obj)
-       (%js-set-size obj))
-      ((%js-ht-p obj)
-       (gethash "size" obj 0))))
-
 (defun %js-set-like-has (obj value)
   (cond
       ((js-set-p obj)

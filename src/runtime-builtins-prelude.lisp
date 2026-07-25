@@ -43,7 +43,7 @@
     (:namespace  "Intl"                "Intl")
     (:call       "globalThis"          %js-make-object)
     (:var        "Temporal"            *js-temporal-global*)
-    (:function   "BigInt"              %js-bigint)
+    (:var        "BigInt"              *js-bigint-global*)
     ;; URI helpers
     (:function   "encodeURIComponent"  %js-encode-uri-component)
     (:function   "decodeURIComponent"  %js-decode-uri-component)
@@ -58,6 +58,8 @@
     (:var        "ReferenceError"      *js-reference-error-class*)
     (:var        "SyntaxError"         *js-syntax-error-class*)
     (:var        "AggregateError"      *js-aggregate-error-class*)
+    (:var        "EvalError"           *js-eval-error-class*)
+    (:var        "URIError"            *js-uri-error-class*)
     ;; Collection constructors
     ;; Map/WeakMap/WeakSet/RegExp are defparameter vars, not defun symbols,
     ;; so (boundp sym) = t and seed-js-runtime-globals seeds them into the VM.

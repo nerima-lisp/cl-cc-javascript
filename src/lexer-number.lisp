@@ -69,6 +69,57 @@ Returns (values token new-pos)."
 ;;;  Main number lexer
 ;;; -----------------------------------------------------------------------
 
+(defun %lex-js-decimal-number (source pos)
+  "Lex a decimal numeric literal (integer or float, with optional fraction,
+exponent, or BigInt suffix) starting at POS. Returns (values token new-pos)."
+  (multiple-value-bind (int-digits pos2)
+      (%lex-js-decimal-digits source pos)
+    (let ((is-float nil)
+          (num-str int-digits))
+      ;; Fractional part
+      (when (and (< pos2 (length source))
+                 (char= (char source pos2) #\.)
+                 (or (and (< (1+ pos2) (length source))
+                          (js-digit-p (char source (1+ pos2))))
+                     ;; "1." is a valid float
+                     (not (and (< (1+ pos2) (length source))
+                               (js-id-start-p (char source (1+ pos2)))))))
+        (setf is-float t)
+        (incf pos2)
+        (multiple-value-bind (frac-digits pos3)
+            (%lex-js-decimal-digits source pos2)
+          (setf num-str (concatenate 'string num-str "." frac-digits)
+                pos2 pos3)))
+      ;; Exponent part
+      (when (and (< pos2 (length source))
+                 (member (char source pos2) '(#\e #\E) :test #'char=))
+        (setf is-float t)
+        (let ((exp-str "e"))
+          (incf pos2)
+          (when (and (< pos2 (length source))
+                     (member (char source pos2) '(#\+ #\-) :test #'char=))
+            (setf exp-str (concatenate 'string exp-str (string (char source pos2))))
+            (incf pos2))
+          (multiple-value-bind (exp-digits pos3)
+              (%lex-js-decimal-digits source pos2)
+            (setf num-str (concatenate 'string num-str exp-str exp-digits)
+                  pos2 pos3))))
+      ;; BigInt suffix (only on integer, not float)
+      (when (and (not is-float)
+                 (< pos2 (length source))
+                 (char= (char source pos2) #\n))
+        (incf pos2)
+        (return-from %lex-js-decimal-number
+          (values (make-js-token :T-BIGINT (parse-integer num-str)) pos2)))
+      ;; JS numbers are IEEE-754 doubles; bind *read-default-float-format*
+      ;; to double-float so "1.5e-3" reads at full double precision.
+      (let ((val (if is-float
+                     (let ((*read-eval* nil)
+                           (*read-default-float-format* 'double-float))
+                       (float (read-from-string num-str) 1.0d0))
+                     (parse-integer num-str))))
+        (values (make-js-token :T-NUMBER val) pos2)))))
+
 (defun lex-js-number (source pos)
   "Lex a numeric literal starting at POS.
 Handles decimal, hex (0x), octal (0o), binary (0b), BigInt (n suffix),
@@ -92,50 +143,4 @@ and numeric separators (_). Returns (values token new-pos)."
 
       ;; Decimal (integer or float)
       (t
-       (multiple-value-bind (int-digits pos2)
-           (%lex-js-decimal-digits source pos)
-         (let ((is-float nil)
-               (num-str int-digits))
-           ;; Fractional part
-           (when (and (< pos2 (length source))
-                      (char= (char source pos2) #\.)
-                      (or (and (< (1+ pos2) (length source))
-                               (js-digit-p (char source (1+ pos2))))
-                          ;; "1." is a valid float
-                          (not (and (< (1+ pos2) (length source))
-                                    (js-id-start-p (char source (1+ pos2)))))))
-             (setf is-float t)
-             (incf pos2)
-             (multiple-value-bind (frac-digits pos3)
-                 (%lex-js-decimal-digits source pos2)
-               (setf num-str (concatenate 'string num-str "." frac-digits)
-                     pos2 pos3)))
-           ;; Exponent part
-           (when (and (< pos2 (length source))
-                      (member (char source pos2) '(#\e #\E) :test #'char=))
-             (setf is-float t)
-             (let ((exp-str "e"))
-               (incf pos2)
-               (when (and (< pos2 (length source))
-                          (member (char source pos2) '(#\+ #\-) :test #'char=))
-                 (setf exp-str (concatenate 'string exp-str (string (char source pos2))))
-                 (incf pos2))
-               (multiple-value-bind (exp-digits pos3)
-                   (%lex-js-decimal-digits source pos2)
-                 (setf num-str (concatenate 'string num-str exp-str exp-digits)
-                       pos2 pos3))))
-           ;; BigInt suffix (only on integer, not float)
-           (when (and (not is-float)
-                      (< pos2 (length source))
-                      (char= (char source pos2) #\n))
-             (incf pos2)
-             (return-from lex-js-number
-               (values (make-js-token :T-BIGINT (parse-integer num-str)) pos2)))
-           ;; JS numbers are IEEE-754 doubles; bind *read-default-float-format*
-           ;; to double-float so "1.5e-3" reads at full double precision.
-           (let ((val (if is-float
-                          (let ((*read-eval* nil)
-                                (*read-default-float-format* 'double-float))
-                            (float (read-from-string num-str) 1.0d0))
-                          (parse-integer num-str))))
-             (values (make-js-token :T-NUMBER val) pos2))))))))
+       (%lex-js-decimal-number source pos)))))

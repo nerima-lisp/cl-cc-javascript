@@ -4,6 +4,7 @@
   :description "CL-CC JavaScript frontend: lexer, parser, and runtime helpers"
   :author "takeokunn"
   :license "MIT"
+  :homepage "https://github.com/nerima-lisp/cl-cc-javascript"
   :version "0.1.0"
   :depends-on (:cl-cc-ast :cl-cc-bootstrap :cl-cc-parse :cl-cc-vm)
   :pathname "src"
@@ -60,7 +61,9 @@
    (:file "runtime-collections-set")
    (:file "runtime-collections-zip")
    (:file "runtime-collections-iterators")
-   (:file "runtime-async")
+   (:file "runtime-console")
+   (:file "runtime-promise")
+   (:file "runtime-generator")
    (:file "runtime-map")
    (:file "runtime-weak-collections")
    (:file "runtime-date")

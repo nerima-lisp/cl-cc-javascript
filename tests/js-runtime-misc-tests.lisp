@@ -10,7 +10,7 @@
 ;;;;
 ;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr, %jr-list)
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── Local test helpers ──────────────────────────────────────────────────────
 
@@ -111,37 +111,18 @@
 
 ;;; ─── Global isNaN / isFinite (with coercion) ─────────────────────────────────
 
-(it-sequential "js-rt-global-is-nan number-nan"
-  (destructuring-bind (val expected) (list cl-cc/javascript::*js-nan-float* t)
-    (expect (cl-cc/javascript::%js-is-nan val) :to-equal expected)))
+(it-sequential-each ((#.cl-cc/javascript::*js-nan-float* t) ("NaN" t)
+                     ("42" nil) (5 nil))
+    "js-rt-global-is-nan ~A"
+    (val expected)
+  (expect (cl-cc/javascript::%js-is-nan val) :to-equal expected))
 
-(it-sequential "js-rt-global-is-nan string-nan"
-  (destructuring-bind (val expected) (list "NaN" t)
-    (expect (cl-cc/javascript::%js-is-nan val) :to-equal expected)))
-
-(it-sequential "js-rt-global-is-nan string-num"
-  (destructuring-bind (val expected) (list "42" nil)
-    (expect (cl-cc/javascript::%js-is-nan val) :to-equal expected)))
-
-(it-sequential "js-rt-global-is-nan integer"
-  (destructuring-bind (val expected) (list 5 nil)
-    (expect (cl-cc/javascript::%js-is-nan val) :to-equal expected)))
-
-(it-sequential "js-rt-global-is-finite integer"
-  (destructuring-bind (val expected) (list 42 t)
-    (expect (cl-cc/javascript::%js-is-finite val) :to-equal expected)))
-
-(it-sequential "js-rt-global-is-finite string-n"
-  (destructuring-bind (val expected) (list "3.14" t)
-    (expect (cl-cc/javascript::%js-is-finite val) :to-equal expected)))
-
-(it-sequential "js-rt-global-is-finite nan"
-  (destructuring-bind (val expected) (list cl-cc/javascript::*js-nan-float* nil)
-    (expect (cl-cc/javascript::%js-is-finite val) :to-equal expected)))
-
-(it-sequential "js-rt-global-is-finite inf"
-  (destructuring-bind (val expected) (list cl-cc/javascript::*js-inf-float* nil)
-    (expect (cl-cc/javascript::%js-is-finite val) :to-equal expected)))
+(it-sequential-each ((42 t) ("3.14" t)
+                     (#.cl-cc/javascript::*js-nan-float* nil)
+                     (#.cl-cc/javascript::*js-inf-float* nil))
+    "js-rt-global-is-finite ~A"
+    (val expected)
+  (expect (cl-cc/javascript::%js-is-finite val) :to-equal expected))
 
 ;;; ─── structuredClone ─────────────────────────────────────────────────────────
 
@@ -160,55 +141,29 @@
       (expect (car called) :to-be-truthy)
       (expect ret :to-be cl-cc/javascript::+js-undefined+))))
 
-(it-sequential "js-rt-browser-timer-stubs-absent setTimeout"
-  (destructuring-bind (name) (list "setTimeout")
-    (expect (nth-value 1 (gethash name cl-cc/javascript::*js-builtin-map*)) :to-be-falsy) (expect (find name cl-cc/javascript::*js-prelude-global-specs*
-                      :key #'second
-                      :test #'string=) :to-be-falsy) (expect (nth-value 1
-                            (gethash (cl-cc/javascript::js-ident-sym name)
-                                     cl-cc/javascript::*js-coercion-call-helpers*)) :to-be-falsy)))
-
-(it-sequential "js-rt-browser-timer-stubs-absent setInterval"
-  (destructuring-bind (name) (list "setInterval")
-    (expect (nth-value 1 (gethash name cl-cc/javascript::*js-builtin-map*)) :to-be-falsy) (expect (find name cl-cc/javascript::*js-prelude-global-specs*
-                      :key #'second
-                      :test #'string=) :to-be-falsy) (expect (nth-value 1
-                            (gethash (cl-cc/javascript::js-ident-sym name)
-                                     cl-cc/javascript::*js-coercion-call-helpers*)) :to-be-falsy)))
-
-(it-sequential "js-rt-browser-timer-stubs-absent clearTimeout"
-  (destructuring-bind (name) (list "clearTimeout")
-    (expect (nth-value 1 (gethash name cl-cc/javascript::*js-builtin-map*)) :to-be-falsy) (expect (find name cl-cc/javascript::*js-prelude-global-specs*
-                      :key #'second
-                      :test #'string=) :to-be-falsy) (expect (nth-value 1
-                            (gethash (cl-cc/javascript::js-ident-sym name)
-                                     cl-cc/javascript::*js-coercion-call-helpers*)) :to-be-falsy)))
-
-(it-sequential "js-rt-browser-timer-stubs-absent clearInterval"
-  (destructuring-bind (name) (list "clearInterval")
-    (expect (nth-value 1 (gethash name cl-cc/javascript::*js-builtin-map*)) :to-be-falsy) (expect (find name cl-cc/javascript::*js-prelude-global-specs*
-                      :key #'second
-                      :test #'string=) :to-be-falsy) (expect (nth-value 1
-                            (gethash (cl-cc/javascript::js-ident-sym name)
-                                     cl-cc/javascript::*js-coercion-call-helpers*)) :to-be-falsy)))
+(it-sequential-each (("setTimeout") ("setInterval") ("clearTimeout") ("clearInterval"))
+    "js-rt-browser-timer-stubs-absent ~A"
+    (name)
+  (expect (nth-value 1 (gethash name cl-cc/javascript::*js-builtin-map*)) :to-be-falsy)
+  (expect (find name cl-cc/javascript::*js-prelude-global-specs*
+                :key #'second
+                :test #'string=) :to-be-falsy)
+  (expect (nth-value 1
+                (gethash (cl-cc/javascript::js-ident-sym name)
+                         cl-cc/javascript::*js-coercion-call-helpers*)) :to-be-falsy))
 
 ;;; ─── Dynamic code stubs ─────────────────────────────────────────────────────
 
-(it-sequential "js-rt-dynamic-code-stubs-absent eval"
-  (destructuring-bind (name) (list "eval")
-    (expect (nth-value 1 (gethash name cl-cc/javascript::*js-builtin-map*)) :to-be-falsy) (expect (find name cl-cc/javascript::*js-prelude-global-specs*
-                      :key #'second
-                      :test #'string=) :to-be-falsy) (expect (nth-value 1
-                            (gethash (cl-cc/javascript::js-ident-sym name)
-                                     cl-cc/javascript::*js-coercion-call-helpers*)) :to-be-falsy)))
-
-(it-sequential "js-rt-dynamic-code-stubs-absent Function"
-  (destructuring-bind (name) (list "Function")
-    (expect (nth-value 1 (gethash name cl-cc/javascript::*js-builtin-map*)) :to-be-falsy) (expect (find name cl-cc/javascript::*js-prelude-global-specs*
-                      :key #'second
-                      :test #'string=) :to-be-falsy) (expect (nth-value 1
-                            (gethash (cl-cc/javascript::js-ident-sym name)
-                                     cl-cc/javascript::*js-coercion-call-helpers*)) :to-be-falsy)))
+(it-sequential-each (("eval") ("Function"))
+    "js-rt-dynamic-code-stubs-absent ~A"
+    (name)
+  (expect (nth-value 1 (gethash name cl-cc/javascript::*js-builtin-map*)) :to-be-falsy)
+  (expect (find name cl-cc/javascript::*js-prelude-global-specs*
+                :key #'second
+                :test #'string=) :to-be-falsy)
+  (expect (nth-value 1
+                (gethash (cl-cc/javascript::js-ident-sym name)
+                         cl-cc/javascript::*js-coercion-call-helpers*)) :to-be-falsy))
 
 ;;; ─── Iterator.from ───────────────────────────────────────────────────────────
 
@@ -673,3 +628,61 @@
     (cl-cc/javascript::%js-object-freeze obj)
     (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript::%js-object-define-property obj "locked" desc)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
     (expect (= 1 (gethash "locked" obj)) :to-be-truthy)))
+
+;;; ─── console ──────────────────────────────────────────────────────────────────
+;;; %js-make-console's methods beyond log/error (already exercised via
+;;; console.log/console.error in e2e sources) — tested directly against the
+;;; dispatch table since dir/table/trace/assert write to *error-output* or
+;;; use a format independent of %js-run-capture's stdout-only capture.
+
+(it-sequential-each (("info") ("debug"))
+    "js-rt-console-~A-aliases-log"
+    (method-name)
+  (let ((console (cl-cc/javascript::%js-make-console)))
+    (expect (eq (gethash method-name console) (gethash "log" console)) :to-be-truthy)))
+
+(it-sequential "js-rt-console-dir-formats-value"
+  (let* ((console (cl-cc/javascript::%js-make-console))
+         (dir-fn (gethash "dir" console))
+         (output (with-output-to-string (*standard-output*)
+                   (funcall dir-fn "hi"))))
+    (expect (search "hi" output) :to-be-truthy)))
+
+(it-sequential "js-rt-console-table-formats-args"
+  (let* ((console (cl-cc/javascript::%js-make-console))
+         (table-fn (gethash "table" console))
+         (output (with-output-to-string (*standard-output*)
+                   (funcall table-fn 1 2 3))))
+    (expect (search "1" output) :to-be-truthy)
+    (expect (search "2" output) :to-be-truthy)
+    (expect (search "3" output) :to-be-truthy)))
+
+(it-sequential "js-rt-console-trace-prefixes-output"
+  (let* ((console (cl-cc/javascript::%js-make-console))
+         (trace-fn (gethash "trace" console))
+         (output (with-output-to-string (*standard-output*)
+                   (funcall trace-fn "boom"))))
+    (expect (search "Trace:" output) :to-be-truthy)
+    (expect (search "boom" output) :to-be-truthy)))
+
+(it-sequential "js-rt-console-assert-silent-when-truthy"
+  (let* ((console (cl-cc/javascript::%js-make-console))
+         (assert-fn (gethash "assert" console))
+         (output (with-output-to-string (*error-output*)
+                   (funcall assert-fn t "should not print"))))
+    (expect output :to-equal "")))
+
+(it-sequential "js-rt-console-assert-reports-when-falsy"
+  (let* ((console (cl-cc/javascript::%js-make-console))
+         (assert-fn (gethash "assert" console))
+         (output (with-output-to-string (*error-output*)
+                   (funcall assert-fn nil "reason"))))
+    (expect (search "Assertion failed:" output) :to-be-truthy)
+    (expect (search "reason" output) :to-be-truthy)))
+
+(it-sequential-each (("group") ("groupEnd") ("time") ("timeEnd") ("count") ("countReset") ("clear"))
+    "js-rt-console-~A-is-a-noop"
+    (method-name)
+  (let* ((console (cl-cc/javascript::%js-make-console))
+         (fn (gethash method-name console)))
+    (expect (eq cl-cc/javascript::+js-undefined+ (funcall fn)) :to-be-truthy)))

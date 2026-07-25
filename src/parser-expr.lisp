@@ -16,12 +16,18 @@
 ;;; Type-keyed specials (comma, ternary, instanceof, in, member) remain in the
 ;;; dispatch function since they match on token type, not string value.
 
+(defparameter *js-assignment-op-strings*
+  '("=" "+=" "-=" "*=" "/=" "%=" "**="
+    "<<=" ">>=" ">>>=" "&=" "|=" "^="
+    "&&=" "||=" "??=")
+  "Every JS assignment operator string, shared with parser-expr-primary.lisp's
+js-parse-expr (which needs the same set to recognize an assignment RHS)
+so the two can't silently drift apart.")
+
 (defparameter *js-op-infix-prec*
   (let ((ht (make-hash-table :test #'equal)))
     ;; Assignment (right-associative, prec 2)
-    (dolist (op '("=" "+=" "-=" "*=" "/=" "%=" "**="
-                  "<<=" ">>=" ">>>=" "&=" "|=" "^="
-                  "&&=" "||=" "??="))
+    (dolist (op *js-assignment-op-strings*)
       (setf (gethash op ht) '(2 t)))
     ;; Remaining binary ops (left-associative unless noted)
     (dolist (entry '(("??"  5 nil) ("||"  6 nil) ("&&"  7 nil)
@@ -78,10 +84,6 @@ Precedence levels: 1=comma 2=assign 4=ternary 5=?? 6=|| 7=&& 8=| 9=^ 10=&
     ht)
   "Maps arithmetic operator strings to AST binop operator symbols.")
 
-(defun js-lower-binop-keyword (op-str)
-  "Map operator string to AST binop keyword, or NIL for runtime-dispatch ops."
-  (gethash op-str *js-direct-binop-keywords*))
-
 (defparameter *js-binop-runtime-helpers*
   (let ((ht (make-hash-table :test #'equal)))
     (dolist (entry '(("+"   . %js-add)  ("/"  . %js-divide)
@@ -118,11 +120,11 @@ Precedence levels: 1=comma 2=assign 4=ternary 5=?? 6=|| 7=&& 8=| 9=^ 10=&
                      ;; Symbol(desc) constructs a symbol; Symbol.iterator (member
                      ;; access on the global) is unaffected.
                      ("Symbol" . %js-make-symbol)
+                     ;; BigInt(x) coerces; BigInt.asIntN/asUintN (member access
+                     ;; on the global) are unaffected — same shape as Symbol above.
+                     ("BigInt" . %js-bigint)
                      ;; Other global functions whose prelude binding is a value
                      ;; (not a callable symbol), so a bare call needs lowering.
-                     ;; (BigInt is intentionally NOT here: BigInt(x) builds a
-                     ;; js-bigint struct that the arithmetic ops don't accept,
-                     ;; unlike the 10n literal path — a separate bigint fix.)
                      ("encodeURIComponent" . %js-encode-uri-component)
                      ("decodeURIComponent" . %js-decode-uri-component)
                      ("encodeURI" . %js-encode-uri)
@@ -146,7 +148,7 @@ defaults Number()=0, String()=\"\", Boolean()=false."
   (cond
     ((member helper '(%js-parse-int %js-parse-float
                       %js-structured-clone %js-queue-microtask
-                      %js-make-symbol
+                      %js-make-symbol %js-bigint
                       %js-encode-uri-component %js-decode-uri-component
                       %js-encode-uri %js-decode-uri %js-btoa %js-atob
                       %js-is-nan %js-is-finite))
@@ -208,44 +210,43 @@ spread in array literals and call arguments via apply."
     ;; Fallback: runtime dispatch
     (t (%js-call '%js-binop (make-ast-quote :value (intern op-str :keyword)) lhs rhs))))
 
-(defun %js-lower-nullish-coalesce (lhs rhs)
-  "Lower LHS ?? RHS without evaluating LHS twice."
-  (let ((tmp (gensym "JS-NC-")))
+(defun %js-lower-short-circuit (gensym-prefix test-helper lhs rhs var-on-true-p)
+  "Shared shape behind ??/&&/||: evaluate LHS once into a temporary, test it
+via TEST-HELPER, and return the temporary on the branch VAR-ON-TRUE-P says to
+(T = when the test is true, NIL = when it's false), RHS on the other branch."
+  (let ((tmp (gensym gensym-prefix)))
     (make-ast-let
      :bindings (list (cons tmp lhs))
      :body (list (make-ast-if
-                  :cond (%js-call '%js-not-nullish (make-ast-var :name tmp))
-                  :then (make-ast-var :name tmp)
-                  :else rhs)))))
+                  :cond (%js-call test-helper (make-ast-var :name tmp))
+                  :then (if var-on-true-p (make-ast-var :name tmp) rhs)
+                  :else (if var-on-true-p rhs (make-ast-var :name tmp)))))))
+
+(defun %js-lower-nullish-coalesce (lhs rhs)
+  "Lower LHS ?? RHS without evaluating LHS twice."
+  (%js-lower-short-circuit "JS-NC-" '%js-not-nullish lhs rhs t))
 
 (defun %js-lower-logical-and (lhs rhs)
   "Lower LHS && RHS: evaluate LHS once; if it is JS-truthy the result is RHS,
 otherwise the result is LHS itself (so `0 && x' -> 0, `a && b' -> b)."
-  (let ((tmp (gensym "JS-AND-")))
-    (make-ast-let
-     :bindings (list (cons tmp lhs))
-     :body (list (make-ast-if
-                  :cond (%js-call '%js-truthy (make-ast-var :name tmp))
-                  :then rhs
-                  :else (make-ast-var :name tmp))))))
+  (%js-lower-short-circuit "JS-AND-" '%js-truthy lhs rhs nil))
 
 (defun %js-lower-logical-or (lhs rhs)
   "Lower LHS || RHS: evaluate LHS once; if it is JS-truthy the result is LHS,
 otherwise the result is RHS (so `3 || x' -> 3, `0 || b' -> b)."
-  (let ((tmp (gensym "JS-OR-")))
-    (make-ast-let
-     :bindings (list (cons tmp lhs))
-     :body (list (make-ast-if
-                  :cond (%js-call '%js-truthy (make-ast-var :name tmp))
-                  :then (make-ast-var :name tmp)
-                  :else rhs)))))
+  (%js-lower-short-circuit "JS-OR-" '%js-truthy lhs rhs t))
+
+(defparameter *js-logical-assign-ops*
+  '(("&&=" . :truthy) ("||=" . :falsy) ("??=" . :non-null))
+  "Every JS logical-assignment operator string mapped to its short-circuit
+semantics, shared with parser-expr-primary.lisp's %js-lower-assignment (which
+needs the same set to recognize a logical assignment) so the two can't
+silently drift apart.")
 
 (defun %js-logical-assign-short-circuit-p (op-str)
   "Return :truthy for &&=, :falsy for ||=, :non-null for ??="
-  (cond ((string= op-str "&&=") :truthy)
-        ((string= op-str "||=") :falsy)
-        ((string= op-str "??=") :non-null)
-        (t (error "JS parse error: unknown logical assign op ~S" op-str))))
+  (or (cdr (assoc op-str *js-logical-assign-ops* :test #'string=))
+      (error "JS parse error: unknown logical assign op ~S" op-str)))
 
 (defun %js-lower-logical-assign (op-str lhs-sym rhs)
   "Lower &&= ||= ??= compound logical assignment on a variable.

@@ -6,7 +6,7 @@
 ;;;;
 ;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr)
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── RegExp public API ───────────────────────────────────────────────────────
 
@@ -215,11 +215,24 @@
          (result (cl-cc/javascript::%js-reflect-apply fn nil (%jr-arr 3 4))))
     (expect (= 7 result) :to-be-truthy)))
 
-(it-sequential "js-rt-reflect-construct"
-  (let* ((ctor  (lambda (&rest args) (first args)))
+(it-sequential "js-rt-reflect-construct-mutates-this-when-ctor-returns-a-primitive"
+  ;; Per JS `new` semantics, a constructor returning a primitive (here just
+  ;; its first arg, a number) does NOT override `this` — the fresh instance
+  ;; is returned instead, with `this` available for the constructor to mutate.
+  (let* ((ctor  (lambda (&rest args)
+                  (cl-cc/javascript::%js-set-prop cl-cc/javascript::%js-this
+                                                   "val" (first args))
+                  (first args)))
          (args  (%jr-arr 77))
          (obj   (cl-cc/javascript::%js-reflect-construct ctor args)))
-    (expect (= 77 obj) :to-be-truthy)))
+    (expect (cl-cc/javascript::%js-ht-p obj) :to-be-truthy)
+    (expect (cl-cc/javascript::%js-get-prop obj "val") :to-equal 77)))
+
+(it-sequential "js-rt-reflect-construct-honors-explicit-object-return"
+  (let* ((returned (cl-cc/javascript::%js-make-ht))
+         (ctor     (lambda (&rest args) (declare (ignore args)) returned))
+         (obj      (cl-cc/javascript::%js-reflect-construct ctor (%jr-arr))))
+    (expect (eq obj returned) :to-be-truthy)))
 
 ;;; ─── Object property descriptors ────────────────────────────────────────────
 
@@ -235,45 +248,16 @@
     (expect (= 5 (gethash "value" desc)) :to-be-truthy)
     (expect (gethash "writable" desc) :to-be-truthy)))
 
-(it-sequential "js-rt-get-own-property-descriptors-filters-internals visible"
-  (destructuring-bind (key should-appear) (list "real" t)
-    (let* ((obj (cl-cc/javascript::%js-make-object "real" 1)))
+(it-sequential-each (("real" t) ("__proto__" nil) ("__get_x" nil) ("__set_x" nil))
+    "js-rt-get-own-property-descriptors-filters-internals ~A"
+    (key should-appear)
+  (let* ((obj (cl-cc/javascript::%js-make-object "real" 1)))
     (setf (gethash "__proto__" obj) cl-cc/javascript::+js-null+
           (gethash "__get_x"   obj) (lambda () 0)
           (gethash "__set_x"   obj) (lambda (v) v))
     (let* ((descs (cl-cc/javascript::%js-object-get-own-property-descriptors obj))
            (found (nth-value 1 (gethash key descs))))
-      (expect found :to-equal should-appear)))))
-
-(it-sequential "js-rt-get-own-property-descriptors-filters-internals proto"
-  (destructuring-bind (key should-appear) (list "__proto__" nil)
-    (let* ((obj (cl-cc/javascript::%js-make-object "real" 1)))
-    (setf (gethash "__proto__" obj) cl-cc/javascript::+js-null+
-          (gethash "__get_x"   obj) (lambda () 0)
-          (gethash "__set_x"   obj) (lambda (v) v))
-    (let* ((descs (cl-cc/javascript::%js-object-get-own-property-descriptors obj))
-           (found (nth-value 1 (gethash key descs))))
-      (expect found :to-equal should-appear)))))
-
-(it-sequential "js-rt-get-own-property-descriptors-filters-internals getter"
-  (destructuring-bind (key should-appear) (list "__get_x" nil)
-    (let* ((obj (cl-cc/javascript::%js-make-object "real" 1)))
-    (setf (gethash "__proto__" obj) cl-cc/javascript::+js-null+
-          (gethash "__get_x"   obj) (lambda () 0)
-          (gethash "__set_x"   obj) (lambda (v) v))
-    (let* ((descs (cl-cc/javascript::%js-object-get-own-property-descriptors obj))
-           (found (nth-value 1 (gethash key descs))))
-      (expect found :to-equal should-appear)))))
-
-(it-sequential "js-rt-get-own-property-descriptors-filters-internals setter"
-  (destructuring-bind (key should-appear) (list "__set_x" nil)
-    (let* ((obj (cl-cc/javascript::%js-make-object "real" 1)))
-    (setf (gethash "__proto__" obj) cl-cc/javascript::+js-null+
-          (gethash "__get_x"   obj) (lambda () 0)
-          (gethash "__set_x"   obj) (lambda (v) v))
-    (let* ((descs (cl-cc/javascript::%js-object-get-own-property-descriptors obj))
-           (found (nth-value 1 (gethash key descs))))
-      (expect found :to-equal should-appear)))))
+      (expect found :to-equal should-appear))))
 
 ;;; ─── bound-method ────────────────────────────────────────────────────────────
 
@@ -290,23 +274,12 @@
 
 ;;; ─── Type resolver coverage (define-js-type-resolver) ────────────────────────
 
-(it-sequential "js-rt-resolve-regexp-props source"
-  (destructuring-bind (key expected) (list "source" "hello")
-    (let* ((re  (cl-cc/javascript::%js-make-regex "hello" ""))
+(it-sequential-each (("source" "hello") ("flags" "") ("global" nil))
+    "js-rt-resolve-regexp-props ~A"
+    (key expected)
+  (let* ((re  (cl-cc/javascript::%js-make-regex "hello" ""))
          (val (cl-cc/javascript::%js-resolve-regexp-method re key)))
-    (expect val :to-equal expected))))
-
-(it-sequential "js-rt-resolve-regexp-props flags"
-  (destructuring-bind (key expected) (list "flags" "")
-    (let* ((re  (cl-cc/javascript::%js-make-regex "hello" ""))
-         (val (cl-cc/javascript::%js-resolve-regexp-method re key)))
-    (expect val :to-equal expected))))
-
-(it-sequential "js-rt-resolve-regexp-props global"
-  (destructuring-bind (key expected) (list "global" nil)
-    (let* ((re  (cl-cc/javascript::%js-make-regex "hello" ""))
-         (val (cl-cc/javascript::%js-resolve-regexp-method re key)))
-    (expect val :to-equal expected))))
+    (expect val :to-equal expected)))
 
 (it-sequential "js-rt-resolve-regexp-test-method"
   (let* ((re (cl-cc/javascript::%js-make-regex "hi" ""))
@@ -314,17 +287,12 @@
     (expect (funcall fn "say hi there") :to-be-truthy)
     (expect (funcall fn "goodbye") :to-be-falsy)))
 
-(it-sequential "js-rt-resolve-regexp-bool-props ignoreCase"
-  (destructuring-bind (key expected) (list "ignoreCase" t)
-    (let* ((re (cl-cc/javascript::%js-make-regex "hello" "im"))
+(it-sequential-each (("ignoreCase" t) ("multiline" t))
+    "js-rt-resolve-regexp-bool-props ~A"
+    (key expected)
+  (let* ((re (cl-cc/javascript::%js-make-regex "hello" "im"))
          (val (cl-cc/javascript::%js-resolve-regexp-method re key)))
-    (expect val :to-equal expected))))
-
-(it-sequential "js-rt-resolve-regexp-bool-props multiline"
-  (destructuring-bind (key expected) (list "multiline" t)
-    (let* ((re (cl-cc/javascript::%js-make-regex "hello" "im"))
-         (val (cl-cc/javascript::%js-resolve-regexp-method re key)))
-    (expect val :to-equal expected))))
+    (expect val :to-equal expected)))
 
 (it-sequential "js-rt-resolve-regexp-last-index"
   (let ((re (cl-cc/javascript::%js-make-regex "hello" "im")))
@@ -368,23 +336,15 @@
     (let ((%%signaled1 nil)) (handler-case (progn (cl-cc/javascript::%js-await result)) (cl-cc/javascript:js-exception () (setf %%signaled1 t))) (expect %%signaled1 :to-be-truthy))
     (expect (= 1 called) :to-be-truthy)))
 
-(it-sequential "js-rt-resolve-function-methods name"
-  (destructuring-bind (key expected) (list "name" "")
-    (let* ((fn  (lambda (&rest args) args))
+(it-sequential-each (("name" "") ("toString" "function() { [native code] }"))
+    "js-rt-resolve-function-methods ~A"
+    (key expected)
+  (let* ((fn  (lambda (&rest args) args))
          (val (cl-cc/javascript::%js-resolve-function-method fn key))
          ;; toString resolves to a callable method (f.toString() in JS);
          ;; name resolves directly to its value.
          (result (if (functionp val) (funcall val) val)))
-    (expect result :to-equal expected))))
-
-(it-sequential "js-rt-resolve-function-methods toString"
-  (destructuring-bind (key expected) (list "toString" "function() { [native code] }")
-    (let* ((fn  (lambda (&rest args) args))
-         (val (cl-cc/javascript::%js-resolve-function-method fn key))
-         ;; toString resolves to a callable method (f.toString() in JS);
-         ;; name resolves directly to its value.
-         (result (if (functionp val) (funcall val) val)))
-    (expect result :to-equal expected))))
+    (expect result :to-equal expected)))
 
 (it-sequential "js-rt-resolve-function-length"
   (let* ((fn  (lambda (&rest args) args))
@@ -416,43 +376,23 @@
 (it-sequential "js-rt-resolve-method-dispatch-fallback"
   (expect (cl-cc/javascript::%js-resolve-method (list 1 2) "anything") :to-be cl-cc/javascript::+js-undefined+))
 
-(it-sequential "js-rt-resolve-typed-array-props int32-length"
-  (destructuring-bind (type-name length key expected) (list "Int32Array" 3 "length" 3)
-    (let* ((ta  (cl-cc/javascript::%js-make-typed-array type-name length))
+(it-sequential-each (("Int32Array" 3 "length" 3)
+                     ("Int32Array" 3 "byteLength" 12)
+                     ("Int32Array" 3 "byteOffset" 0)
+                     ("Float16Array" 3 "byteLength" 6))
+    "js-rt-resolve-typed-array-props ~A ~*~A"
+    (type-name length key expected)
+  (let* ((ta  (cl-cc/javascript::%js-make-typed-array type-name length))
          (val (cl-cc/javascript::%js-resolve-typed-array-method ta key)))
-    (expect (= expected val) :to-be-truthy))))
+    (expect (= expected val) :to-be-truthy)))
 
-(it-sequential "js-rt-resolve-typed-array-props int32-byte-length"
-  (destructuring-bind (type-name length key expected) (list "Int32Array" 3 "byteLength" 12)
-    (let* ((ta  (cl-cc/javascript::%js-make-typed-array type-name length))
-         (val (cl-cc/javascript::%js-resolve-typed-array-method ta key)))
-    (expect (= expected val) :to-be-truthy))))
-
-(it-sequential "js-rt-resolve-typed-array-props int32-byte-offset"
-  (destructuring-bind (type-name length key expected) (list "Int32Array" 3 "byteOffset" 0)
-    (let* ((ta  (cl-cc/javascript::%js-make-typed-array type-name length))
-         (val (cl-cc/javascript::%js-resolve-typed-array-method ta key)))
-    (expect (= expected val) :to-be-truthy))))
-
-(it-sequential "js-rt-resolve-typed-array-props f16-byte-length"
-  (destructuring-bind (type-name length key expected) (list "Float16Array" 3 "byteLength" 6)
-    (let* ((ta  (cl-cc/javascript::%js-make-typed-array type-name length))
-         (val (cl-cc/javascript::%js-resolve-typed-array-method ta key)))
-    (expect (= expected val) :to-be-truthy))))
-
-(it-sequential "js-rt-resolve-bigint-methods toString"
-  (destructuring-bind (key expected) (list "toString" "42")
-    (let* ((bi     (cl-cc/javascript::%make-js-bigint 42))
+(it-sequential-each (("toString" "42") ("toLocaleString" "42"))
+    "js-rt-resolve-bigint-methods ~A"
+    (key expected)
+  (let* ((bi     (cl-cc/javascript::%make-js-bigint 42))
          (fn     (cl-cc/javascript::%js-resolve-bigint-method bi key))
          (result (funcall fn cl-cc/javascript::+js-undefined+)))
-    (expect result :to-equal expected))))
-
-(it-sequential "js-rt-resolve-bigint-methods toLocaleString"
-  (destructuring-bind (key expected) (list "toLocaleString" "42")
-    (let* ((bi     (cl-cc/javascript::%make-js-bigint 42))
-         (fn     (cl-cc/javascript::%js-resolve-bigint-method bi key))
-         (result (funcall fn cl-cc/javascript::+js-undefined+)))
-    (expect result :to-equal expected))))
+    (expect result :to-equal expected)))
 
 (it-sequential "js-rt-resolve-bigint-value-of"
   (let* ((bi (cl-cc/javascript::%make-js-bigint 7))
@@ -491,33 +431,16 @@
 
 ;;; ─── Object fallback method table ────────────────────────────────────────────
 
-(it-sequential "js-rt-object-fallback-methods has-own-existing"
-  (destructuring-bind (method key expected) (list "hasOwnProperty" "x" t)
-    (let* ((obj (cl-cc/javascript::%js-make-object "x" 1))
+(it-sequential-each (("hasOwnProperty" "x" t)
+                     ("hasOwnProperty" "z" nil)
+                     ("propertyIsEnumerable" "x" t)
+                     ("propertyIsEnumerable" "z" nil))
+    "js-rt-object-fallback-methods ~A ~A"
+    (method key expected)
+  (let* ((obj (cl-cc/javascript::%js-make-object "x" 1))
          (fn  (cl-cc/javascript::%js-resolve-object-method obj method)))
     (expect (functionp fn) :to-be-truthy)
-    (expect (funcall fn key) :to-equal expected))))
-
-(it-sequential "js-rt-object-fallback-methods has-own-missing"
-  (destructuring-bind (method key expected) (list "hasOwnProperty" "z" nil)
-    (let* ((obj (cl-cc/javascript::%js-make-object "x" 1))
-         (fn  (cl-cc/javascript::%js-resolve-object-method obj method)))
-    (expect (functionp fn) :to-be-truthy)
-    (expect (funcall fn key) :to-equal expected))))
-
-(it-sequential "js-rt-object-fallback-methods prop-is-enum-yes"
-  (destructuring-bind (method key expected) (list "propertyIsEnumerable" "x" t)
-    (let* ((obj (cl-cc/javascript::%js-make-object "x" 1))
-         (fn  (cl-cc/javascript::%js-resolve-object-method obj method)))
-    (expect (functionp fn) :to-be-truthy)
-    (expect (funcall fn key) :to-equal expected))))
-
-(it-sequential "js-rt-object-fallback-methods prop-is-enum-no"
-  (destructuring-bind (method key expected) (list "propertyIsEnumerable" "z" nil)
-    (let* ((obj (cl-cc/javascript::%js-make-object "x" 1))
-         (fn  (cl-cc/javascript::%js-resolve-object-method obj method)))
-    (expect (functionp fn) :to-be-truthy)
-    (expect (funcall fn key) :to-equal expected))))
+    (expect (funcall fn key) :to-equal expected)))
 
 (it-sequential "js-rt-object-fallback-to-string"
   (let* ((obj (cl-cc/javascript::%js-make-object))
@@ -546,43 +469,23 @@
 
 ;;; ─── Object.is — NaN/zero special cases ─────────────────────────────────────
 
-(it-sequential "js-rt-object-is nan-nan"
-  (destructuring-bind (a b expected) (list :js-nan :js-nan t)
-    (expect (cl-cc/javascript::%js-object-is a b) :to-equal expected)))
-
-(it-sequential "js-rt-object-is nan-float"
-  (destructuring-bind (a b expected) (list :js-nan 1.0d0 nil)
-    (expect (cl-cc/javascript::%js-object-is a b) :to-equal expected)))
-
-(it-sequential "js-rt-object-is +0/-0"
-  (destructuring-bind (a b expected) (list 0.0d0 -0.0d0 nil)
-    (expect (cl-cc/javascript::%js-object-is a b) :to-equal expected)))
-
-(it-sequential "js-rt-object-is -0/+0"
-  (destructuring-bind (a b expected) (list -0.0d0 0.0d0 nil)
-    (expect (cl-cc/javascript::%js-object-is a b) :to-equal expected)))
-
-(it-sequential "js-rt-object-is same-num"
-  (destructuring-bind (a b expected) (list 3.0d0 3.0d0 t)
-    (expect (cl-cc/javascript::%js-object-is a b) :to-equal expected)))
-
-(it-sequential "js-rt-object-is same-str"
-  (destructuring-bind (a b expected) (list "x" "x" t)
-    (expect (cl-cc/javascript::%js-object-is a b) :to-equal expected)))
-
-(it-sequential "js-rt-object-is diff-str"
-  (destructuring-bind (a b expected) (list "a" "b" nil)
-    (expect (cl-cc/javascript::%js-object-is a b) :to-equal expected)))
+(it-sequential-each ((:js-nan :js-nan t)
+                     (:js-nan 1.0d0 nil)
+                     (0.0d0 -0.0d0 nil)
+                     (-0.0d0 0.0d0 nil)
+                     (3.0d0 3.0d0 t)
+                     ("x" "x" t)
+                     ("a" "b" nil))
+    "js-rt-object-is ~A/~A"
+    (a b expected)
+  (expect (cl-cc/javascript::%js-object-is a b) :to-equal expected))
 
 ;;; ─── ToString: float formatting + Infinity + BigInt ──────────────────────────
 
-(it-sequential "js-rt-to-string-extended int-float"
-  (destructuring-bind (value expected) (list 7.0d0 "7")
-    (expect (cl-cc/javascript::%js-to-string value) :to-equal expected)))
-
-(it-sequential "js-rt-to-string-extended float-point"
-  (destructuring-bind (value expected) (list 3.14d0 "3.14")
-    (expect (cl-cc/javascript::%js-to-string value) :to-equal expected)))
+(it-sequential-each ((7.0d0 "7") (3.14d0 "3.14"))
+    "js-rt-to-string-extended ~A"
+    (value expected)
+  (expect (cl-cc/javascript::%js-to-string value) :to-equal expected))
 
 (it-sequential "js-rt-to-string-extended infinity"
   (destructuring-bind (value expected) (list cl-cc/javascript::+js-infinity+ "Infinity")

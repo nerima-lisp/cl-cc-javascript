@@ -97,6 +97,69 @@ Returns a closure that accepts the parsed body-ast."
                         (list inner-form)
                         loop-tag end-tag))))))))
 
+(defun %js-parse-for-in-stmt (binding kind rest2)
+  "Parse and lower 'for (KIND BINDING in obj) body'. REST2 points at 'in'.
+Returns (values ast rest)."
+  (multiple-value-bind (obj-expr rest3) (js-parse-expr (cdr rest2))
+    (setf rest3 (%js-consume-expected :T-RPAREN rest3))
+    (let* ((loop-tag (gensym "FOR-IN-"))
+           (end-tag  (gensym "FOR-IN-END-"))
+           (*js-loop-continue-target* loop-tag)
+           (*js-loop-break-target*    end-tag)
+           (*js-break-targets*    (cons end-tag  *js-break-targets*))
+           (*js-continue-targets* (cons loop-tag *js-continue-targets*)))
+      (multiple-value-bind (body-ast rest4) (%js-parse-stmt-body rest3)
+        (let ((lower (funcall (%js-lower-for-of-in
+                               binding
+                               (make-ast-call
+                                :func (make-ast-var :name '%js-iter-keys)
+                                :args (list obj-expr))
+                               nil loop-tag end-tag)
+                              body-ast)))
+          (setf (ast-let-declarations lower) (list kind))
+          (values lower rest4))))))
+
+(defun %js-parse-for-of-stmt (binding kind rest2)
+  "Parse and lower 'for (KIND BINDING of iter) body' / for-await-of (iterated
+synchronously). REST2 points at 'of'. Returns (values ast rest)."
+  (multiple-value-bind (iter-expr rest3) (js-parse-expr (cdr rest2))
+    (setf rest3 (%js-consume-expected :T-RPAREN rest3))
+    (let* ((loop-tag (gensym "FOR-OF-"))
+           (end-tag  (gensym "FOR-OF-END-"))
+           (*js-loop-continue-target* loop-tag)
+           (*js-loop-break-target*    end-tag)
+           (*js-break-targets*    (cons end-tag  *js-break-targets*))
+           (*js-continue-targets* (cons loop-tag *js-continue-targets*)))
+      (multiple-value-bind (body-ast rest4) (%js-parse-stmt-body rest3)
+        (let ((lower (funcall (%js-lower-for-of-in
+                               binding
+                               (make-ast-call
+                                :func (make-ast-var :name '%js-iter-values)
+                                :args (list iter-expr))
+                               nil loop-tag end-tag)
+                              body-ast)))
+          (setf (ast-let-declarations lower) (list kind))
+          (values lower rest4))))))
+
+(defun %js-parse-for-c-style-declared-stmt (binding kind rest2)
+  "Parse and lower 'for (KIND BINDING [= init] ; cond ; update) body'.
+REST2 points just past the binding (at '=' or ';'). Returns (values ast rest)."
+  (let ((init-val (make-ast-quote :value nil))
+        (rest-at-semi rest2))
+    (when (and (eq (js-peek-type rest2) :T-OP)
+               (equal (js-peek-value rest2) "="))
+      (multiple-value-bind (e r) (js-parse-expr (cdr rest2))
+        (setf init-val e
+              rest-at-semi r)))
+    (let ((init-bindings (make-ast-let
+                           :bindings (list (cons (%js-binding-to-sym binding) init-val))
+                           :declarations (list kind)
+                           :body nil)))
+      (multiple-value-bind (loop-ast rest6)
+          (%js-lower-for-c-style rest-at-semi nil)
+        (setf (ast-let-body init-bindings) (list loop-ast))
+        (values init-bindings rest6)))))
+
 (defun js-parse-for-stmt (stream)
   "Handle for(init;cond;update){}, for(var x in obj){},
 for(var x of iter){}, for await(var x of asyncIter){}.
@@ -115,69 +178,10 @@ Returns (values ast rest)."
          (let* ((kind (case init-type (:T-VAR :var) (:T-LET :let) (:T-CONST :const)))
                 (rest (cdr current)))
            (multiple-value-bind (binding rest2) (%js-parse-binding-pattern rest)
-             (let ((iter-kw (js-peek-type rest2)))
-               (cond
-                 ;; for (var x in obj) { }
-                 ((eq iter-kw :T-IN)
-                  (multiple-value-bind (obj-expr rest3) (js-parse-expr (cdr rest2))
-                    (setf rest3 (%js-consume-expected :T-RPAREN rest3))
-                    (let* ((loop-tag (gensym "FOR-IN-"))
-                           (end-tag  (gensym "FOR-IN-END-"))
-                           (*js-loop-continue-target* loop-tag)
-                           (*js-loop-break-target*    end-tag)
-                           (*js-break-targets*    (cons end-tag  *js-break-targets*))
-                           (*js-continue-targets* (cons loop-tag *js-continue-targets*)))
-                      (multiple-value-bind (body-ast rest4) (%js-parse-stmt-body rest3)
-                        (let ((lower (funcall (%js-lower-for-of-in
-                                               binding
-                                               (make-ast-call
-                                                :func (make-ast-var :name '%js-iter-keys)
-                                                :args (list obj-expr))
-                                               nil loop-tag end-tag)
-                                              body-ast)))
-                          (setf (ast-let-declarations lower) (list kind))
-                          (values lower rest4))))))
-                 ;; for (var x of iter) { } / for await (var x of iter) { }
-                 ((eq iter-kw :T-OF)
-                  (multiple-value-bind (iter-expr rest3) (js-parse-expr (cdr rest2))
-                    (setf rest3 (%js-consume-expected :T-RPAREN rest3))
-                    (let* ((of-fn '%js-iter-values)
-                           (loop-tag (gensym "FOR-OF-"))
-                           (end-tag  (gensym "FOR-OF-END-"))
-                           (*js-loop-continue-target* loop-tag)
-                           (*js-loop-break-target*    end-tag)
-                           (*js-break-targets*    (cons end-tag  *js-break-targets*))
-                           (*js-continue-targets* (cons loop-tag *js-continue-targets*)))
-                      (multiple-value-bind (body-ast rest4) (%js-parse-stmt-body rest3)
-                        (let ((lower (funcall (%js-lower-for-of-in
-                                               binding
-                                               (make-ast-call
-                                                :func (make-ast-var :name of-fn)
-                                                :args (list iter-expr))
-                                               nil loop-tag end-tag)
-                                              body-ast)))
-                          (setf (ast-let-declarations lower) (list kind))
-                          (values lower rest4))))))
-                 ;; for (var x = init ; cond ; update) { }
-                 (t
-                  (let ((init-val (make-ast-quote :value nil))
-                        (rest-at-semi rest2))
-                    (when (and (eq (js-peek-type rest2) :T-OP)
-                               (equal (js-peek-value rest2) "="))
-                      (multiple-value-bind (e r) (js-parse-expr (cdr rest2))
-                        (setf init-val e
-                              rest-at-semi r)))
-                    (let ((var-sym (%js-binding-to-sym binding))
-                          (init-bindings nil))
-                      (setf init-bindings
-                            (make-ast-let
-                             :bindings (list (cons var-sym init-val))
-                             :declarations (list kind)
-                             :body nil))
-                      (multiple-value-bind (loop-ast rest6)
-                          (%js-lower-for-c-style rest-at-semi nil)
-                        (setf (ast-let-body init-bindings) (list loop-ast))
-                        (values init-bindings rest6))))))))))
+             (case (js-peek-type rest2)
+               (:T-IN (%js-parse-for-in-stmt binding kind rest2))
+               (:T-OF (%js-parse-for-of-stmt binding kind rest2))
+               (t     (%js-parse-for-c-style-declared-stmt binding kind rest2))))))
         ;; for (; cond ; update) { } — empty init
         ((eq init-type :T-SEMI)
          (%js-lower-for-c-style current nil))

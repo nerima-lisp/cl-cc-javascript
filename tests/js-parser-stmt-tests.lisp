@@ -7,7 +7,7 @@
 ;;;;
 ;;;; Depends on: js-parser-decl-tests.lisp (%js-parse, %js-first, %js-call-name).
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── If / else ────────────────────────────────────────────────────────────────
 
@@ -29,23 +29,14 @@
 
 ;;; ─── For loop ─────────────────────────────────────────────────────────────────
 
-(it-sequential "js-parser-for-loop-variants c-style"
-  (destructuring-bind (src) (list "for (let i = 0; i < 10; i++) { }")
-    (let ((ast (%js-first src)))
+(it-sequential-each (("for (let i = 0; i < 10; i++) { }")
+                     ("for (const x of arr) { }")
+                     ("for (const k in obj) { }"))
+    "js-parser-for-loop-variants ~S"
+    (src)
+  (let ((ast (%js-first src)))
     (expect (or (cl-cc:ast-let-p ast) (cl-cc:ast-block-p ast)
-                     (cl-cc:ast-progn-p ast)) :to-be-truthy))))
-
-(it-sequential "js-parser-for-loop-variants of"
-  (destructuring-bind (src) (list "for (const x of arr) { }")
-    (let ((ast (%js-first src)))
-    (expect (or (cl-cc:ast-let-p ast) (cl-cc:ast-block-p ast)
-                     (cl-cc:ast-progn-p ast)) :to-be-truthy))))
-
-(it-sequential "js-parser-for-loop-variants in"
-  (destructuring-bind (src) (list "for (const k in obj) { }")
-    (let ((ast (%js-first src)))
-    (expect (or (cl-cc:ast-let-p ast) (cl-cc:ast-block-p ast)
-                     (cl-cc:ast-progn-p ast)) :to-be-truthy))))
+                (cl-cc:ast-progn-p ast)) :to-be-truthy)))
 
 ;;; ─── Switch / case ────────────────────────────────────────────────────────────
 
@@ -57,55 +48,27 @@
 
 ;;; ─── Try / catch / finally ────────────────────────────────────────────────────
 
-(it-sequential "js-parser-try-forms catch"
-  (destructuring-bind (src) (list "try { throw 1; } catch (e) { }")
-    (let ((ast (%js-first src)))
+(it-sequential-each (("try { throw 1; } catch (e) { }")
+                     ("try { } finally { }")
+                     ("try { throw 1; } catch (e) { } finally { }"))
+    "js-parser-try-forms ~S"
+    (src)
+  (let ((ast (%js-first src)))
     (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-    (expect (%js-call-name ast) :to-equal "%JS-TRY-CATCH-FINALLY"))))
-
-(it-sequential "js-parser-try-forms finally"
-  (destructuring-bind (src) (list "try { } finally { }")
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-    (expect (%js-call-name ast) :to-equal "%JS-TRY-CATCH-FINALLY"))))
-
-(it-sequential "js-parser-try-forms catch-finally"
-  (destructuring-bind (src) (list "try { throw 1; } catch (e) { } finally { }")
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-    (expect (%js-call-name ast) :to-equal "%JS-TRY-CATCH-FINALLY"))))
+    (expect (%js-call-name ast) :to-equal "%JS-TRY-CATCH-FINALLY")))
 
 ;;; ─── Destructuring ────────────────────────────────────────────────────────────
 
-(it-sequential "js-parser-destructuring array-basic"
-  (destructuring-bind (src) (list "const [a, b] = arr;")
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy))))
-
-(it-sequential "js-parser-destructuring object-basic"
-  (destructuring-bind (src) (list "const {x, y} = obj;")
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy))))
-
-(it-sequential "js-parser-destructuring array-defaults"
-  (destructuring-bind (src) (list "const [a = 1, b = 2] = arr;")
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy))))
-
-(it-sequential "js-parser-destructuring object-defaults"
-  (destructuring-bind (src) (list "const {a = 1} = obj;")
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy))))
-
-(it-sequential "js-parser-destructuring object-rename-default"
-  (destructuring-bind (src) (list "const {a: x = 5} = obj;")
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy))))
-
-(it-sequential "js-parser-destructuring array-rest-default"
-  (destructuring-bind (src) (list "const [x, y = 10, ...rest] = arr;")
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy))))
+(it-sequential-each (("const [a, b] = arr;")
+                     ("const {x, y} = obj;")
+                     ("const [a = 1, b = 2] = arr;")
+                     ("const {a = 1} = obj;")
+                     ("const {a: x = 5} = obj;")
+                     ("const [x, y = 10, ...rest] = arr;"))
+    "js-parser-destructuring ~S"
+    (src)
+  (let ((ast (%js-first src)))
+    (expect (cl-cc:ast-let-p ast) :to-be-truthy)))
 
 ;;; ─── Spread operator ──────────────────────────────────────────────────────────
 
@@ -133,43 +96,25 @@
 
 ;;; ─── Logical assignment ───────────────────────────────────────────────────────
 
-(it-sequential "js-parser-logical-assignment and-assign"
-  (destructuring-bind (src) (list "let x = 1;    x &&= 0;")
-    (let ((asts (%js-parse src)))
+(it-sequential-each (("let x = 1;    x &&= 0;")
+                     ("let x = null; x ||= 42;")
+                     ("let x = null; x ??= 'default';"))
+    "js-parser-logical-assignment ~S"
+    (src)
+  (let ((asts (%js-parse src)))
     (expect (= 1 (length asts)) :to-be-truthy)
-    (expect (cl-cc:ast-let-p (first asts)) :to-be-truthy))))
-
-(it-sequential "js-parser-logical-assignment or-assign"
-  (destructuring-bind (src) (list "let x = null; x ||= 42;")
-    (let ((asts (%js-parse src)))
-    (expect (= 1 (length asts)) :to-be-truthy)
-    (expect (cl-cc:ast-let-p (first asts)) :to-be-truthy))))
-
-(it-sequential "js-parser-logical-assignment nullish-assign"
-  (destructuring-bind (src) (list "let x = null; x ??= 'default';")
-    (let ((asts (%js-parse src)))
-    (expect (= 1 (length asts)) :to-be-truthy)
-    (expect (cl-cc:ast-let-p (first asts)) :to-be-truthy))))
+    (expect (cl-cc:ast-let-p (first asts)) :to-be-truthy)))
 
 ;;; ─── Template literals ────────────────────────────────────────────────────────
 
-(it-sequential "js-parser-template-literals plain"
-  (destructuring-bind (src) (list "const s = `hello`;")
-    (let ((ast (%js-first src)))
+(it-sequential-each (("const s = `hello`;")
+                     ("const s = `hi ${name}!`;")
+                     ("const s = `sum=${a + b * 2}`;"))
+    "js-parser-template-literals ~S"
+    (src)
+  (let ((ast (%js-first src)))
     (expect (cl-cc:ast-let-p ast) :to-be-truthy)
-    (expect (not (null (cdr (first (cl-cc:ast-let-bindings ast))))) :to-be-truthy))))
-
-(it-sequential "js-parser-template-literals interpolate"
-  (destructuring-bind (src) (list "const s = `hi ${name}!`;")
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy)
-    (expect (not (null (cdr (first (cl-cc:ast-let-bindings ast))))) :to-be-truthy))))
-
-(it-sequential "js-parser-template-literals expr"
-  (destructuring-bind (src) (list "const s = `sum=${a + b * 2}`;")
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy)
-    (expect (not (null (cdr (first (cl-cc:ast-let-bindings ast))))) :to-be-truthy))))
+    (expect (not (null (cdr (first (cl-cc:ast-let-bindings ast))))) :to-be-truthy)))
 
 ;;; ─── Import / export ──────────────────────────────────────────────────────────
 
@@ -177,61 +122,20 @@
   (let ((asts (cl-cc/javascript:parse-js-module "import x from 'mod';")))
     (expect (>= (length asts) 0) :to-be-truthy)))
 
-(it-sequential "js-parser-import-forms bare"
-  (destructuring-bind (src expected) (list "import 'mod';" "%JS-IMPORT")
-    (if (string= expected "error")
+(it-sequential-each (("import 'mod';" "%JS-IMPORT")
+                     ("import 'mod' with { type: 'json' };" "%JS-IMPORT")
+                     ("import { 'default' as def, foo } from 'mod';" "%JS-IMPORT")
+                     ("import foo from 'mod';" "%JS-IMPORT")
+                     ("import foo, * as ns from 'mod';" "%JS-IMPORT")
+                     ("import foo, { bar as baz } from 'mod';" "%JS-IMPORT")
+                     ("import { foo }" "error"))
+    "js-parser-import-forms ~S"
+    (src expected)
+  (if (string= expected "error")
       (let ((%%signaled1 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled1 t))) (expect %%signaled1 :to-be-truthy))
       (let ((ast (first (cl-cc/javascript:parse-js-module src))))
         (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-import-forms attributes"
-  (destructuring-bind (src expected) (list "import 'mod' with { type: 'json' };" "%JS-IMPORT")
-    (if (string= expected "error")
-      (let ((%%signaled1 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled1 t))) (expect %%signaled1 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-import-forms named-string-spec"
-  (destructuring-bind (src expected) (list "import { 'default' as def, foo } from 'mod';" "%JS-IMPORT")
-    (if (string= expected "error")
-      (let ((%%signaled1 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled1 t))) (expect %%signaled1 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-import-forms default"
-  (destructuring-bind (src expected) (list "import foo from 'mod';" "%JS-IMPORT")
-    (if (string= expected "error")
-      (let ((%%signaled1 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled1 t))) (expect %%signaled1 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-import-forms default-namespace"
-  (destructuring-bind (src expected) (list "import foo, * as ns from 'mod';" "%JS-IMPORT")
-    (if (string= expected "error")
-      (let ((%%signaled1 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled1 t))) (expect %%signaled1 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-import-forms default-named"
-  (destructuring-bind (src expected) (list "import foo, { bar as baz } from 'mod';" "%JS-IMPORT")
-    (if (string= expected "error")
-      (let ((%%signaled1 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled1 t))) (expect %%signaled1 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-import-forms malformed"
-  (destructuring-bind (src expected) (list "import { foo }" "error")
-    (if (string= expected "error")
-      (let ((%%signaled1 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled1 t))) (expect %%signaled1 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
+        (expect (%js-call-name ast) :to-equal expected))))
 
 (it-sequential "js-parser-export-const"
   (let ((asts (cl-cc/javascript:parse-js-module "export const val = 1;")))
@@ -287,109 +191,26 @@
                        (eq :stub (cl-cc:ast-quote-value
                                   (first (cl-cc:ast-defun-body decl))))) :to-be-falsy)))
 
-(it-sequential "js-parser-export-forms default-expr"
-  (destructuring-bind (src expected) (list "export default 1 + 2;" "%JS-EXPORT")
-    (if (string= expected "error")
+(it-sequential-each (("export default 1 + 2;" "%JS-EXPORT")
+                     ("export default function foo() {}" "%JS-EXPORT")
+                     ("export default async function foo() {}" "%JS-EXPORT")
+                     ("export default class Foo {}" "%JS-EXPORT")
+                     ("export * from 'mod';" "%JS-EXPORT")
+                     ("export * as ns from 'mod';" "%JS-EXPORT")
+                     ("export { foo, bar as baz };" "%JS-EXPORT")
+                     ("export { foo as bar } from 'mod';" "%JS-EXPORT")
+                     ("export const value = 1;" "%JS-EXPORT")
+                     ("export function fn() {}" "%JS-EXPORT")
+                     ("export async function fn() {}" "%JS-EXPORT")
+                     ("export class C {}" "%JS-EXPORT")
+                     ("export default" "error"))
+    "js-parser-export-forms ~S"
+    (src expected)
+  (if (string= expected "error")
       (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
       (let ((ast (first (cl-cc/javascript:parse-js-module src))))
         (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-export-forms default-function"
-  (destructuring-bind (src expected) (list "export default function foo() {}" "%JS-EXPORT")
-    (if (string= expected "error")
-      (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-export-forms default-async-fn"
-  (destructuring-bind (src expected) (list "export default async function foo() {}" "%JS-EXPORT")
-    (if (string= expected "error")
-      (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-export-forms default-class"
-  (destructuring-bind (src expected) (list "export default class Foo {}" "%JS-EXPORT")
-    (if (string= expected "error")
-      (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-export-forms star"
-  (destructuring-bind (src expected) (list "export * from 'mod';" "%JS-EXPORT")
-    (if (string= expected "error")
-      (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-export-forms star-ns"
-  (destructuring-bind (src expected) (list "export * as ns from 'mod';" "%JS-EXPORT")
-    (if (string= expected "error")
-      (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-export-forms named"
-  (destructuring-bind (src expected) (list "export { foo, bar as baz };" "%JS-EXPORT")
-    (if (string= expected "error")
-      (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-export-forms re-export"
-  (destructuring-bind (src expected) (list "export { foo as bar } from 'mod';" "%JS-EXPORT")
-    (if (string= expected "error")
-      (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-export-forms export-const"
-  (destructuring-bind (src expected) (list "export const value = 1;" "%JS-EXPORT")
-    (if (string= expected "error")
-      (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-export-forms export-function"
-  (destructuring-bind (src expected) (list "export function fn() {}" "%JS-EXPORT")
-    (if (string= expected "error")
-      (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-export-forms export-async-fn"
-  (destructuring-bind (src expected) (list "export async function fn() {}" "%JS-EXPORT")
-    (if (string= expected "error")
-      (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-export-forms export-class"
-  (destructuring-bind (src expected) (list "export class C {}" "%JS-EXPORT")
-    (if (string= expected "error")
-      (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
-
-(it-sequential "js-parser-export-forms malformed"
-  (destructuring-bind (src expected) (list "export default" "error")
-    (if (string= expected "error")
-      (let ((%%signaled2 nil)) (handler-case (progn (cl-cc/javascript:parse-js-module src)) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-      (let ((ast (first (cl-cc/javascript:parse-js-module src))))
-        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-        (expect (%js-call-name ast) :to-equal expected)))))
+        (expect (%js-call-name ast) :to-equal expected))))
 
 (it-sequential "js-parser-import-meta-expression"
   (let* ((ast (first (cl-cc/javascript:parse-js-module "const meta = import.meta;")))
@@ -416,69 +237,21 @@
   (cl-cc/javascript::%js-toks-to-ast
    (list (first (cl-cc/javascript:tokenize-js-source src)))))
 
-(it-sequential "js-parser-toks-to-ast-single-token number"
-  (destructuring-bind (src kind) (list "42" :int)
-    (let ((ast (%js-token-ast src)))
+(it-sequential-each (("42" :int)
+                     ("'hello'" :quote)
+                     ("true" :quote)
+                     ("false" :quote)
+                     ("null" :quote)
+                     ("undefined" :quote)
+                     ("name" :var)
+                     ("." :quote))
+    "js-parser-toks-to-ast-single-token ~S"
+    (src kind)
+  (let ((ast (%js-token-ast src)))
     (case kind
       (:int   (expect (cl-cc:ast-int-p ast) :to-be-truthy))
       (:quote (expect (cl-cc:ast-quote-p ast) :to-be-truthy))
-      (:var   (expect (cl-cc:ast-var-p ast) :to-be-truthy))))))
-
-(it-sequential "js-parser-toks-to-ast-single-token string"
-  (destructuring-bind (src kind) (list "'hello'" :quote)
-    (let ((ast (%js-token-ast src)))
-    (case kind
-      (:int   (expect (cl-cc:ast-int-p ast) :to-be-truthy))
-      (:quote (expect (cl-cc:ast-quote-p ast) :to-be-truthy))
-      (:var   (expect (cl-cc:ast-var-p ast) :to-be-truthy))))))
-
-(it-sequential "js-parser-toks-to-ast-single-token true"
-  (destructuring-bind (src kind) (list "true" :quote)
-    (let ((ast (%js-token-ast src)))
-    (case kind
-      (:int   (expect (cl-cc:ast-int-p ast) :to-be-truthy))
-      (:quote (expect (cl-cc:ast-quote-p ast) :to-be-truthy))
-      (:var   (expect (cl-cc:ast-var-p ast) :to-be-truthy))))))
-
-(it-sequential "js-parser-toks-to-ast-single-token false"
-  (destructuring-bind (src kind) (list "false" :quote)
-    (let ((ast (%js-token-ast src)))
-    (case kind
-      (:int   (expect (cl-cc:ast-int-p ast) :to-be-truthy))
-      (:quote (expect (cl-cc:ast-quote-p ast) :to-be-truthy))
-      (:var   (expect (cl-cc:ast-var-p ast) :to-be-truthy))))))
-
-(it-sequential "js-parser-toks-to-ast-single-token null"
-  (destructuring-bind (src kind) (list "null" :quote)
-    (let ((ast (%js-token-ast src)))
-    (case kind
-      (:int   (expect (cl-cc:ast-int-p ast) :to-be-truthy))
-      (:quote (expect (cl-cc:ast-quote-p ast) :to-be-truthy))
-      (:var   (expect (cl-cc:ast-var-p ast) :to-be-truthy))))))
-
-(it-sequential "js-parser-toks-to-ast-single-token undefined"
-  (destructuring-bind (src kind) (list "undefined" :quote)
-    (let ((ast (%js-token-ast src)))
-    (case kind
-      (:int   (expect (cl-cc:ast-int-p ast) :to-be-truthy))
-      (:quote (expect (cl-cc:ast-quote-p ast) :to-be-truthy))
-      (:var   (expect (cl-cc:ast-var-p ast) :to-be-truthy))))))
-
-(it-sequential "js-parser-toks-to-ast-single-token ident"
-  (destructuring-bind (src kind) (list "name" :var)
-    (let ((ast (%js-token-ast src)))
-    (case kind
-      (:int   (expect (cl-cc:ast-int-p ast) :to-be-truthy))
-      (:quote (expect (cl-cc:ast-quote-p ast) :to-be-truthy))
-      (:var   (expect (cl-cc:ast-var-p ast) :to-be-truthy))))))
-
-(it-sequential "js-parser-toks-to-ast-single-token fallback"
-  (destructuring-bind (src kind) (list "." :quote)
-    (let ((ast (%js-token-ast src)))
-    (case kind
-      (:int   (expect (cl-cc:ast-int-p ast) :to-be-truthy))
-      (:quote (expect (cl-cc:ast-quote-p ast) :to-be-truthy))
-      (:var   (expect (cl-cc:ast-var-p ast) :to-be-truthy))))))
+      (:var   (expect (cl-cc:ast-var-p ast) :to-be-truthy)))))
 
 (it-sequential "js-parser-toks-to-ast-multi-token"
   (let ((ast (cl-cc/javascript::%js-toks-to-ast
@@ -486,9 +259,12 @@
     (expect (cl-cc:ast-call-p ast) :to-be-truthy)
     (expect (%js-call-name ast) :to-equal "%JS-RAW-DEFAULT")))
 
-(it-sequential "js-parser-default-expr-delimiters comma"
-  (destructuring-bind (src kind) (list ", tail" :quote)
-    (multiple-value-bind (ast rest)
+(it-sequential-each ((", tail" :quote)
+                     ("] tail" :quote)
+                     ("(a, [b, c], {d: e}) , tail" :call))
+    "js-parser-default-expr-delimiters ~S"
+    (src kind)
+  (multiple-value-bind (ast rest)
       (cl-cc/javascript::%js-parse-default-expr (cl-cc/javascript:tokenize-js-source src))
     (case kind
       (:quote
@@ -497,33 +273,7 @@
       (:call
        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
        (expect (%js-call-name ast) :to-equal "%JS-RAW-DEFAULT")
-       (expect (getf (first rest) :type) :to-be :T-COMMA))))))
-
-(it-sequential "js-parser-default-expr-delimiters close-bracket"
-  (destructuring-bind (src kind) (list "] tail" :quote)
-    (multiple-value-bind (ast rest)
-      (cl-cc/javascript::%js-parse-default-expr (cl-cc/javascript:tokenize-js-source src))
-    (case kind
-      (:quote
-       (expect (cl-cc:ast-quote-p ast) :to-be-truthy)
-       (expect (cl-cc:ast-quote-value ast) :to-equal nil))
-      (:call
-       (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-       (expect (%js-call-name ast) :to-equal "%JS-RAW-DEFAULT")
-       (expect (getf (first rest) :type) :to-be :T-COMMA))))))
-
-(it-sequential "js-parser-default-expr-delimiters nested"
-  (destructuring-bind (src kind) (list "(a, [b, c], {d: e}) , tail" :call)
-    (multiple-value-bind (ast rest)
-      (cl-cc/javascript::%js-parse-default-expr (cl-cc/javascript:tokenize-js-source src))
-    (case kind
-      (:quote
-       (expect (cl-cc:ast-quote-p ast) :to-be-truthy)
-       (expect (cl-cc:ast-quote-value ast) :to-equal nil))
-      (:call
-       (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-       (expect (%js-call-name ast) :to-equal "%JS-RAW-DEFAULT")
-       (expect (getf (first rest) :type) :to-be :T-COMMA))))))
+       (expect (getf (first rest) :type) :to-be :T-COMMA)))))
 
 (it-sequential "js-parser-binding-pattern-array-branches"
   (multiple-value-bind (pat rest)
@@ -624,33 +374,21 @@
     (expect (cl-cc:ast-var-p (cdr (first bindings))) :to-be-truthy)
     (expect inner :to-equal nil)))
 
-(it-sequential "js-parser-lower-binding-pattern-nested array"
-  (destructuring-bind (src) (list "[[a], ...rest]")
-    (multiple-value-bind (pat rest)
+(it-sequential-each (("[[a], ...rest]")
+                     ("{nested: [a], ...rest}"))
+    "js-parser-lower-binding-pattern-nested ~S"
+    (src)
+  (multiple-value-bind (pat rest)
       (cl-cc/javascript::js-parse-binding-pattern
        (cl-cc/javascript:tokenize-js-source src))
     (declare (ignore rest))
     (multiple-value-bind (bindings inner)
-      (cl-cc/javascript::js-lower-binding-pattern
-       pat
-       (make-ast-var :name 'src))
+        (cl-cc/javascript::js-lower-binding-pattern
+         pat
+         (make-ast-var :name 'src))
       (expect (= 1 (length bindings)) :to-be-truthy)
       (expect (consp inner) :to-be-truthy)
-      (expect (cl-cc:ast-let-p (first inner)) :to-be-truthy)))))
-
-(it-sequential "js-parser-lower-binding-pattern-nested object"
-  (destructuring-bind (src) (list "{nested: [a], ...rest}")
-    (multiple-value-bind (pat rest)
-      (cl-cc/javascript::js-parse-binding-pattern
-       (cl-cc/javascript:tokenize-js-source src))
-    (declare (ignore rest))
-    (multiple-value-bind (bindings inner)
-      (cl-cc/javascript::js-lower-binding-pattern
-       pat
-       (make-ast-var :name 'src))
-      (expect (= 1 (length bindings)) :to-be-truthy)
-      (expect (consp inner) :to-be-truthy)
-      (expect (cl-cc:ast-let-p (first inner)) :to-be-truthy)))))
+      (expect (cl-cc:ast-let-p (first inner)) :to-be-truthy))))
 
 (it-sequential "js-parser-lower-binding-pattern-error"
   (let ((%%signaled5 nil)) (handler-case (progn (cl-cc/javascript::js-lower-binding-pattern
@@ -740,9 +478,13 @@
 
 ;;; ─── Unary operators ──────────────────────────────────────────────────────────
 
-(it-sequential "js-parser-unary-ops not"
-  (destructuring-bind (src expected) (list "!x" "NOT")
-    (let ((ast (%js-first src)))
+(it-sequential-each (("!x" "NOT")
+                     ("typeof x" "%JS-TYPEOF")
+                     ("void 0" "PROGN")
+                     ("delete x" "%JS-DELETE"))
+    "js-parser-unary-ops ~S"
+    (src expected)
+  (let ((ast (%js-first src)))
     (cond
       ((string= expected "PROGN")
        (expect (cl-cc:ast-progn-p ast) :to-be-truthy))
@@ -750,40 +492,47 @@
        (expect (cl-cc:ast-call-p ast) :to-be-truthy)
        (expect (%js-call-name ast) :to-equal "NOT"))
       (t
-       (expect (%js-call-name ast) :to-equal expected))))))
+       (expect (%js-call-name ast) :to-equal expected)))))
 
-(it-sequential "js-parser-unary-ops typeof"
-  (destructuring-bind (src expected) (list "typeof x" "%JS-TYPEOF")
-    (let ((ast (%js-first src)))
-    (cond
-      ((string= expected "PROGN")
-       (expect (cl-cc:ast-progn-p ast) :to-be-truthy))
-      ((string= expected "NOT")
-       (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-       (expect (%js-call-name ast) :to-equal "NOT"))
-      (t
-       (expect (%js-call-name ast) :to-equal expected))))))
+;;; ─── Decorators ───────────────────────────────────────────────────────────────
+;;; %js-parse-decorator(s) itself, beyond the lexer-only "@decorator" tokenize
+;;; check elsewhere — member-chain walking and argument-list parsing were
+;;; previously untested.
 
-(it-sequential "js-parser-unary-ops void"
-  (destructuring-bind (src expected) (list "void 0" "PROGN")
-    (let ((ast (%js-first src)))
-    (cond
-      ((string= expected "PROGN")
-       (expect (cl-cc:ast-progn-p ast) :to-be-truthy))
-      ((string= expected "NOT")
-       (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-       (expect (%js-call-name ast) :to-equal "NOT"))
-      (t
-       (expect (%js-call-name ast) :to-equal expected))))))
+(defun %js-decorators (src)
+  "Parse the leading @decorator forms in SRC, returning (values decorators rest)."
+  (cl-cc/javascript::%js-parse-decorators (cl-cc/javascript:tokenize-js-source src)))
 
-(it-sequential "js-parser-unary-ops delete"
-  (destructuring-bind (src expected) (list "delete x" "%JS-DELETE")
-    (let ((ast (%js-first src)))
-    (cond
-      ((string= expected "PROGN")
-       (expect (cl-cc:ast-progn-p ast) :to-be-truthy))
-      ((string= expected "NOT")
-       (expect (cl-cc:ast-call-p ast) :to-be-truthy)
-       (expect (%js-call-name ast) :to-equal "NOT"))
-      (t
-       (expect (%js-call-name ast) :to-equal expected))))))
+(it-sequential "js-parser-decorators-none"
+  (multiple-value-bind (decorators rest) (%js-decorators "class Foo {}")
+    (expect decorators :to-be-null)
+    (expect (cl-cc/javascript::js-peek-type rest) :to-be :T-CLASS)))
+
+(it-sequential "js-parser-decorators-simple"
+  (multiple-value-bind (decorators rest) (%js-decorators "@dec class Foo {}")
+    (expect (length decorators) :to-be 1)
+    (expect (cl-cc:ast-var-p (first decorators)) :to-be-truthy)
+    (expect (symbol-name (cl-cc:ast-var-name (first decorators))) :to-equal "dec")
+    (expect (cl-cc/javascript::js-peek-type rest) :to-be :T-CLASS)))
+
+(it-sequential "js-parser-decorators-member-chain"
+  (multiple-value-bind (decorators rest) (%js-decorators "@ns.sub.dec class Foo {}")
+    (declare (ignore rest))
+    (expect (length decorators) :to-be 1)
+    (expect (symbol-name (cl-cc:ast-var-name (first decorators))) :to-equal "ns.sub.dec")))
+
+(it-sequential "js-parser-decorators-with-args"
+  (multiple-value-bind (decorators rest) (%js-decorators "@dec(1, 2) class Foo {}")
+    (declare (ignore rest))
+    (expect (length decorators) :to-be 1)
+    (expect (cl-cc:ast-call-p (first decorators)) :to-be-truthy)
+    (expect (symbol-name (cl-cc:ast-var-name (cl-cc:ast-call-func (first decorators))))
+            :to-equal "dec")
+    (expect (length (cl-cc:ast-call-args (first decorators))) :to-be 2)))
+
+(it-sequential "js-parser-decorators-stacked"
+  (multiple-value-bind (decorators rest) (%js-decorators "@a @b @c class Foo {}")
+    (declare (ignore rest))
+    (expect (length decorators) :to-be 3)
+    (expect (mapcar (lambda (d) (symbol-name (cl-cc:ast-var-name d))) decorators)
+            :to-equal '("a" "b" "c"))))

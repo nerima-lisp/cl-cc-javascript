@@ -97,6 +97,49 @@ since the paren contents were parsed as a literal before the => was seen."
          (list :object-pattern (gensym "OBJ-DEST-") fields))))
     (t nil)))
 
+(defun %js-parse-arrow-or-paren-item (current)
+  "Parse one non-rest item in a parenthesized-expression/arrow-param list at
+CURRENT: try it as an assignment-expr, then classify it as a default param
+(`x = e`), a plain identifier param, a destructurable pattern, or (if none of
+those fit) a plain expression that disqualifies the arrow-function reading.
+Returns (values new-current expr-form param-sym optional-pair pattern-pair
+arrow-candidate-p): PARAM-SYM/OPTIONAL-PAIR/PATTERN-PAIR are NIL when not
+applicable to this item; EXPR-FORM is always this item's expression-position
+AST (the non-arrow fallback); ARROW-CANDIDATE-P is NIL only when this item
+rules out the whole list being arrow params."
+  (multiple-value-bind (expr rest2) (js-parse-assignment-expr current)
+    (setf current rest2)
+    ;; Default parameter: `var = default'.  js-parse-assignment-expr
+    ;; stops at the `=' here (it is not an assignment operator in this
+    ;; position), so consume it ourselves and parse the default.
+    (if (and (ast-var-p expr)
+             (eq (js-peek-type current) :T-OP)
+             (string= (js-peek-value current) "="))
+        (multiple-value-bind (eq-tok rest3) (js-consume current)
+          (declare (ignore eq-tok))
+          (multiple-value-bind (default-expr rest4)
+              (js-parse-assignment-expr rest3)
+            (values rest4
+                    ;; non-arrow fallback: a parenthesized assignment expr
+                    (make-ast-setq :var (ast-var-name expr) :value default-expr)
+                    (ast-var-name expr)
+                    (cons (ast-var-name expr) default-expr)
+                    nil
+                    t)))
+        (cond
+          ((ast-var-p expr)
+           (values current expr (ast-var-name expr) nil nil t))
+          ;; Array/object literal in param position: an arrow
+          ;; destructuring pattern.  Give it a gensym param and
+          ;; record the pattern for body-prologue unpacking.
+          (t
+           (let ((pat (%js-expr-to-binding-pattern expr)))
+             (if (and pat (listp pat))
+                 (let ((g (second pat)))
+                   (values current expr g nil (cons g pat) t))
+                 ;; not a valid pattern -> not an arrow
+                 (values current expr nil nil nil nil))))))))
+
 (defun %js-parse-paren-or-arrow (stream)
   "Parse ( ... ) — either a parenthesized expression or arrow function params.
 Returns (values ast rest)."
@@ -138,41 +181,16 @@ Returns (values ast rest)."
                            current rest3))))
                (return)) ; rest param must be last
               (t
-               ;; Try as assignment-expr
-               (multiple-value-bind (expr rest2) (js-parse-assignment-expr current)
-                 (setf current rest2)
-                 ;; Default parameter: `var = default'.  js-parse-assignment-expr
-                 ;; stops at the `=' here (it is not an assignment operator in this
-                 ;; position), so consume it ourselves and parse the default.
-                 (if (and (ast-var-p expr)
-                          (eq (js-peek-type current) :T-OP)
-                          (string= (js-peek-value current) "="))
-                     (multiple-value-bind (eq-tok rest3) (js-consume current)
-                       (declare (ignore eq-tok))
-                       (multiple-value-bind (default-expr rest4)
-                           (js-parse-assignment-expr rest3)
-                         (push (ast-var-name expr) params)
-                         (push (cons (ast-var-name expr) default-expr) optionals)
-                         ;; non-arrow fallback: a parenthesized assignment expr
-                         (push (make-ast-setq :var (ast-var-name expr) :value default-expr)
-                               exprs)
-                         (setf current rest4)))
-                     (progn
-                       (push expr exprs)
-                       (cond
-                         ((ast-var-p expr)
-                          (push (ast-var-name expr) params))
-                         ;; Array/object literal in param position: an arrow
-                         ;; destructuring pattern.  Give it a gensym param and
-                         ;; record the pattern for body-prologue unpacking.
-                         (t
-                          (let ((pat (%js-expr-to-binding-pattern expr)))
-                            (if (and pat (listp pat))
-                                (let ((g (second pat)))
-                                  (push g params)
-                                  (push (cons g pat) param-patterns))
-                                ;; not a valid pattern -> not an arrow
-                                (setf is-arrow-candidate nil))))))))))
+               ;; Try as assignment-expr, then classify it
+               (multiple-value-bind (new-current expr-form param-sym optional-pair
+                                      pattern-pair arrow-candidate-p)
+                   (%js-parse-arrow-or-paren-item current)
+                 (setf current new-current)
+                 (push expr-form exprs)
+                 (when param-sym (push param-sym params))
+                 (when optional-pair (push optional-pair optionals))
+                 (when pattern-pair (push pattern-pair param-patterns))
+                 (unless arrow-candidate-p (setf is-arrow-candidate nil)))))
             (if (eq (js-peek-type current) :T-COMMA)
                 (multiple-value-bind (tok2 rest2) (js-consume current)
                   (declare (ignore tok2))

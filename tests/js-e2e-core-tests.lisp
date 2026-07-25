@@ -7,7 +7,7 @@
 ;;;; Covers: basic programs, closures, function params, destructuring,
 ;;;;         JSON/Math globals, try/catch, object spread, division, class this.
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 
 
@@ -28,12 +28,16 @@ real execution path, unlike the parse-only %js-e2e-parse checks."
 
 (defmacro deftest-js-run (name description &rest cases)
   "Each CASES element is (expected-string source-string).
-Expands to a deftest whose body runs each source and asserts the output."
+Expands to an it-sequential-each block registering every case as its own
+independently-reported test, rather than bundling all of NAME's assertions
+into a single pass/fail unit."
   (declare (ignore description))
-  `(it-sequential ,(string-downcase (string name))
-     ,@(mapcar (lambda (c)
-                 `(expect (%js-run-capture ,(second c)) :to-equal ,(first c)))
-               cases)))
+  `(it-sequential-each ,(loop for c in cases for i from 1
+                             collect (list i (second c) (first c)))
+       ,(concatenate 'string (string-downcase (string name)) " case ~D")
+       (case-index source expected)
+     (declare (ignorable case-index))
+     (expect (%js-run-capture source) :to-equal expected)))
 
 (defparameter *js-e2e-batch-sentinel-prefix* "__CL_CC_JS_E2E_CASE_")
 

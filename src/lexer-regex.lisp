@@ -48,11 +48,6 @@ The u (Unicode) flag was previously omitted from the literal, rejecting /.../u."
 ;;; Unicode Sets mode (/v) nested bracket depth helper
 ;;; ---------------------------------------------------------------------------
 
-(defun %js-regex-in-char-class-p (in-char-class inner-depth)
-  "Return true if the lexer is currently inside a character class.
-  IN-CHAR-CLASS is the outer [...] flag; INNER-DEPTH counts nested [[ ]] levels."
-  (or in-char-class (plusp inner-depth)))
-
 ;;; ---------------------------------------------------------------------------
 ;;; Main regex lexer
 ;;; ---------------------------------------------------------------------------

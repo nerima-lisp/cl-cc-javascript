@@ -192,20 +192,37 @@ semantics) instead of trapping in encode-universal-time."
   "Date.prototype.setDate(day) — day of month, 1-based."
   (%js-date-rebuild date :day (truncate (%js-to-number day))))
 
-(defun %js-date-set-hours (date hours &optional min sec ms)
-  "Date.prototype.setHours(hours[, min, sec, ms])."
-  (declare (ignore ms))
-  (%js-date-rebuild date :hour (truncate (%js-to-number hours))
-                         :min (and min (not (eq min +js-undefined+)) (truncate (%js-to-number min)))
-                         :sec (and sec (not (eq sec +js-undefined+)) (truncate (%js-to-number sec)))))
+(defmacro define-js-date-cascading-setter (name docstring (primary-var primary-key) &rest secondary-specs)
+  "Define a Date.prototype cascading setter (setHours/setMinutes/setSeconds):
+PRIMARY-VAR is required and stored under PRIMARY-KEY; each (VAR KEY) in
+SECONDARY-SPECS is an optional trailing component, defaulting to \"leave
+unchanged\" when omitted or undefined. A trailing MS parameter is always
+accepted and ignored (sub-second ms are preserved separately by
+%js-date-rebuild)."
+  (let ((params (list* 'date primary-var '&optional
+                       (append (mapcar #'first secondary-specs) '(ms)))))
+    `(defun ,name ,params
+       ,docstring
+       (declare (ignore ms))
+       (%js-date-rebuild date
+                         ,primary-key (truncate (%js-to-number ,primary-var))
+                         ,@(mapcan (lambda (spec)
+                                     (destructuring-bind (var key) spec
+                                       (list key `(and ,var (not (eq ,var +js-undefined+))
+                                                        (truncate (%js-to-number ,var))))))
+                                   secondary-specs)))))
 
-(defun %js-date-set-minutes (date minutes &optional sec ms)
-  "Date.prototype.setMinutes(minutes[, sec, ms])."
-  (declare (ignore ms))
-  (%js-date-rebuild date :min (truncate (%js-to-number minutes))
-                         :sec (and sec (not (eq sec +js-undefined+)) (truncate (%js-to-number sec)))))
+(define-js-date-cascading-setter %js-date-set-hours
+    "Date.prototype.setHours(hours[, min, sec, ms])."
+    (hours :hour)
+  (min :min)
+  (sec :sec))
 
-(defun %js-date-set-seconds (date seconds &optional ms)
-  "Date.prototype.setSeconds(seconds[, ms])."
-  (declare (ignore ms))
-  (%js-date-rebuild date :sec (truncate (%js-to-number seconds))))
+(define-js-date-cascading-setter %js-date-set-minutes
+    "Date.prototype.setMinutes(minutes[, sec, ms])."
+    (minutes :min)
+  (sec :sec))
+
+(define-js-date-cascading-setter %js-date-set-seconds
+    "Date.prototype.setSeconds(seconds[, ms])."
+    (seconds :sec))

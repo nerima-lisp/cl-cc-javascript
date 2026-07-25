@@ -56,7 +56,6 @@
    #:%js-make-generator
    #:%js-generator-next
    #:%js-wrap-generator-body
-   #:*%js-yield-collector*
    ;; Temporal API (ES2026)
    #:*js-temporal-global*
    #:%js-temporal-instant

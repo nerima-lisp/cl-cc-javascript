@@ -28,7 +28,9 @@
         (cons "with" #'%js-array-with)
         (cons "findLast" #'%js-array-find-last)
         (cons "findLastIndex" #'%js-array-find-last-index)
-        (cons "at" #'%js-array-at))
+        (cons "at" #'%js-array-at)
+        (cons "toLocaleString" (lambda (arr &rest _) (declare (ignore _))
+                                 (%js-array-join arr ","))))
   "Alist: JS Array.prototype method name -> host helper (receiver = first arg).")
 
 (defparameter *js-string-method-table*
@@ -117,11 +119,11 @@
 (defparameter *js-number-method-table*
   (list (cons "toFixed"
               (lambda (n digits)
-                (let ((d (if (eq digits +js-undefined+) 0 (truncate (%js-to-number digits)))))
+                (let ((d (%js-int-arg-or-default digits 0)))
                   (%js-strip-trailing-dot (format nil "~,vF" d (%js-to-number n))))))
         (cons "toString"
               (lambda (n &optional (radix 10))
-                (let ((r (if (eq radix +js-undefined+) 10 (truncate (%js-to-number radix))))
+                (let ((r (%js-int-arg-or-default radix 10))
                       (ni (truncate (%js-to-number n))))
                   (if (= r 10)
                       (%js-to-string n)
@@ -139,7 +141,7 @@
                   (format nil "~,v,,,,,'eE" d (coerce v 'double-float)))))
         (cons "valueOf" (lambda (n) (%js-to-number n)))
         (cons "toLocaleString" (lambda (n &rest _) (declare (ignore _))
-                                 (format nil "~A" (%js-to-number n)))))
+                                 (%js-to-string n))))
   "Alist: Number.prototype method name -> helpers.")
 
 (defparameter *js-symbol-method-table*

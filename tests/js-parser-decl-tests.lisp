@@ -8,7 +8,7 @@
 ;;;; Covers: variable/const/let declarations, arrow functions, async/generator
 ;;;;         modifiers, class declarations with fields/methods/static/private.
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── Shared helpers (available to all js-parser-* files via serial load) ─────
 
@@ -71,17 +71,13 @@
 
 ;;; ─── Async / generator function modifiers ────────────────────────────────────
 
-(it-sequential "js-parser-function-modifiers async"
-  (destructuring-bind (src decl) (list "async function fetch() {}" :js-async)
-    (let ((ast (%js-first src)))
+(it-sequential-each ((:js-async "async function fetch() {}")
+                     (:js-generator "function* gen() {}"))
+    "js-parser-function-modifiers ~(~A~)"
+    (decl src)
+  (let ((ast (%js-first src)))
     (expect (cl-cc:ast-defun-p ast) :to-be-truthy)
-    (expect (member decl (cl-cc:ast-defun-declarations ast)) :to-be-truthy))))
-
-(it-sequential "js-parser-function-modifiers generator"
-  (destructuring-bind (src decl) (list "function* gen() {}" :js-generator)
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-defun-p ast) :to-be-truthy)
-    (expect (member decl (cl-cc:ast-defun-declarations ast)) :to-be-truthy))))
+    (expect (member decl (cl-cc:ast-defun-declarations ast)) :to-be-truthy)))
 
 ;;; ─── Class declarations ───────────────────────────────────────────────────────
 
@@ -142,24 +138,16 @@
     (expect (= 1 (length asts)) :to-be-truthy)
     (expect (cl-cc:ast-defclass-p (first asts)) :to-be-truthy)))
 
-(it-sequential "js-parser-tagged-template plain"
-  (destructuring-bind (src) (list "tag`hi`;")
-    (let ((asts (%js-parse src)))
+(it-sequential-each (("tag`hi`;") ("tag`hi ${name}`;"))
+    "js-parser-tagged-template ~A"
+    (src)
+  (let ((asts (%js-parse src)))
     (expect (= 1 (length asts)) :to-be-truthy)
-    (expect (cl-cc:ast-call-p (first asts)) :to-be-truthy))))
+    (expect (cl-cc:ast-call-p (first asts)) :to-be-truthy)))
 
-(it-sequential "js-parser-tagged-template interpolated"
-  (destructuring-bind (src) (list "tag`hi ${name}`;")
-    (let ((asts (%js-parse src)))
-    (expect (= 1 (length asts)) :to-be-truthy)
-    (expect (cl-cc:ast-call-p (first asts)) :to-be-truthy))))
-
-(it-sequential "js-parser-class-expression plain"
-  (destructuring-bind (src) (list "const C = class { m() { return 1; } };")
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy))))
-
-(it-sequential "js-parser-class-expression extends"
-  (destructuring-bind (src) (list "const C = class extends Base { constructor() { super(); } };")
-    (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy))))
+(it-sequential-each (("const C = class { m() { return 1; } };")
+                     ("const C = class extends Base { constructor() { super(); } };"))
+    "js-parser-class-expression ~A"
+    (src)
+  (let ((ast (%js-first src)))
+    (expect (cl-cc:ast-let-p ast) :to-be-truthy)))

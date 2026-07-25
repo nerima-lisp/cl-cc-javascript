@@ -98,6 +98,64 @@
                    :bindings (list (cons nested-tmp val-expr))
                    :body nested-form)))))))
 
+(defun %js-build-array-pattern-let (pattern value-expr body)
+  "Build an ast-let tree for an :array js-binding-pattern bound to VALUE-EXPR
+with BODY as the leaf. Binds a temp symbol, then layers elements (and any
+rest element) right-to-left. Returns a list of AST forms."
+  (let* ((tmp-sym  (gensym "JSPAT-T-"))
+         (elements (js-binding-pattern-elements pattern))
+         (rest-pat (js-binding-pattern-rest pattern))
+         (n        (length elements))
+         (inner-body
+          (if rest-pat
+              (let* ((rest-key (make-ast-call
+                                 :func (make-ast-var :name '%js-array-slice)
+                                 :args (list (make-ast-var :name tmp-sym)
+                                             (make-ast-int :value n)))))
+                (if (eq (js-binding-pattern-kind rest-pat) :ident)
+                    (list (make-ast-let
+                           :bindings (list (cons (js-binding-pattern-name rest-pat) rest-key))
+                           :body body))
+                    (%js-build-pattern-let rest-pat rest-key body)))
+              body)))
+    (let ((layered-body inner-body))
+      (loop for i from (1- n) downto 0
+            for elem = (nth i elements)
+            do (setf layered-body
+                     (%js-lower-element elem tmp-sym i layered-body)))
+      (list (make-ast-let
+             :bindings (list (cons tmp-sym value-expr))
+             :body layered-body)))))
+
+(defun %js-build-object-pattern-let (pattern value-expr body)
+  "Build an ast-let tree for an :object js-binding-pattern bound to VALUE-EXPR
+with BODY as the leaf. Binds a temp symbol, then layers properties (and any
+rest pattern) right-to-left. Returns a list of AST forms."
+  (let* ((tmp-sym    (gensym "JSPAT-T-"))
+         (properties (js-binding-pattern-properties pattern))
+         (rest-pat   (js-binding-pattern-rest pattern))
+         (inner-body
+          (if rest-pat
+              (let* ((used-keys (mapcar #'car properties))
+                     (rest-expr (make-ast-call
+                                 :func (make-ast-var :name '%js-object-rest)
+                                 :args (list (make-ast-var :name tmp-sym)
+                                             (make-ast-quote :value used-keys)))))
+                (if (eq (js-binding-pattern-kind rest-pat) :ident)
+                    (list (make-ast-let
+                           :bindings (list (cons (js-binding-pattern-name rest-pat) rest-expr))
+                           :body body))
+                    (%js-build-pattern-let rest-pat rest-expr body)))
+              body)))
+    (let ((layered-body inner-body))
+      (loop for i from (1- (length properties)) downto 0
+            for prop = (nth i properties)
+            do (setf layered-body
+                     (%js-lower-property prop tmp-sym layered-body)))
+      (list (make-ast-let
+             :bindings (list (cons tmp-sym value-expr))
+             :body layered-body)))))
+
 (defun %js-build-pattern-let (pattern value-expr body)
   "Build an ast-let tree for PATTERN bound to VALUE-EXPR with BODY as the leaf.
 
@@ -107,67 +165,16 @@
 
   Returns a list of AST forms (the outermost ast-let wrapping everything down
   to BODY)."
-  (let ((kind (js-binding-pattern-kind pattern)))
-    (cond
-      ;; Simple identifier: one let binding
-      ((eq kind :ident)
-       (list (make-ast-let
-              :bindings (list (cons (js-binding-pattern-name pattern) value-expr))
-              :body body)))
-      ;; Array pattern: bind tmp, then layer elements right-to-left
-      ((eq kind :array)
-       (let* ((tmp-sym  (gensym "JSPAT-T-"))
-              (elements (js-binding-pattern-elements pattern))
-              (rest-pat (js-binding-pattern-rest pattern))
-              (n        (length elements))
-              (inner-body
-               (if rest-pat
-                   (let* ((rest-key (make-ast-call
-                                     :func (make-ast-var :name '%js-array-slice)
-                                     :args (list (make-ast-var :name tmp-sym)
-                                                 (make-ast-int :value n)))))
-                     (if (eq (js-binding-pattern-kind rest-pat) :ident)
-                         (list (make-ast-let
-                                :bindings (list (cons (js-binding-pattern-name rest-pat) rest-key))
-                                :body body))
-                         (%js-build-pattern-let rest-pat rest-key body)))
-                   body)))
-         (let ((layered-body inner-body))
-           (loop for i from (1- n) downto 0
-                 for elem = (nth i elements)
-                 do (setf layered-body
-                          (%js-lower-element elem tmp-sym i layered-body)))
-           (list (make-ast-let
-                  :bindings (list (cons tmp-sym value-expr))
-                  :body layered-body)))))
-      ;; Object pattern: bind tmp, then layer properties right-to-left
-      ((eq kind :object)
-       (let* ((tmp-sym    (gensym "JSPAT-T-"))
-              (properties (js-binding-pattern-properties pattern))
-              (rest-pat   (js-binding-pattern-rest pattern))
-              (inner-body
-               (if rest-pat
-                   (let* ((used-keys (mapcar #'car properties))
-                          (rest-expr (make-ast-call
-                                      :func (make-ast-var :name '%js-object-rest)
-                                      :args (list (make-ast-var :name tmp-sym)
-                                                  (make-ast-quote :value used-keys)))))
-                     (if (eq (js-binding-pattern-kind rest-pat) :ident)
-                         (list (make-ast-let
-                                :bindings (list (cons (js-binding-pattern-name rest-pat) rest-expr))
-                                :body body))
-                         (%js-build-pattern-let rest-pat rest-expr body)))
-                   body)))
-         (let ((layered-body inner-body))
-           (loop for i from (1- (length properties)) downto 0
-                 for prop = (nth i properties)
-                 do (setf layered-body
-                          (%js-lower-property prop tmp-sym layered-body)))
-           (list (make-ast-let
-                  :bindings (list (cons tmp-sym value-expr))
-                  :body layered-body)))))
-      (t
-       (error "%js-build-pattern-let: unknown pattern kind ~S" kind)))))
+  (case (js-binding-pattern-kind pattern)
+    ;; Simple identifier: one let binding
+    (:ident
+     (list (make-ast-let
+            :bindings (list (cons (js-binding-pattern-name pattern) value-expr))
+            :body body)))
+    (:array  (%js-build-array-pattern-let pattern value-expr body))
+    (:object (%js-build-object-pattern-let pattern value-expr body))
+    (t
+     (error "%js-build-pattern-let: unknown pattern kind ~S" (js-binding-pattern-kind pattern)))))
 
 (defun js-lower-binding-pattern (pattern value-expr)
   "Lower PATTERN into a bindings-alist and an inner-body list for ast-let.

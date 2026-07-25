@@ -26,28 +26,9 @@
   (multiple-value-bind (v f) (gethash key (js-weak-map-ht m))
     (if f v +js-undefined+)))
 
-(defun %js-weak-map-get-or-insert (m key value)
-  "Return existing value at KEY, or insert VALUE and return it."
-  (multiple-value-bind (existing found-p) (gethash key (js-weak-map-ht m))
-    (if found-p
-        existing
-        (progn
-          (%js-weak-map-set m key value)
-          value))))
-
-(defun %js-weak-map-get-or-insert-computed (m key callback)
-  "Return existing value at KEY, or compute and insert a default value."
-  (multiple-value-bind (existing found-p) (gethash key (js-weak-map-ht m))
-    (if found-p
-        existing
-        (let ((callback-value (%js-funcall callback key)))
-          (multiple-value-bind (existing-after found-after)
-              (gethash key (js-weak-map-ht m))
-            (if found-after
-                existing-after
-                (progn
-                  (%js-weak-map-set m key callback-value)
-                  callback-value)))))))
+(define-js-map-like-get-or-insert %js-weak-map-get-or-insert %js-weak-map-get-or-insert-computed (m key)
+  (gethash key (js-weak-map-ht m))
+  (%js-weak-map-set m key v))
 
 (defun %js-weak-map-has (m key)
   (nth-value 1 (gethash key (js-weak-map-ht m))))

@@ -11,6 +11,23 @@
 
 ;;; Operator lexer
 
+(defparameter *%js-single-char-punctuator-tokens*
+  '((#\( :T-LPAREN   . "(")
+    (#\) :T-RPAREN   . ")")
+    (#\{ :T-LBRACE   . "{")
+    (#\} :T-RBRACE   . "}")
+    (#\[ :T-LBRACKET . "[")
+    (#\] :T-RBRACKET . "]")
+    (#\; :T-SEMI     . ";")
+    (#\, :T-COMMA    . ",")
+    (#\@ :T-AT       . "@")
+    (#\~ :T-OP       . "~")
+    (#\: :T-COLON    . ":"))
+  "JS punctuators with no multi-character extension — every other operator
+character (. ? = ! < > + - * / % &amp; | ^) starts a case arm of its own in
+LEX-JS-OPERATOR because at least one longer operator begins with it.
+Entry shape: (char token-type . token-value).")
+
 (defun lex-js-operator (source pos)
   "Lex an operator or punctuation token at POS.
 Handles all multi-character JS operators.
@@ -32,17 +49,6 @@ Returns (values token new-pos)."
                  `(return-from lex-js-operator
                     (values (make-js-token ,type ,val) (1+ pos)))))
       (case ch
-        (#\(  (tok1 :T-LPAREN "("))
-        (#\)  (tok1 :T-RPAREN ")"))
-        (#\{  (tok1 :T-LBRACE "{"))
-        (#\}  (tok1 :T-RBRACE "}"))
-        (#\[  (tok1 :T-LBRACKET "["))
-        (#\]  (tok1 :T-RBRACKET "]"))
-        (#\;  (tok1 :T-SEMI ";"))
-        (#\,  (tok1 :T-COMMA ","))
-        (#\@  (tok1 :T-AT "@"))
-        (#\~  (tok1 :T-OP "~"))
-        (#\:  (tok1 :T-COLON ":"))
         (#\.
          ;; ... ellipsis
          (when (and ch2 ch3 (char= ch2 #\.) (char= ch3 #\.))
@@ -158,9 +164,66 @@ Returns (values token new-pos)."
          (tok2 "^=" :T-OP "^=")
          (tok1 :T-OP "^"))
         (otherwise
-         (error "JS lex error: unexpected character ~S at position ~D" ch pos))))))
+         (let ((entry (assoc ch *%js-single-char-punctuator-tokens*)))
+           (if entry
+               (tok1 (cadr entry) (cddr entry))
+               (error "JS lex error: unexpected character ~S at position ~D" ch pos))))))))
 
 ;;; Main tokenizer
+
+(defun %js-lex-template-fallback-scan (source pos)
+  "Scan raw template-literal content starting at POS (just past the opening
+backtick) until the closing backtick, honoring simple backslash escapes. Used
+only when js-lex-template (lexer-template.lisp) is not loaded.
+Returns (values content new-pos) where NEW-POS is just past the closing
+backtick."
+  (let ((len (length source))
+        (buf (make-array 64 :element-type 'character
+                         :fill-pointer 0 :adjustable t)))
+    (loop
+      (when (>= pos len)
+        (error "JS lex error: unterminated template literal"))
+      (let ((tc (char source pos)))
+        (cond
+          ((char= tc #\`)
+           (return (values (copy-seq buf) (1+ pos))))
+          ((and (char= tc #\\) (< (1+ pos) len))
+           (vector-push-extend (char source (1+ pos)) buf)
+           (incf pos 2))
+          (t
+           (vector-push-extend tc buf)
+           (incf pos)))))))
+
+(defun %js-lex-hash-token (source pos)
+  "Handle a '#' at POS: a mid-source hashbang comment (#!...), a private
+identifier (#name), or a lex error. Returns (values tok new-pos); TOK is nil
+when the character sequence is a comment to skip (no token emitted)."
+  (let ((len (length source)))
+    (cond
+      ;; Hashbang #! at non-zero position: skip the line
+      ((and (< (1+ pos) len) (char= (char source (1+ pos)) #\!))
+       (values nil (skip-js-line-comment source (+ pos 2))))
+      ;; Private identifier: # followed by identifier start
+      ((and (< (1+ pos) len) (js-id-start-p (char source (1+ pos))))
+       (lex-js-private-ident source (1+ pos)))
+      (t
+       (error "JS lex error: unexpected # at position ~D" pos)))))
+
+(defun %js-lex-slash-token (source pos prev-token-type)
+  "Handle a '/' at POS: a regex literal (when PREV-TOKEN-TYPE indicates a
+value cannot precede, per js-regex-follows-p) or the division operator/'/='.
+Returns (values tok new-pos new-prev-token-type)."
+  (if (js-regex-follows-p prev-token-type)
+      ;; js-lex-regex expects POS to be AFTER the opening '/', so skip it with
+      ;; (1+ pos) — otherwise it sees the opening slash as an empty pattern's
+      ;; closing slash and reads the pattern body as flags ("/ab+c/gi" ->
+      ;; unknown flag 'a').
+      (if (fboundp 'js-lex-regex)
+          (multiple-value-bind (tok new-pos) (js-lex-regex source (1+ pos))
+            (values tok new-pos :T-REGEX))
+          (values (make-js-token :T-OP "/") (1+ pos) :T-OP))
+      (multiple-value-bind (tok new-pos) (lex-js-operator source pos)
+        (values tok new-pos (getf tok :type)))))
 
 (defun tokenize-js-source (source)
   "Tokenize JavaScript SOURCE string into a list of token plists.
@@ -217,25 +280,11 @@ identifiers, and hashbang comments at position 0."
                 (push tok tokens)
                 (setf prev-token-type :T-TEMPLATE-START)
                 (incf pos)
-                ;; Simple inline scan: collect template content until closing backtick
-                (let ((buf (make-array 64 :element-type 'character
-                                       :fill-pointer 0 :adjustable t)))
-                  (loop
-                    (when (>= pos len)
-                      (error "JS lex error: unterminated template literal"))
-                    (let ((tc (char source pos)))
-                      (cond
-                        ((char= tc #\`)
-                         (push (make-js-token :T-STRING (copy-seq buf)) tokens)
-                         (setf prev-token-type :T-STRING)
-                         (incf pos)
-                         (return))
-                        ((and (char= tc #\\) (< (1+ pos) len))
-                         (vector-push-extend (char source (1+ pos)) buf)
-                         (incf pos 2))
-                        (t
-                         (vector-push-extend tc buf)
-                         (incf pos))))))))))
+                (multiple-value-bind (content new-pos)
+                    (%js-lex-template-fallback-scan source pos)
+                  (push (make-js-token :T-STRING content) tokens)
+                  (setf prev-token-type :T-STRING
+                        pos new-pos))))))
           ;; Number
           ((js-digit-p ch)
            (multiple-value-bind (tok new-pos) (lex-js-number source pos)
@@ -250,50 +299,19 @@ identifiers, and hashbang comments at position 0."
                    pos new-pos)))
           ;; Private identifier or hashbang
           ((char= ch #\#)
-           (cond
-             ;; Hashbang #! at non-zero position: treat # as error or skip line
-             ((and (< (1+ pos) len)
-                   (char= (char source (1+ pos)) #\!))
-              ;; Non-zero position hashbang: skip the line
-              (setf pos (skip-js-line-comment source (+ pos 2))))
-             ;; Private identifier: # followed by identifier start
-             ((and (< (1+ pos) len)
-                   (js-id-start-p (char source (1+ pos))))
-              (multiple-value-bind (tok new-pos) (lex-js-private-ident source (1+ pos))
-                (push tok tokens)
-                (setf prev-token-type :T-PRIVATE-IDENT
-                      pos new-pos)))
-             (t
-              (error "JS lex error: unexpected # at position ~D" pos))))
+           (multiple-value-bind (tok new-pos) (%js-lex-hash-token source pos)
+             (if tok
+                 (progn (push tok tokens)
+                        (setf prev-token-type :T-PRIVATE-IDENT
+                              pos new-pos))
+                 (setf pos new-pos))))
           ;; Slash: regex or division
           ((char= ch #\/)
-           (cond
-             ;; Check if this slash starts a regex
-             ((js-regex-follows-p prev-token-type)
-              (cond
-                ;; If js-lex-regex is available (from lexer-regex.lisp), use it.
-                ;; js-lex-regex expects POS to be AFTER the opening '/', so skip it
-                ;; with (1+ pos) — otherwise it sees the opening slash as an empty
-                ;; pattern's closing slash and reads the pattern body as flags
-                ;; ("/ab+c/gi" -> unknown flag 'a').
-                ((fboundp 'js-lex-regex)
-                 (multiple-value-bind (tok new-pos)
-                     (js-lex-regex source (1+ pos))
-                   (push tok tokens)
-                   (setf prev-token-type :T-REGEX
-                         pos new-pos)))
-                ;; Otherwise emit a simple :T-OP "/" token
-                (t
-                 (let ((tok (make-js-token :T-OP "/")))
-                   (push tok tokens)
-                   (setf prev-token-type :T-OP
-                         pos (1+ pos))))))
-             ;; Division operator (or /=)
-             (t
-              (multiple-value-bind (tok new-pos) (lex-js-operator source pos)
-                (push tok tokens)
-                (setf prev-token-type (getf tok :type)
-                      pos new-pos)))))
+           (multiple-value-bind (tok new-pos new-prev)
+               (%js-lex-slash-token source pos prev-token-type)
+             (push tok tokens)
+             (setf prev-token-type new-prev
+                   pos new-pos)))
           ;; Operators and punctuation
           (t
            (multiple-value-bind (tok new-pos) (lex-js-operator source pos)

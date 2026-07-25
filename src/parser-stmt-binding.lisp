@@ -63,6 +63,80 @@ DEFAULT-AST is nil."
        :else access-expr)
       access-expr))
 
+(defun %js-parse-object-binding-pattern (stream)
+  "Parse {a, b: c, ...rest} destructuring pattern. STREAM points past '{'.
+Returns (values (:object-pattern tmp keys) rest)."
+  (let ((current stream)
+        (keys nil))
+    (loop
+      (setf current (js-skip-semis current))
+      (when (or (js-at-eof-p current)
+                (eq (js-peek-type current) :T-RBRACE))
+        (return))
+      (cond
+        ;; Rest element: ...rest
+        ((eq (js-peek-type current) :T-ELLIPSIS)
+         (setf current (cdr current))
+         (multiple-value-bind (tok rest) (js-consume current)
+           (push (list :rest (%js-binding-sym (js-tok-value tok))) keys)
+           (setf current rest)))
+        ;; key: binding or shorthand key
+        (t
+         (multiple-value-bind (key-tok rest) (js-consume current)
+           (let* ((key-name (js-tok-value key-tok))
+                  (local-sym (%js-binding-sym key-name)))
+             (if (and rest (eq (js-peek-type rest) :T-COLON))
+                 (progn
+                   (setf rest (cdr rest))
+                   (multiple-value-bind (local-sym2 rest2)
+                       (%js-parse-binding-pattern rest)
+                     ;; key: pattern [= default]
+                     (multiple-value-bind (dflt rest3) (%js-parse-pattern-default rest2)
+                       (push (list key-name local-sym2 dflt) keys)
+                       (setf current rest3))))
+                 ;; shorthand {key [= default]}
+                 (multiple-value-bind (dflt rest2) (%js-parse-pattern-default rest)
+                   (push (list key-name local-sym dflt) keys)
+                   (setf current rest2)))))))
+      (when (eq (js-peek-type current) :T-COMMA)
+        (setf current (cdr current))))
+    (setf current (%js-consume-expected :T-RBRACE current))
+    ;; Return a gensym for the binding; destructuring is emitted as a let
+    (let ((tmp (gensym "OBJ-DEST-")))
+      (values (list :object-pattern tmp (nreverse keys)) current))))
+
+(defun %js-parse-array-binding-pattern (stream)
+  "Parse [a, b, ...rest] destructuring pattern. STREAM points past '['.
+Returns (values (:array-pattern tmp elements) rest)."
+  (let ((current stream)
+        (elements nil))
+    (loop
+      (setf current (js-skip-semis current))
+      (when (or (js-at-eof-p current)
+                (eq (js-peek-type current) :T-RBRACKET))
+        (return))
+      (cond
+        ;; Elision (hole): ,
+        ((eq (js-peek-type current) :T-COMMA)
+         (push :hole elements))
+        ;; Rest element: ...rest
+        ((eq (js-peek-type current) :T-ELLIPSIS)
+         (setf current (cdr current))
+         (multiple-value-bind (tok rest) (js-consume current)
+           (push (list :rest (%js-binding-sym (js-tok-value tok))) elements)
+           (setf current rest)))
+        (t
+         (multiple-value-bind (sym rest) (%js-parse-binding-pattern current)
+           ;; element [= default]
+           (multiple-value-bind (dflt rest2) (%js-parse-pattern-default rest)
+             (push (if dflt (list :default sym dflt) sym) elements)
+             (setf current rest2)))))
+      (when (eq (js-peek-type current) :T-COMMA)
+        (setf current (cdr current))))
+    (setf current (%js-consume-expected :T-RBRACKET current))
+    (let ((tmp (gensym "ARR-DEST-")))
+      (values (list :array-pattern tmp (nreverse elements)) current))))
+
 (defun %js-parse-binding-pattern (stream)
   "Parse a destructuring pattern or simple identifier.
   Returns (values sym/pattern rest).
@@ -77,80 +151,15 @@ DEFAULT-AST is nil."
       ;; (const set = …, function f(get){…}).  They only act as keywords in
       ;; specific positions (class getter/setter, for-of, import …), which are
       ;; parsed before reaching here.  Mirrors the expression-side handling.
-      ((member type '(:T-GET :T-SET :T-FROM :T-AS :T-OF
-                      :T-TARGET :T-META :T-USING :T-STATIC :T-LET) :test #'eq)
+      ((member type *js-contextual-keyword-token-types* :test #'eq)
        (multiple-value-bind (tok rest) (js-consume stream)
          (values (%js-binding-sym (js-tok-value tok)) rest)))
       ;; Object destructuring: {a, b: c, ...rest}
       ((eq type :T-LBRACE)
-       (let ((current (cdr stream))
-             (keys nil))
-         (loop
-           (setf current (js-skip-semis current))
-           (when (or (js-at-eof-p current)
-                     (eq (js-peek-type current) :T-RBRACE))
-             (return))
-           (cond
-             ;; Rest element: ...rest
-             ((eq (js-peek-type current) :T-ELLIPSIS)
-              (setf current (cdr current))
-              (multiple-value-bind (tok rest) (js-consume current)
-                (push (list :rest (%js-binding-sym (js-tok-value tok))) keys)
-                (setf current rest)))
-             ;; key: binding or shorthand key
-             (t
-              (multiple-value-bind (key-tok rest) (js-consume current)
-                (let* ((key-name (js-tok-value key-tok))
-                       (local-sym (%js-binding-sym key-name)))
-                  (if (and rest (eq (js-peek-type rest) :T-COLON))
-                      (progn
-                        (setf rest (cdr rest))
-                        (multiple-value-bind (local-sym2 rest2)
-                            (%js-parse-binding-pattern rest)
-                          ;; key: pattern [= default]
-                          (multiple-value-bind (dflt rest3) (%js-parse-pattern-default rest2)
-                            (push (list key-name local-sym2 dflt) keys)
-                            (setf current rest3))))
-                      ;; shorthand {key [= default]}
-                      (multiple-value-bind (dflt rest2) (%js-parse-pattern-default rest)
-                        (push (list key-name local-sym dflt) keys)
-                        (setf current rest2)))))))
-           (when (eq (js-peek-type current) :T-COMMA)
-             (setf current (cdr current))))
-         (setf current (%js-consume-expected :T-RBRACE current))
-         ;; Return a gensym for the binding; destructuring is emitted as a let
-         (let ((tmp (gensym "OBJ-DEST-")))
-           (values (list :object-pattern tmp (nreverse keys)) current))))
+       (%js-parse-object-binding-pattern (cdr stream)))
       ;; Array destructuring: [a, b, ...rest]
       ((eq type :T-LBRACKET)
-       (let ((current (cdr stream))
-             (elements nil))
-         (loop
-           (setf current (js-skip-semis current))
-           (when (or (js-at-eof-p current)
-                     (eq (js-peek-type current) :T-RBRACKET))
-             (return))
-           (cond
-             ;; Elision (hole): ,
-             ((eq (js-peek-type current) :T-COMMA)
-              (push :hole elements))
-             ;; Rest element: ...rest
-             ((eq (js-peek-type current) :T-ELLIPSIS)
-              (setf current (cdr current))
-              (multiple-value-bind (tok rest) (js-consume current)
-                (push (list :rest (%js-binding-sym (js-tok-value tok))) elements)
-                (setf current rest)))
-             (t
-              (multiple-value-bind (sym rest) (%js-parse-binding-pattern current)
-                ;; element [= default]
-                (multiple-value-bind (dflt rest2) (%js-parse-pattern-default rest)
-                  (push (if dflt (list :default sym dflt) sym) elements)
-                  (setf current rest2)))))
-           (when (eq (js-peek-type current) :T-COMMA)
-             (setf current (cdr current))))
-         (setf current (%js-consume-expected :T-RBRACKET current))
-         (let ((tmp (gensym "ARR-DEST-")))
-           (values (list :array-pattern tmp (nreverse elements)) current))))
+       (%js-parse-array-binding-pattern (cdr stream)))
       (t
        (error "JS parse error: expected binding pattern, got ~S" (js-peek stream))))))
 
@@ -174,6 +183,93 @@ never unpacked, so b/c stayed undefined and the binding form failed to compile."
         b)
       (list (cons (%js-binding-to-sym target) access-expr))))
 
+(defun %js-emit-object-pattern-bindings (tmp desc init-expr)
+  "Emit bindings for an :object-pattern with temp symbol TMP and field
+descriptor list DESC (as produced by %js-parse-object-binding-pattern),
+initialized from INIT-EXPR. Returns a bindings alist ((sym . init-expr) ...)
+in let* order."
+  ;; tmp = init-expr, then destructure fields
+  (let ((bindings (list (cons tmp init-expr)))
+        (consumed-keys nil))
+    (dolist (field desc)
+      (if (eq (car field) :rest)
+          ;; rest property: emit (%js-destructure-object tmp :rest k1 k2 …)
+          ;; passing the already-bound keys so they're excluded from the
+          ;; rest object.  Rest is syntactically last, so consumed-keys is
+          ;; complete here.
+          (setf bindings
+                (append bindings
+                        (list (cons (second field)
+                                    (make-ast-call
+                                     :func (make-ast-var :name '%js-destructure-object)
+                                     :args (list* (make-ast-var :name tmp)
+                                                  (make-ast-quote :value :rest)
+                                                  (mapcar (lambda (k)
+                                                            (make-ast-quote :value k))
+                                                          (reverse consumed-keys))))))))
+          ;; named property, with optional default ((key local default)).
+          ;; LOCAL may itself be a nested pattern — recurse via sub-bindings.
+          (let* ((key    (first field))
+                 (local  (second field))
+                 (dflt   (third field))
+                 (access (%js-default-access
+                          (make-ast-call
+                           :func (make-ast-var :name '%js-get-prop)
+                           :args (list (make-ast-var :name tmp)
+                                       (make-ast-quote :value key)))
+                          dflt)))
+            (push key consumed-keys)
+            (setf bindings
+                  (append bindings
+                          (%js-destructure-sub-bindings local access))))))
+    bindings))
+
+(defun %js-emit-array-pattern-bindings (tmp desc init-expr)
+  "Emit bindings for an :array-pattern with temp symbol TMP and element
+descriptor list DESC (as produced by %js-parse-array-binding-pattern),
+initialized from INIT-EXPR. Returns a bindings alist ((sym . init-expr) ...)
+in let* order."
+  ;; tmp = init-expr, then destructure by index
+  (let ((bindings (list (cons tmp init-expr)))
+        (idx 0))
+    (dolist (elem desc)
+      (cond
+        ((eq elem :hole)
+         (incf idx))
+        ((and (listp elem) (eq (car elem) :rest))
+         (setf bindings
+               (append bindings
+                       (list (cons (second elem)
+                                   (make-ast-call
+                                    :func (make-ast-var :name '%js-destructure-array)
+                                    :args (list (make-ast-var :name tmp)
+                                                (make-ast-quote :value idx)
+                                                (make-ast-quote :value :rest))))))))
+        ;; element with default: (:default target default-ast) — TARGET may
+        ;; be a nested pattern.
+        ((and (listp elem) (eq (car elem) :default))
+         (let ((access (%js-default-access
+                        (make-ast-call
+                         :func (make-ast-var :name '%js-get-prop)
+                         :args (list (make-ast-var :name tmp)
+                                     (make-ast-quote :value idx)))
+                        (third elem))))
+           (setf bindings
+                 (append bindings
+                         (%js-destructure-sub-bindings (second elem) access))))
+         (incf idx))
+        ;; plain element — may itself be a nested pattern.
+        (t
+         (let ((access (make-ast-call
+                        :func (make-ast-var :name '%js-get-prop)
+                        :args (list (make-ast-var :name tmp)
+                                    (make-ast-quote :value idx)))))
+           (setf bindings
+                 (append bindings
+                         (%js-destructure-sub-bindings elem access))))
+         (incf idx))))
+    bindings))
+
 (defun %js-emit-destructure-bindings (binding init-expr)
   "Emit let bindings for a destructuring BINDING initialized from INIT-EXPR.
   Returns (values bindings-alist extra-lets) where bindings-alist is
@@ -186,82 +282,7 @@ never unpacked, so b/c stayed undefined and the binding form failed to compile."
       (let ((kind (first binding))
             (tmp  (second binding))
             (desc (third binding)))
-        (cond
-          ((eq kind :object-pattern)
-           ;; tmp = init-expr, then destructure fields
-           (let ((bindings (list (cons tmp init-expr)))
-                 (consumed-keys nil))
-             (dolist (field desc)
-               (if (eq (car field) :rest)
-                   ;; rest property: emit (%js-destructure-object tmp :rest k1 k2 …)
-                   ;; passing the already-bound keys so they're excluded from the
-                   ;; rest object.  Rest is syntactically last, so consumed-keys is
-                   ;; complete here.
-                   (setf bindings
-                         (append bindings
-                                 (list (cons (second field)
-                                             (make-ast-call
-                                              :func (make-ast-var :name '%js-destructure-object)
-                                              :args (list* (make-ast-var :name tmp)
-                                                           (make-ast-quote :value :rest)
-                                                           (mapcar (lambda (k)
-                                                                     (make-ast-quote :value k))
-                                                                   (reverse consumed-keys))))))))
-                   ;; named property, with optional default ((key local default)).
-                   ;; LOCAL may itself be a nested pattern — recurse via sub-bindings.
-                   (let* ((key    (first field))
-                          (local  (second field))
-                          (dflt   (third field))
-                          (access (%js-default-access
-                                   (make-ast-call
-                                    :func (make-ast-var :name '%js-get-prop)
-                                    :args (list (make-ast-var :name tmp)
-                                                (make-ast-quote :value key)))
-                                   dflt)))
-                     (push key consumed-keys)
-                     (setf bindings
-                           (append bindings
-                                   (%js-destructure-sub-bindings local access))))))
-             (values bindings nil)))
-          ((eq kind :array-pattern)
-           ;; tmp = init-expr, then destructure by index
-           (let ((bindings (list (cons tmp init-expr)))
-                 (idx 0))
-             (dolist (elem desc)
-               (cond
-                 ((eq elem :hole)
-                  (incf idx))
-                 ((and (listp elem) (eq (car elem) :rest))
-                  (setf bindings
-                        (append bindings
-                                (list (cons (second elem)
-                                            (make-ast-call
-                                             :func (make-ast-var :name '%js-destructure-array)
-                                             :args (list (make-ast-var :name tmp)
-                                                         (make-ast-quote :value idx)
-                                                         (make-ast-quote :value :rest))))))))
-                 ;; element with default: (:default target default-ast) — TARGET may
-                 ;; be a nested pattern.
-                 ((and (listp elem) (eq (car elem) :default))
-                  (let ((access (%js-default-access
-                                 (make-ast-call
-                                  :func (make-ast-var :name '%js-get-prop)
-                                  :args (list (make-ast-var :name tmp)
-                                              (make-ast-quote :value idx)))
-                                 (third elem))))
-                    (setf bindings
-                          (append bindings
-                                  (%js-destructure-sub-bindings (second elem) access))))
-                  (incf idx))
-                 ;; plain element — may itself be a nested pattern.
-                 (t
-                  (let ((access (make-ast-call
-                                 :func (make-ast-var :name '%js-get-prop)
-                                 :args (list (make-ast-var :name tmp)
-                                             (make-ast-quote :value idx)))))
-                    (setf bindings
-                          (append bindings
-                                  (%js-destructure-sub-bindings elem access))))
-                  (incf idx))))
-             (values bindings nil)))
+        (case kind
+          (:object-pattern (values (%js-emit-object-pattern-bindings tmp desc init-expr) nil))
+          (:array-pattern  (values (%js-emit-array-pattern-bindings tmp desc init-expr) nil))
           (t (values (list (cons binding init-expr)) nil))))))

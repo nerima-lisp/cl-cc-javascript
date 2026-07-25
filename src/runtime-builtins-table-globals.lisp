@@ -67,14 +67,6 @@ and never references a helper that does not exist."
             (push (if (and constant-p (functionp val)) (funcall val) val) pairs)))))
     (apply #'%js-make-object (nreverse pairs))))
 
-(defun %js-make-math ()
-  "Construct the JS Math global object (constants + methods)."
-  (%js-make-namespace-object "Math"))
-
-(defun %js-make-json ()
-  "Construct the JS JSON global object (stringify / parse)."
-  (%js-make-namespace-object "JSON"))
-
 ;;; Like *js-map-global*: Date must be a constructor OBJECT (not a bare
 ;;; function binding) so that `new Date(...)' routes through __new__ and the
 ;;; statics Date.now / Date.parse / Date.UTC resolve as properties. A bare
@@ -92,3 +84,12 @@ and never references a helper that does not exist."
                                     (%js-date-to-string (%js-make-date))))
     ht)
   "JS Date constructor object: __new__ for `new Date()', now/parse/UTC statics.")
+
+;;; BigInt must likewise be a constructor OBJECT (not a bare :function prelude
+;;; binding): BigInt.asIntN/asUintN are statics accessed as properties, which
+;;; a plain function value has no way to carry.
+(defparameter *js-bigint-global*
+  (let ((ht (%js-make-namespace-object "BigInt")))
+    (setf (gethash "__call__" ht) #'%js-bigint)
+    ht)
+  "JS BigInt constructor object: __call__ for `BigInt(x)' coercion, asIntN/asUintN statics.")

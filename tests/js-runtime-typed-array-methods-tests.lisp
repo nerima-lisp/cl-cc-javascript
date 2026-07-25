@@ -7,7 +7,7 @@
 ;;;;
 ;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr)
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -39,20 +39,11 @@
 
 ;;; ─── at (negative indexing) ──────────────────────────────────────────────────
 
-(it-sequential "js-rt-ta-at first"
-  (destructuring-bind (idx expected) (list 0 10.0d0)
-    (let ((ta (%make-int32-ta 10 20 30)))
-    (expect (= expected (cl-cc/javascript::%js-ta-at ta idx)) :to-be-truthy))))
-
-(it-sequential "js-rt-ta-at last"
-  (destructuring-bind (idx expected) (list -1 30.0d0)
-    (let ((ta (%make-int32-ta 10 20 30)))
-    (expect (= expected (cl-cc/javascript::%js-ta-at ta idx)) :to-be-truthy))))
-
-(it-sequential "js-rt-ta-at middle"
-  (destructuring-bind (idx expected) (list 1 20.0d0)
-    (let ((ta (%make-int32-ta 10 20 30)))
-    (expect (= expected (cl-cc/javascript::%js-ta-at ta idx)) :to-be-truthy))))
+(it-sequential-each ((0 10.0d0) (-1 30.0d0) (1 20.0d0))
+    "js-rt-ta-at ~A"
+    (idx expected)
+  (let ((ta (%make-int32-ta 10 20 30)))
+    (expect (= expected (cl-cc/javascript::%js-ta-at ta idx)) :to-be-truthy)))
 
 ;;; ─── find / findIndex ────────────────────────────────────────────────────────
 
@@ -76,25 +67,15 @@
 
 ;;; ─── every / some ────────────────────────────────────────────────────────────
 
-(it-sequential "js-rt-ta-every-some every-all-positive"
-  (destructuring-bind (fn values pred expected) (list #'cl-cc/javascript::%js-ta-every '(1 2 3) (lambda (v &rest _) (declare (ignore _)) (> v 0)) t)
-    (let ((ta (apply #'%make-int32-ta values)))
-    (expect (funcall fn ta pred) :to-equal expected))))
-
-(it-sequential "js-rt-ta-every-some every-some-negative"
-  (destructuring-bind (fn values pred expected) (list #'cl-cc/javascript::%js-ta-every '(1 -2 3) (lambda (v &rest _) (declare (ignore _)) (> v 0)) nil)
-    (let ((ta (apply #'%make-int32-ta values)))
-    (expect (funcall fn ta pred) :to-equal expected))))
-
-(it-sequential "js-rt-ta-every-some some-found"
-  (destructuring-bind (fn values pred expected) (list #'cl-cc/javascript::%js-ta-some '(1 -2 3) (lambda (v &rest _) (declare (ignore _)) (< v 0)) t)
-    (let ((ta (apply #'%make-int32-ta values)))
-    (expect (funcall fn ta pred) :to-equal expected))))
-
-(it-sequential "js-rt-ta-every-some some-not-found"
-  (destructuring-bind (fn values pred expected) (list #'cl-cc/javascript::%js-ta-some '(1 2 3) (lambda (v &rest _) (declare (ignore _)) (< v 0)) nil)
-    (let ((ta (apply #'%make-int32-ta values)))
-    (expect (funcall fn ta pred) :to-equal expected))))
+(it-sequential-each ((cl-cc/javascript::%js-ta-every (1 2 3) > t)
+                     (cl-cc/javascript::%js-ta-every (1 -2 3) > nil)
+                     (cl-cc/javascript::%js-ta-some (1 -2 3) < t)
+                     (cl-cc/javascript::%js-ta-some (1 2 3) < nil))
+    "js-rt-ta-every-some ~A ~A"
+    (fn values comparator expected)
+  (let* ((ta   (apply #'%make-int32-ta values))
+         (pred (lambda (v &rest r) (declare (ignore r)) (funcall comparator v 0))))
+    (expect (funcall fn ta pred) :to-equal expected)))
 
 ;;; ─── reverse / toReversed ────────────────────────────────────────────────────
 
@@ -182,15 +163,11 @@
 
 ;;; ─── lastIndexOf ─────────────────────────────────────────────────────────────
 
-(it-sequential "js-rt-ta-last-index-of found"
-  (destructuring-bind (values target expected) (list '(1 2 3 2) 2 3.0d0)
-    (let ((ta (apply #'%make-int32-ta values)))
-    (expect (= expected (cl-cc/javascript::%js-ta-last-index-of ta target)) :to-be-truthy))))
-
-(it-sequential "js-rt-ta-last-index-of absent"
-  (destructuring-bind (values target expected) (list '(1 2 3) 9 -1.0d0)
-    (let ((ta (apply #'%make-int32-ta values)))
-    (expect (= expected (cl-cc/javascript::%js-ta-last-index-of ta target)) :to-be-truthy))))
+(it-sequential-each (((1 2 3 2) 2 3.0d0) ((1 2 3) 9 -1.0d0))
+    "js-rt-ta-last-index-of ~A ~A"
+    (values target expected)
+  (let ((ta (apply #'%make-int32-ta values)))
+    (expect (= expected (cl-cc/javascript::%js-ta-last-index-of ta target)) :to-be-truthy)))
 
 (it-sequential "js-rt-ta-search-from-index-coercion"
   (let ((ta (%make-int32-ta 1 2 3 2 1)))
@@ -276,41 +253,20 @@
 
 ;;; ─── constructor / methods ──────────────────────────────────────────────────
 
-(it-sequential "js-rt-ta-make-typed-array-from-arg undefined"
-  (destructuring-bind (arg expected-len expected-values) (list cl-cc/javascript::+js-undefined+ 0 '())
-    (let ((ta (cl-cc/javascript::%js-make-typed-array "Int32Array" arg)))
+(it-sequential-each ((:js-undefined 0 ())
+                     (:js-null 0 ())
+                     (3.9d0 3 (0 0 0))
+                     (#(4 5 6) 3 (4 5 6))
+                     ((:ta 1 2 3) 3 (1 2 3))
+                     (:oops 0 ()))
+    "js-rt-ta-make-typed-array-from-arg ~A"
+    (arg expected-len expected-values)
+  (let* ((real-arg (if (and (consp arg) (eq (first arg) :ta))
+                        (apply #'%make-int32-ta (rest arg))
+                        arg))
+         (ta (cl-cc/javascript::%js-make-typed-array "Int32Array" real-arg)))
     (expect (= expected-len (cl-cc/javascript::js-ta-length ta)) :to-be-truthy)
-    (expect (%ta-to-list ta) :to-equal expected-values))))
-
-(it-sequential "js-rt-ta-make-typed-array-from-arg null"
-  (destructuring-bind (arg expected-len expected-values) (list cl-cc/javascript::+js-null+ 0 '())
-    (let ((ta (cl-cc/javascript::%js-make-typed-array "Int32Array" arg)))
-    (expect (= expected-len (cl-cc/javascript::js-ta-length ta)) :to-be-truthy)
-    (expect (%ta-to-list ta) :to-equal expected-values))))
-
-(it-sequential "js-rt-ta-make-typed-array-from-arg number"
-  (destructuring-bind (arg expected-len expected-values) (list 3.9d0 3 '(0 0 0))
-    (let ((ta (cl-cc/javascript::%js-make-typed-array "Int32Array" arg)))
-    (expect (= expected-len (cl-cc/javascript::js-ta-length ta)) :to-be-truthy)
-    (expect (%ta-to-list ta) :to-equal expected-values))))
-
-(it-sequential "js-rt-ta-make-typed-array-from-arg vector"
-  (destructuring-bind (arg expected-len expected-values) (list #(4 5 6) 3 '(4 5 6))
-    (let ((ta (cl-cc/javascript::%js-make-typed-array "Int32Array" arg)))
-    (expect (= expected-len (cl-cc/javascript::js-ta-length ta)) :to-be-truthy)
-    (expect (%ta-to-list ta) :to-equal expected-values))))
-
-(it-sequential "js-rt-ta-make-typed-array-from-arg typed-array"
-  (destructuring-bind (arg expected-len expected-values) (list (%make-int32-ta 1 2 3) 3 '(1 2 3))
-    (let ((ta (cl-cc/javascript::%js-make-typed-array "Int32Array" arg)))
-    (expect (= expected-len (cl-cc/javascript::js-ta-length ta)) :to-be-truthy)
-    (expect (%ta-to-list ta) :to-equal expected-values))))
-
-(it-sequential "js-rt-ta-make-typed-array-from-arg fallback"
-  (destructuring-bind (arg expected-len expected-values) (list :oops 0 '())
-    (let ((ta (cl-cc/javascript::%js-make-typed-array "Int32Array" arg)))
-    (expect (= expected-len (cl-cc/javascript::js-ta-length ta)) :to-be-truthy)
-    (expect (%ta-to-list ta) :to-equal expected-values))))
+    (expect (%ta-to-list ta) :to-equal expected-values)))
 
 (it-sequential "js-rt-ta-set-from-vector-and-typed-array"
   (let ((from-vector (%make-int32-ta 0 0 0 0))
@@ -360,23 +316,15 @@
                       (> v 1)))))
     (expect (%ta-to-list filtered) :to-equal '(2 3))))
 
-(it-sequential "js-rt-ta-reduce implicit-init"
-  (destructuring-bind (init expected) (list nil 6)
-    (let ((ta (%make-int32-ta 1 2 3)))
+(it-sequential-each ((nil 6) (10 16))
+    "js-rt-ta-reduce ~A"
+    (init expected)
+  (let ((ta (%make-int32-ta 1 2 3)))
     (if init
         (expect (= expected (cl-cc/javascript::%js-ta-reduce
                    ta (lambda (acc v &rest _) (+ acc v)) init)) :to-be-truthy)
         (expect (= expected (cl-cc/javascript::%js-ta-reduce
-                   ta (lambda (acc v &rest _) (+ acc v)))) :to-be-truthy)))))
-
-(it-sequential "js-rt-ta-reduce explicit-init"
-  (destructuring-bind (init expected) (list 10 16)
-    (let ((ta (%make-int32-ta 1 2 3)))
-    (if init
-        (expect (= expected (cl-cc/javascript::%js-ta-reduce
-                   ta (lambda (acc v &rest _) (+ acc v)) init)) :to-be-truthy)
-        (expect (= expected (cl-cc/javascript::%js-ta-reduce
-                   ta (lambda (acc v &rest _) (+ acc v)))) :to-be-truthy)))))
+                   ta (lambda (acc v &rest _) (+ acc v)))) :to-be-truthy))))
 
 ;;; ─── ES2025 Uint8Array hex / base64 ─────────────────────────────────────────
 

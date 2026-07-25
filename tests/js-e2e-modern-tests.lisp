@@ -8,7 +8,7 @@
 ;;;;
 ;;;; Depends on: js-e2e-core-tests.lisp (%js-run-capture, deftest-js-run).
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── ES2022: Private class fields ────────────────────────────────────────────
 
@@ -284,3 +284,11 @@ were likewise unreachable through the function-method resolver)."
   ("true"    "console.log(Date.now()>0);")
   ("1970-01-02T00:00:00.000Z" "console.log(new Date(86400000).toISOString());")
   ("true"    "console.log(Date.parse('1970-01-02')===86400000);"))
+
+(it-sequential "js-e2e-decorator-on-class-declaration-parses-and-runs"
+  ;; Decorators are currently parsed but semantically no-op
+  ;; (%js-lower-class-to-ast ignores its DECORATORS argument) — confirm a
+  ;; decorated class still parses and behaves exactly as an undecorated one,
+  ;; i.e. decorators never observably change class semantics.
+  (expect (%js-run-capture "@dec class Foo { greet(){return \"hi\";} } console.log(new Foo().greet());")
+          :to-equal "hi"))

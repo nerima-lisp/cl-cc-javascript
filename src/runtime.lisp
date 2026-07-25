@@ -69,8 +69,6 @@
 (defstruct (js-bigint (:constructor %make-js-bigint (value)))
   (value 0 :type integer))
 
-(defun %js-bigint-p (x) (js-bigint-p x))
-
 (defun %js-vm-closure-p (x)
   "Package-safe predicate for a compiled-JS closure (a cl-cc/vm:vm-closure-object).
 The VM package is NOT an ASDF compile-time dependency of the JS frontend (closures
@@ -161,6 +159,15 @@ type symbol cannot be named at read time — resolve it by name at runtime."
                        (error () *js-nan-float*)))))
        val))
     (t *js-nan-float*)))
+
+(defun %js-int-arg-or-default (value default)
+  "Coerce an optional integer argument: DEFAULT when VALUE is the JS
+undefined sentinel (an omitted optional parameter), otherwise VALUE truncated
+through JS ToNumber. Shared by every radix/digit-count-style optional integer
+parameter (parseInt's radix, toFixed's digits, toString's radix, ...)."
+  (if (eq value +js-undefined+)
+      default
+      (truncate (%js-to-number value))))
 
 (defun %js-loose-eq (a b)
   "JS == with type coercion."

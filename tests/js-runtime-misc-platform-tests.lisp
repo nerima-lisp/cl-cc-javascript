@@ -6,7 +6,7 @@
 ;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr, %jr-list),
 ;;;;             js-runtime-misc-tests.lisp (%jr-assert-string-props)
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── URLSearchParams ─────────────────────────────────────────────────────────
 

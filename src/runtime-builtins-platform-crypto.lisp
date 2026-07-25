@@ -16,15 +16,15 @@
     bytes))
 
 (defun %js-crypto-random-raw-integer (type-name)
-  "Return random integer bits sized for TYPE-NAME."
-  (let ((size (case (%js-ta-type-tag type-name)
-                ((:int8 :uint8 :uint8c) 1)
-                ((:int16 :uint16)       2)
-                ((:int32 :uint32)       4)
-                ((:bigint64 :biguint64) 8)
-                ((:float32 :float64)
-                 (error "JS TypeError: crypto.getRandomValues requires an integer TypedArray"))
-                (t 1))))
+  "Return random integer bits sized for TYPE-NAME.
+Byte size and integer-vs-float kind both come from the canonical
+*js-typed-array-specs* table (via %js-ta-spec-by-tag), not a hand-copied
+case/list — the previous hand copies never picked up Float16Array, so it
+silently passed as a 1-byte integer type instead of being rejected."
+  (let* ((spec (%js-ta-spec-by-tag (%js-ta-type-tag type-name)))
+         (size (if (and spec (fifth spec)) ; non-NIL min => integer spec
+                   (third spec)
+                   (error "JS TypeError: crypto.getRandomValues requires an integer TypedArray"))))
     (loop with value = 0
           for byte across (%js-crypto-random-bytes size)
           do (setf value (logior (ash value 8) byte))
@@ -47,8 +47,8 @@
 (defun %js-crypto-integer-typed-array-p (arr)
   "Return true when ARR is an integer TypedArray accepted by getRandomValues."
   (and (js-typed-array-p arr)
-       (not (member (%js-ta-type-tag (js-ta-type-name arr))
-                    '(:float32 :float64)))))
+       (let ((spec (%js-ta-spec-by-tag (%js-ta-type-tag (js-ta-type-name arr)))))
+         (and spec (fifth spec) t))))
 
 (defun %js-crypto-get-random-values (arr)
   "Fill integer TypedArray ARR with random values and return ARR."

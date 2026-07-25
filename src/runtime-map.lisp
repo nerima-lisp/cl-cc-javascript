@@ -55,24 +55,29 @@
         (gethash stored-key (js-map-ht m))
         +js-undefined+)))
 
-(defun %js-map-get-or-insert (m key value)
-  "Return existing value at KEY, or insert VALUE and return it."
-  (if (%js-map-has m key)
-      (%js-map-get m key)
-      (progn
-        (%js-map-set m key value)
-        value)))
+(defmacro define-js-map-like-get-or-insert
+    (get-or-insert-name get-or-insert-computed-name (m key) fetch-form store-form)
+  "Define GET-OR-INSERT-NAME and GET-OR-INSERT-COMPUTED-NAME for a Map-like
+collection (Map, WeakMap). FETCH-FORM, evaluated with M and KEY bound, must
+return (values value found-p) for an existing entry; STORE-FORM, evaluated
+with M, KEY, and V (the value to store) bound, stores the entry."
+  `(progn
+     (defun ,get-or-insert-name (,m ,key v)
+       "Return existing value at KEY, or insert VALUE and return it."
+       (multiple-value-bind (existing found-p) ,fetch-form
+         (if found-p existing (progn ,store-form v))))
+     (defun ,get-or-insert-computed-name (,m ,key callback)
+       "Return existing value at KEY, or compute and insert a default value."
+       (multiple-value-bind (existing found-p) ,fetch-form
+         (if found-p
+             existing
+             (let ((v (%js-funcall callback ,key)))
+               (multiple-value-bind (existing-after found-after) ,fetch-form
+                 (if found-after existing-after (progn ,store-form v)))))))))
 
-(defun %js-map-get-or-insert-computed (m key callback)
-  "Return existing value at KEY, or compute and insert a default value."
-  (if (%js-map-has m key)
-      (%js-map-get m key)
-      (let ((callback-value (%js-funcall callback key)))
-        (if (%js-map-has m key)
-            (%js-map-get m key)
-            (progn
-              (%js-map-set m key callback-value)
-              callback-value)))))
+(define-js-map-like-get-or-insert %js-map-get-or-insert %js-map-get-or-insert-computed (m key)
+  (values (%js-map-get m key) (%js-map-has m key))
+  (%js-map-set m key v))
 
 (defun %js-map-has (m key)
   "True if Map M has KEY."

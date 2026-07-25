@@ -6,7 +6,7 @@
 ;;;;
 ;;;; Depends on: js-e2e-core-tests.lisp (%js-run-capture, deftest-js-run).
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── Optional chaining + nullish coalescing ──────────────────────────────────
 
@@ -89,87 +89,33 @@
 
 ;;; ─── Relational operators ────────────────────────────────────────────────────
 
-(it-sequential "js-e2e-relational-operators gt-true"
-  (destructuring-bind (src expected) (list "console.log(5 > 0);" "true")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-relational-operators lt-false"
-  (destructuring-bind (src expected) (list "console.log(2 < 1);" "false")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-relational-operators gte-eq"
-  (destructuring-bind (src expected) (list "console.log(3 >= 3);" "true")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-relational-operators lte-false"
-  (destructuring-bind (src expected) (list "console.log(4 <= 2);" "false")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-relational-operators str-lex"
-  (destructuring-bind (src expected) (list "console.log(\"apple\" < \"banana\");" "true")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-relational-operators nan-gt"
-  (destructuring-bind (src expected) (list "console.log(NaN > 0);" "false")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-relational-operators coerce"
-  (destructuring-bind (src expected) (list "console.log(\"5\" > 3);" "true")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-relational-operators ternary"
-  (destructuring-bind (src expected) (list "console.log(5 > 3 ? \"y\" : \"n\");" "y")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-relational-operators for-loop-sum"
-  (destructuring-bind (src expected) (list "let s=0; for(let i=0;i<4;i++){s+=i;} console.log(s);" "6")
-    (expect (%js-run-capture src) :to-equal expected)))
+(deftest-js-run js-e2e-relational-operators
+  "Relational and comparison operators, including string/NaN coercion edge cases."
+  ("true"  "console.log(5 > 0);")
+  ("false" "console.log(2 < 1);")
+  ("true"  "console.log(3 >= 3);")
+  ("false" "console.log(4 <= 2);")
+  ("true"  "console.log(\"apple\" < \"banana\");")
+  ("false" "console.log(NaN > 0);")
+  ("true"  "console.log(\"5\" > 3);")
+  ("y"     "console.log(5 > 3 ? \"y\" : \"n\");")
+  ("6"     "let s=0; for(let i=0;i<4;i++){s+=i;} console.log(s);"))
 
 ;;; ─── Logical &&/|| ──────────────────────────────────────────────────────────
 
-(it-sequential "js-e2e-logical-and-or and-false"
-  (destructuring-bind (src expected) (list "console.log(true && false);" "false")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-logical-and-or and-true"
-  (destructuring-bind (src expected) (list "console.log(true && true);" "true")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-logical-and-or and-val"
-  (destructuring-bind (src expected) (list "console.log(1 && 2);" "2")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-logical-and-or and-zero"
-  (destructuring-bind (src expected) (list "console.log(0 && 2);" "0")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-logical-and-or or-right"
-  (destructuring-bind (src expected) (list "console.log(0 || 5);" "5")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-logical-and-or or-left"
-  (destructuring-bind (src expected) (list "console.log(3 || 5);" "3")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-logical-and-or and-str"
-  (destructuring-bind (src expected) (list "console.log(\"a\" && \"b\");" "b")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-logical-and-or and-chain"
-  (destructuring-bind (src expected) (list "console.log(1 && 2 && 3);" "3")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-logical-and-or or-default"
-  (destructuring-bind (src expected) (list "function f(a){return a || \"def\";} console.log(f());" "def")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-logical-and-or or-given"
-  (destructuring-bind (src expected) (list "function f(a){return a || \"def\";} console.log(f(\"hi\"));" "hi")
-    (expect (%js-run-capture src) :to-equal expected)))
-
-(it-sequential "js-e2e-logical-and-or short-circ"
-  (destructuring-bind (src expected) (list "let c=0; function s(){c++;return true;} false && s(); console.log(c);" "0")
-    (expect (%js-run-capture src) :to-equal expected)))
+(deftest-js-run js-e2e-logical-and-or
+  "&&/|| short-circuit evaluation and value-returning (not boolean-coercing) semantics."
+  ("false" "console.log(true && false);")
+  ("true"  "console.log(true && true);")
+  ("2"     "console.log(1 && 2);")
+  ("0"     "console.log(0 && 2);")
+  ("5"     "console.log(0 || 5);")
+  ("3"     "console.log(3 || 5);")
+  ("b"     "console.log(\"a\" && \"b\");")
+  ("3"     "console.log(1 && 2 && 3);")
+  ("def"   "function f(a){return a || \"def\";} console.log(f());")
+  ("hi"    "function f(a){return a || \"def\";} console.log(f(\"hi\"));")
+  ("0"     "let c=0; function s(){c++;return true;} false && s(); console.log(c);"))
 
 ;;; ─── null / undefined literals ───────────────────────────────────────────────
 
@@ -258,7 +204,10 @@
   ("1.2e+3"   "console.log((1234.5).toPrecision(2));")
   ("0.000012" "console.log((0.00001234).toPrecision(2));")
   ("-3.14"    "console.log((-3.14159).toPrecision(3));")
-  ("42"       "console.log((42).valueOf());"))
+  ("42"       "console.log((42).valueOf());")
+  ("3.141590e+0" "console.log((3.14159).toExponential());")
+  ("3.14e+0"  "console.log((3.14159).toExponential(2));")
+  ("1234.5"   "console.log((1234.5).toLocaleString());"))
 
 ;;; ─── Standalone global builtins ──────────────────────────────────────────────
 
@@ -341,7 +290,8 @@
   ("true"      "console.log(Symbol().description===undefined);")
   ("symbol"    "console.log(typeof Symbol());")
   ("42"        "const o={}; const k=Symbol('key'); o[k]=42; console.log(o[k]);")
-  ("symbol"    "console.log(typeof Symbol.iterator);"))
+  ("symbol"    "console.log(typeof Symbol.iterator);")
+  ("true"      "const s=Symbol('v'); console.log(s.valueOf()===s);"))
 
 (deftest-js-run-isolated-batch js-e2e-global-function-calls
   "btoa/atob/encode*/decode*/isNaN/isFinite are callable as bare global calls."
@@ -401,3 +351,139 @@
   ("h,e,l,l,o" "console.log(Array.from('hello').join(','));")
   ("2,4,6"   "console.log(Array.from([1,2,3],x=>x*2).join(','));")
   ("3"       "console.log(Array.from(new Set([1,2,3])).length);"))
+
+;;; ─── Math static methods ──────────────────────────────────────────────────────
+
+(deftest-js-run-isolated-batch js-e2e-math-static-methods
+  "Math.* trig/rounding/misc static methods compute JS-faithful values."
+  ("3"       "console.log(Math.floor(3.7));")
+  ("4"       "console.log(Math.ceil(3.2));")
+  ("4"       "console.log(Math.round(3.5));")
+  ("-3"      "console.log(Math.trunc(-3.7));")
+  ("-1"      "console.log(Math.sign(-5));")
+  ("1"       "console.log(Math.min(3,1,2));")
+  ("1024"    "console.log(Math.pow(2,10));")
+  ("1"       "console.log(Math.log(Math.E));")
+  ("0"       "console.log(Math.sin(0));")
+  ("1"       "console.log(Math.cos(0));")
+  ("0"       "console.log(Math.tan(0));")
+  ("1.5707963267948966" "console.log(Math.asin(1));")
+  ("0"       "console.log(Math.acos(1));")
+  ("0"       "console.log(Math.atan(0));")
+  ("0"       "console.log(Math.sinh(0));")
+  ("1"       "console.log(Math.cosh(0));")
+  ("0"       "console.log(Math.tanh(0));")
+  ("0"       "console.log(Math.asinh(0));")
+  ("0"       "console.log(Math.acosh(1));")
+  ("0"       "console.log(Math.atanh(0));")
+  ("3"       "console.log(Math.cbrt(27));")
+  ("1"       "console.log(Math.exp(0));")
+  ("5"       "console.log(Math.hypot(3,4));")
+  ("1.5"     "console.log(Math.fround(1.5));")
+  ("12"      "console.log(Math.imul(3,4));")
+  ("number"  "console.log(typeof Math.random());"))
+
+;;; ─── Number static methods ────────────────────────────────────────────────────
+
+(deftest-js-run-isolated-batch js-e2e-number-static-methods
+  "Number.isFinite/isNaN/parseFloat/parseInt and EPSILON/NaN statics."
+  ("true"    "console.log(Number.isFinite(1));")
+  ("false"   "console.log(Number.isFinite(Infinity));")
+  ("true"    "console.log(Number.isNaN(NaN));")
+  ("false"   "console.log(Number.isNaN(1));")
+  ("NaN"     "console.log(Number.parseFloat('3.14x'));")
+  ("NaN"     "console.log(Number.parseInt('42x'));")
+  ("true"    "console.log(Number.EPSILON > 0);")
+  ("false"   "console.log(Number.isNaN(Number.NaN));"))
+
+;;; ─── Error class hierarchy: EvalError/URIError message wiring ────────────────
+;;;
+;;; Regression: EvalError/URIError classes existed in *js-builtin-specs* but
+;;; were never added to *js-prelude-global-specs*, so the bare identifiers
+;;; resolved to undefined and `new EvalError(...)` silently built an empty
+;;; object instead of routing through the real error constructor.
+
+(deftest-js-run-isolated-batch js-e2e-error-class-hierarchy-extra
+  "TypeError/ReferenceError/SyntaxError/EvalError/URIError carry their message."
+  ("object"  "console.log(typeof new TypeError('x'));")
+  ("x"       "console.log(new TypeError('x').message);")
+  ("y"       "console.log(new ReferenceError('y').message);")
+  ("z"       "console.log(new SyntaxError('z').message);")
+  ("e"       "console.log(new EvalError('e').message);")
+  ("u"       "console.log(new URIError('u').message);"))
+
+;;; ─── String static methods ────────────────────────────────────────────────────
+
+(deftest-js-run-isolated-batch js-e2e-string-static-methods
+  "String.fromCharCode/fromCodePoint build strings from numeric code points.
+NOTE: String.raw is intentionally not covered here — this codebase's template
+lexer only tracks the cooked string, not the raw (unescaped) form a tag
+function needs, so String.raw currently returns cooked output. That's a
+separate, deeper fix (raw-text tracking through the template lexer/parser),
+not something to paper over with an incorrect expected value."
+  ("AB"      "console.log(String.fromCharCode(65,66));")
+  ("1"       "console.log(String.fromCodePoint(0x1F600).length);"))
+
+;;; ─── Array.of / Array.prototype.toLocaleString ───────────────────────────────
+;;;
+;;; Regression: Array.prototype.toLocaleString had no method-table entry at
+;;; all, so calling it crashed with an internal \"Undefined function\" error
+;;; instead of a normal JS result.
+
+(deftest-js-run-isolated-batch js-e2e-array-of-and-locale-string
+  "Array.of builds an array from its arguments; toLocaleString joins like join(',')."
+  ("1,2,3"   "console.log(Array.of(1,2,3).join(','));")
+  ("1,2"     "console.log([1,2].toLocaleString());"))
+
+;;; ─── Old-style function constructors ──────────────────────────────────────────
+;;;
+;;; Regression: %js-new had no branch that bound `this` to a fresh instance
+;;; for a bare function/vm-closure constructor at all — `new F(x)` on an
+;;; old-style `function F(x){this.val=x;}` silently produced an empty object,
+;;; discarding every `this.prop = ...` assignment in the constructor body.
+;;; ES6 class constructors were unaffected (separate class-lowering path).
+
+(deftest-js-run-isolated-batch js-e2e-old-style-function-constructors
+  "new F(...) on a plain `function F(){this.x=...}` binds `this` to the new instance."
+  ("5"          "function F(x){this.val=x;} console.log(new F(5).val);")
+  ("{\"val\":5}" "function F(x){this.val=x;} console.log(JSON.stringify(new F(5)));")
+  ("1,2"        "function Point(x,y){this.x=x;this.y=y;} const p=new Point(1,2); console.log(p.x+','+p.y);")
+  ("5"          "function F(x){this.val=x;} console.log(Reflect.construct(F,[5]).val);"))
+
+;;; ─── Object static reflection methods ─────────────────────────────────────────
+
+(deftest-js-run-isolated-batch js-e2e-object-static-reflection
+  "Object.freeze/isFrozen/seal/isSealed/preventExtensions/isExtensible and
+property-descriptor introspection."
+  ("1"       "console.log(Object.freeze({a:1}).a);")
+  ("true"    "console.log(Object.isFrozen(Object.freeze({})));")
+  ("true"    "console.log(Object.isSealed(Object.seal({})));")
+  ("true"    "console.log(Object.isExtensible({}));")
+  ("false"   "console.log(Object.isExtensible(Object.preventExtensions({})));")
+  ("a,b"     "console.log(Object.getOwnPropertyNames({a:1,b:2}).join(','));")
+  ("1"       "console.log(Object.getOwnPropertyDescriptor({a:1},'a').value);"))
+
+;;; ─── Reflect static methods ────────────────────────────────────────────────────
+
+(deftest-js-run-isolated-batch js-e2e-reflect-static-methods
+  "Reflect.get/has/set/deleteProperty/apply/isExtensible mirror the low-level
+[[...]] object operations."
+  ("1"       "console.log(Reflect.get({a:1},'a'));")
+  ("true"    "console.log(Reflect.has({a:1},'a'));")
+  ("true"    "console.log(Reflect.set({}, 'a', 5));")
+  ("true"    "console.log(Reflect.deleteProperty({a:1},'a'));")
+  ("3"       "console.log(Reflect.apply(function(a,b){return a+b;},null,[1,2]));")
+  ("true"    "console.log(Reflect.isExtensible({}));"))
+
+;;; ─── BigInt static methods ─────────────────────────────────────────────────────
+;;;
+;;; Regression: the prelude bound BigInt as a bare :function (just the
+;;; coercion callable), so BigInt.asIntN/asUintN had no object to live on and
+;;; crashed with an internal \"Undefined function\" error. BigInt is now a
+;;; constructor object like Date, with a __call__ for BigInt(x) coercion.
+
+(deftest-js-run-isolated-batch js-e2e-bigint-static-methods
+  "BigInt(x) coerces; BigInt.asIntN/asUintN mask to signed/unsigned N-bit ints."
+  ("5"       "console.log(BigInt(5));")
+  ("-1"      "console.log(BigInt.asIntN(8, 255n));")
+  ("255"     "console.log(BigInt.asUintN(8, -1n));"))

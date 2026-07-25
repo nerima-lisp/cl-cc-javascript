@@ -5,7 +5,7 @@
 ;;;;
 ;;;; Depends on: js-e2e-core-tests.lisp (loaded before this in serial ASDF module).
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── Parse helpers ───────────────────────────────────────────────────────────
 

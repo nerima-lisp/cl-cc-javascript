@@ -51,6 +51,17 @@
           (lambda (&rest args) (apply fn receiver args)))
         +js-undefined+)))
 
+(defun %js-resolve-via-factory-table (table obj key)
+  "Look KEY up in TABLE (an alist of name -> (lambda (obj) -> value)); if
+found, call the entry with OBJ and return its result, else +js-undefined+.
+Unlike %js-bound-method, the table's entries are called immediately rather
+than returned as a bound closure — for computed/constant properties
+(Function.prototype.name, RegExp fallback accessors), not methods."
+  (let ((entry (assoc key table :test #'string=)))
+    (if entry
+        (funcall (cdr entry) obj)
+        +js-undefined+)))
+
 (defmacro define-js-type-resolver (name method-table &rest special-props)
   "Generate a resolver defun for a JS type."
   `(defun ,name (obj key)

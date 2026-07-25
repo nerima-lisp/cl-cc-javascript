@@ -90,8 +90,35 @@ this = the new instance."
     (cond
       ((and (%js-ht-p constructor) (gethash "__new__" constructor))
        (apply #'%js-funcall (gethash "__new__" constructor) arglist))
-      ((functionp constructor)
-       (apply constructor arglist))
+      ((or (functionp constructor) (%js-vm-closure-p constructor))
+       ;; A plain function used as a constructor — either a host CL function
+       ;; or a compiled-JS closure (old-style `function F(){this.x = ...}`
+       ;; compiles to a vm-closure, not a %js-make-class object, so it lands
+       ;; here too). Two distinct cases share this branch: host constructors
+       ;; like %js-make-set/%js-make-weak-map, which build and return their
+       ;; OWN complete object; and user `function F(){this.x = ...}`
+       ;; declarations, which mutate `this` and implicitly return
+       ;; +js-undefined+. Previously this just APPLYed the function with no
+       ;; `this` binding at all — correct for the host case (its return
+       ;; value IS the object), but wrong for the user case (this.x had
+       ;; nothing to mutate, and new F() always came back +js-undefined+).
+       ;; Bind `this` to a fresh instance either way, and use the function's
+       ;; return value only when it's itself a composite JS value (object,
+       ;; array, or struct-backed collection/Date/etc.) — matching real `new`
+       ;; semantics, where a constructor returning a primitive (including the
+       ;; implicit +js-undefined+ of "no explicit return") does NOT override
+       ;; `this`. This can't simply check "not +js-undefined+": a compiled JS
+       ;; function body's implicit return is whatever its last statement's
+       ;; value happens to be (e.g. `this.val = x;` implicitly returns X, the
+       ;; assigned value) — not reliably +js-undefined+ the way real JS
+       ;; guarantees. Host constructors (Set/WeakMap/Date/…) represent
+       ;; themselves as distinct defstructs, not hash-tables, hence the
+       ;; STRUCTURE-OBJECT check alongside %js-ht-p/%js-vec-p.
+       (let* ((obj (%js-make-ht))
+              (result (%js-call-with-this obj constructor arglist)))
+         (if (or (%js-ht-p result) (%js-vec-p result) (typep result 'structure-object))
+             result
+             obj)))
       (t
        (let ((obj (%js-make-ht)))
          (when (%js-ht-p constructor)

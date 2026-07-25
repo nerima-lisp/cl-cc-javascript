@@ -6,7 +6,7 @@
 ;;;;
 ;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr, %jr-list)
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── Array core ──────────────────────────────────────────────────────────────
 
@@ -42,13 +42,10 @@
              (lambda (acc x &rest _) (declare (ignore _)) (+ acc x))
              0)) :to-be-truthy))
 
-(it-sequential "js-rt-array-includes found"
-  (destructuring-bind (needle expected) (list 2 t)
-    (expect (cl-cc/javascript::%js-array-includes (%jr-arr 1 2 3) needle) :to-equal expected)))
-
-(it-sequential "js-rt-array-includes missing"
-  (destructuring-bind (needle expected) (list 9 nil)
-    (expect (cl-cc/javascript::%js-array-includes (%jr-arr 1 2 3) needle) :to-equal expected)))
+(it-sequential-each ((2 t) (9 nil))
+    "js-rt-array-includes ~A"
+    (needle expected)
+  (expect (cl-cc/javascript::%js-array-includes (%jr-arr 1 2 3) needle) :to-equal expected))
 
 (it-sequential "js-rt-array-includes-same-value-zero"
   (let ((nan-a cl-cc/javascript::*js-nan-float*)
@@ -56,13 +53,10 @@
     (expect (cl-cc/javascript::%js-array-includes (%jr-arr nan-a) nan-b) :to-be-truthy)
     (expect (cl-cc/javascript::%js-array-includes (%jr-arr -0.0d0) 0.0d0) :to-be-truthy)))
 
-(it-sequential "js-rt-array-index-of found"
-  (destructuring-bind (needle expected) (list 6 1)
-    (expect (= expected (cl-cc/javascript::%js-array-index-of (%jr-arr 5 6 7) needle)) :to-be-truthy)))
-
-(it-sequential "js-rt-array-index-of missing"
-  (destructuring-bind (needle expected) (list 9 -1)
-    (expect (= expected (cl-cc/javascript::%js-array-index-of (%jr-arr 5 6 7) needle)) :to-be-truthy)))
+(it-sequential-each ((6 1) (9 -1))
+    "js-rt-array-index-of ~A"
+    (needle expected)
+  (expect (= expected (cl-cc/javascript::%js-array-index-of (%jr-arr 5 6 7) needle)) :to-be-truthy))
 
 (it-sequential "js-rt-array-index-of-does-not-match-nan"
   (let ((nan-a cl-cc/javascript::*js-nan-float*)
@@ -211,77 +205,34 @@
     (expect (%jr-list srt) :to-equal '(1 2 3))
     (expect (%jr-list orig) :to-equal '(3 1 2))))
 
-(it-sequential "js-rt-array-with mid-index"
-  (destructuring-bind (idx val expected) (list 1 99 '(10 99 30))
-    (expect (%jr-list (cl-cc/javascript::%js-array-with (%jr-arr 10 20 30) idx val)) :to-equal expected)))
+(it-sequential-each ((1 99 (10 99 30))
+                     (-1 99 (10 20 99))
+                     ("1" 99 (10 99 30))
+                     (-1.8d0 99 (10 20 99)))
+    "js-rt-array-with ~A"
+    (idx val expected)
+  (expect (%jr-list (cl-cc/javascript::%js-array-with (%jr-arr 10 20 30) idx val)) :to-equal expected))
 
-(it-sequential "js-rt-array-with neg-index"
-  (destructuring-bind (idx val expected) (list -1 99 '(10 20 99))
-    (expect (%jr-list (cl-cc/javascript::%js-array-with (%jr-arr 10 20 30) idx val)) :to-equal expected)))
-
-(it-sequential "js-rt-array-with string-index"
-  (destructuring-bind (idx val expected) (list "1" 99 '(10 99 30))
-    (expect (%jr-list (cl-cc/javascript::%js-array-with (%jr-arr 10 20 30) idx val)) :to-equal expected)))
-
-(it-sequential "js-rt-array-with fractional-negative-index"
-  (destructuring-bind (idx val expected) (list -1.8d0 99 '(10 20 99))
-    (expect (%jr-list (cl-cc/javascript::%js-array-with (%jr-arr 10 20 30) idx val)) :to-equal expected)))
-
-(it-sequential "js-rt-array-with-out-of-bounds too-large"
-  (destructuring-bind (idx) (list 3)
-    (handler-case
+(it-sequential-each ((3) (-4))
+    "js-rt-array-with-out-of-bounds ~A"
+    (idx)
+  (handler-case
       (progn
         (cl-cc/javascript::%js-array-with (%jr-arr 10 20 30) idx 99)
         (expect t :to-be-falsy))
     (cl-cc/javascript:js-exception (c)
       (let ((err (cl-cc/javascript:js-exception-value c)))
-        (expect (gethash "name" err) :to-equal "RangeError"))))))
+        (expect (gethash "name" err) :to-equal "RangeError")))))
 
-(it-sequential "js-rt-array-with-out-of-bounds too-negative"
-  (destructuring-bind (idx) (list -4)
-    (handler-case
-      (progn
-        (cl-cc/javascript::%js-array-with (%jr-arr 10 20 30) idx 99)
-        (expect t :to-be-falsy))
-    (cl-cc/javascript:js-exception (c)
-      (let ((err (cl-cc/javascript:js-exception-value c)))
-        (expect (gethash "name" err) :to-equal "RangeError"))))))
-
-(it-sequential "js-rt-array-at positive"
-  (destructuring-bind (idx expected) (list 1 20)
-    (let ((a (%jr-arr 10 20 30))
-        (undef cl-cc/javascript::+js-undefined+))
-    (let ((got (cl-cc/javascript::%js-array-at a idx)))
-      (if (eq expected :js-undefined)
-          (expect got :to-be undef)
-          (expect (= expected got) :to-be-truthy))))))
-
-(it-sequential "js-rt-array-at negative"
-  (destructuring-bind (idx expected) (list -1 30)
-    (let ((a (%jr-arr 10 20 30))
-        (undef cl-cc/javascript::+js-undefined+))
-    (let ((got (cl-cc/javascript::%js-array-at a idx)))
-      (if (eq expected :js-undefined)
-          (expect got :to-be undef)
-          (expect (= expected got) :to-be-truthy))))))
-
-(it-sequential "js-rt-array-at string-index"
-  (destructuring-bind (idx expected) (list "1" 20)
-    (let ((a (%jr-arr 10 20 30))
-        (undef cl-cc/javascript::+js-undefined+))
-    (let ((got (cl-cc/javascript::%js-array-at a idx)))
-      (if (eq expected :js-undefined)
-          (expect got :to-be undef)
-          (expect (= expected got) :to-be-truthy))))))
-
-(it-sequential "js-rt-array-at fractional-negative-index"
-  (destructuring-bind (idx expected) (list -1.8d0 30)
-    (let ((a (%jr-arr 10 20 30))
-        (undef cl-cc/javascript::+js-undefined+))
-    (let ((got (cl-cc/javascript::%js-array-at a idx)))
-      (if (eq expected :js-undefined)
-          (expect got :to-be undef)
-          (expect (= expected got) :to-be-truthy))))))
+(it-sequential-each ((1 20) (-1 30) ("1" 20) (-1.8d0 30))
+    "js-rt-array-at ~A"
+    (idx expected)
+  (let ((a (%jr-arr 10 20 30))
+      (undef cl-cc/javascript::+js-undefined+))
+  (let ((got (cl-cc/javascript::%js-array-at a idx)))
+    (if (eq expected :js-undefined)
+        (expect got :to-be undef)
+        (expect (= expected got) :to-be-truthy)))))
 
 (it-sequential "js-rt-array-at oob"
   (destructuring-bind (idx expected) (list 9 :js-undefined)
@@ -335,30 +286,12 @@
   (let ((ta (cl-cc/javascript::%js-make-typed-array "Float64Array" 4)))
     (expect (= 4 (cl-cc/javascript::js-ta-length ta)) :to-be-truthy)))
 
-(it-sequential "js-rt-typed-array-types Int8Array"
-  (destructuring-bind (type-name length expected-length) (list "Int8Array" 3 3)
-    (let ((ta (cl-cc/javascript::%js-make-typed-array type-name length)))
-    (expect (= expected-length (cl-cc/javascript::js-ta-length ta)) :to-be-truthy))))
-
-(it-sequential "js-rt-typed-array-types Uint8Array"
-  (destructuring-bind (type-name length expected-length) (list "Uint8Array" 5 5)
-    (let ((ta (cl-cc/javascript::%js-make-typed-array type-name length)))
-    (expect (= expected-length (cl-cc/javascript::js-ta-length ta)) :to-be-truthy))))
-
-(it-sequential "js-rt-typed-array-types Int32Array"
-  (destructuring-bind (type-name length expected-length) (list "Int32Array" 2 2)
-    (let ((ta (cl-cc/javascript::%js-make-typed-array type-name length)))
-    (expect (= expected-length (cl-cc/javascript::js-ta-length ta)) :to-be-truthy))))
-
-(it-sequential "js-rt-typed-array-types Float16Array"
-  (destructuring-bind (type-name length expected-length) (list "Float16Array" 4 4)
-    (let ((ta (cl-cc/javascript::%js-make-typed-array type-name length)))
-    (expect (= expected-length (cl-cc/javascript::js-ta-length ta)) :to-be-truthy))))
-
-(it-sequential "js-rt-typed-array-types Float64Array"
-  (destructuring-bind (type-name length expected-length) (list "Float64Array" 1 1)
-    (let ((ta (cl-cc/javascript::%js-make-typed-array type-name length)))
-    (expect (= expected-length (cl-cc/javascript::js-ta-length ta)) :to-be-truthy))))
+(it-sequential-each (("Int8Array" 3 3) ("Uint8Array" 5 5) ("Int32Array" 2 2)
+                     ("Float16Array" 4 4) ("Float64Array" 1 1))
+    "js-rt-typed-array-types ~A"
+    (type-name length expected-length)
+  (let ((ta (cl-cc/javascript::%js-make-typed-array type-name length)))
+    (expect (= expected-length (cl-cc/javascript::js-ta-length ta)) :to-be-truthy)))
 
 (it-sequential "js-rt-method-resolution-array"
   (let* ((arr (%jr-arr 10 20 30))

@@ -5,7 +5,7 @@
 ;;;;
 ;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr, %jr-list)
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── Symbol predicate ────────────────────────────────────────────────────────
 
@@ -13,17 +13,10 @@
   (destructuring-bind (val expected) (list (cl-cc/javascript::%js-make-symbol "x") t)
     (expect (cl-cc/javascript::%js-symbol-p val) :to-equal expected)))
 
-(it-sequential "js-rt-symbol-p string"
-  (destructuring-bind (val expected) (list "sym" nil)
-    (expect (cl-cc/javascript::%js-symbol-p val) :to-equal expected)))
-
-(it-sequential "js-rt-symbol-p number"
-  (destructuring-bind (val expected) (list 42 nil)
-    (expect (cl-cc/javascript::%js-symbol-p val) :to-equal expected)))
-
-(it-sequential "js-rt-symbol-p nil"
-  (destructuring-bind (val expected) (list nil nil)
-    (expect (cl-cc/javascript::%js-symbol-p val) :to-equal expected)))
+(it-sequential-each (("sym" nil) (42 nil) (nil nil))
+    "js-rt-symbol-p ~A"
+    (val expected)
+  (expect (cl-cc/javascript::%js-symbol-p val) :to-equal expected))
 
 ;;; ─── Symbol creation ─────────────────────────────────────────────────────────
 
@@ -39,23 +32,12 @@
 
 ;;; ─── toString / description ──────────────────────────────────────────────────
 
-(it-sequential "js-rt-symbol-to-string with-desc"
-  (destructuring-bind (desc expected) (list "tag" "Symbol(tag)")
-    (let* ((sym (cl-cc/javascript::%js-make-symbol desc))
+(it-sequential-each (("tag" "Symbol(tag)") ("" "Symbol()") (:js-undefined "Symbol()"))
+    "js-rt-symbol-to-string ~A"
+    (desc expected)
+  (let* ((sym (cl-cc/javascript::%js-make-symbol desc))
          (str (cl-cc/javascript::%js-symbol-to-string sym)))
-    (expect str :to-equal expected))))
-
-(it-sequential "js-rt-symbol-to-string empty-desc"
-  (destructuring-bind (desc expected) (list "" "Symbol()")
-    (let* ((sym (cl-cc/javascript::%js-make-symbol desc))
-         (str (cl-cc/javascript::%js-symbol-to-string sym)))
-    (expect str :to-equal expected))))
-
-(it-sequential "js-rt-symbol-to-string no-desc"
-  (destructuring-bind (desc expected) (list cl-cc/javascript::+js-undefined+ "Symbol()")
-    (let* ((sym (cl-cc/javascript::%js-make-symbol desc))
-         (str (cl-cc/javascript::%js-symbol-to-string sym)))
-    (expect str :to-equal expected))))
+    (expect str :to-equal expected)))
 
 (it-sequential "js-rt-symbol-description-accessor"
   (let ((with-desc (cl-cc/javascript::%js-make-symbol "label"))
@@ -101,19 +83,49 @@
 
 ;;; ─── Well-known symbols ──────────────────────────────────────────────────────
 
-(it-sequential "js-rt-well-known-symbols-are-registered"
-  (expect (cl-cc/javascript::%js-symbol-p cl-cc/javascript::%js-symbol-iterator) :to-be-truthy)
-  (expect (cl-cc/javascript::%js-symbol-p cl-cc/javascript::%js-symbol-to-primitive) :to-be-truthy)
-  (expect (cl-cc/javascript::%js-symbol-p cl-cc/javascript::%js-symbol-to-string-tag) :to-be-truthy))
+(it-sequential-each (("iterator"           cl-cc/javascript::%js-symbol-iterator)
+                     ("toPrimitive"        cl-cc/javascript::%js-symbol-to-primitive)
+                     ("toStringTag"        cl-cc/javascript::%js-symbol-to-string-tag)
+                     ("hasInstance"        cl-cc/javascript::%js-symbol-has-instance)
+                     ("species"            cl-cc/javascript::%js-symbol-species)
+                     ("asyncIterator"      cl-cc/javascript::%js-symbol-async-iterator)
+                     ("match"              cl-cc/javascript::%js-symbol-match)
+                     ("replace"            cl-cc/javascript::%js-symbol-replace)
+                     ("search"             cl-cc/javascript::%js-symbol-search)
+                     ("split"              cl-cc/javascript::%js-symbol-split)
+                     ("dispose"            cl-cc/javascript::%js-symbol-dispose)
+                     ("asyncDispose"       cl-cc/javascript::%js-symbol-async-dispose)
+                     ("metadata"           cl-cc/javascript::%js-symbol-metadata)
+                     ("isConcatSpreadable" cl-cc/javascript::%js-symbol-is-concat-spreadable)
+                     ("unscopables"        cl-cc/javascript::%js-symbol-unscopables))
+    "js-rt-well-known-symbol-~A-is-registered"
+    (name symbol-var)
+  (declare (ignore name))
+  (expect (cl-cc/javascript::%js-symbol-p (symbol-value symbol-var)) :to-be-truthy))
 
 ;;; ─── Symbol global object ────────────────────────────────────────────────────
 
-(it-sequential "js-rt-symbol-global-has-well-known-props"
+(it-sequential-each (("iterator")     ("toPrimitive")     ("toStringTag")
+                     ("hasInstance")  ("species")         ("asyncIterator")
+                     ("match")        ("replace")         ("search")
+                     ("split")        ("dispose")         ("asyncDispose")
+                     ("metadata")     ("isConcatSpreadable") ("unscopables"))
+    "js-rt-symbol-global-exposes-~A"
+    (prop-name)
+  (expect (cl-cc/javascript::%js-symbol-p
+           (gethash prop-name cl-cc/javascript::*js-symbol-global*))
+          :to-be-truthy))
+
+(it-sequential "js-rt-symbol-global-has-static-methods-and-callable"
   (let ((g cl-cc/javascript::*js-symbol-global*))
     (expect (cl-cc/javascript::%js-ht-p g) :to-be-truthy)
-    (expect (cl-cc/javascript::%js-symbol-p (gethash "iterator" g)) :to-be-truthy)
     (expect (functionp (gethash "for" g)) :to-be-truthy)
-    (expect (functionp (gethash "__call__" g)) :to-be-truthy)))
+    (expect (functionp (gethash "keyFor" g)) :to-be-truthy)
+    (expect (functionp (gethash "__call__" g)) :to-be-truthy)
+    (expect (funcall (gethash "for" g) "wk-registry-test")
+            :to-be (cl-cc/javascript::%js-symbol-for "wk-registry-test"))
+    (expect (cl-cc/javascript::%js-symbol-p (funcall (gethash "__call__" g)))
+            :to-be-truthy)))
 
 ;;; ─── Iterator control: iter-values / iter-keys / advance-iterator ────────────
 

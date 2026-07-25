@@ -41,6 +41,64 @@
 
 ;;; ─── Escape sequence processor ───────────────────────────────────────────────
 
+(defun %js-lex-template-unicode-escape (source pos)
+  "Process a \\u escape starting at POS (the position of 'u' itself), in
+either \\uXXXX (exactly 4 hex digits) or \\u{XXXXXX} (variable hex digits)
+form. Returns (values char new-pos)."
+  (let ((next-pos (1+ pos)))
+    (when (>= next-pos (length source))
+      (error "JS template lex error: incomplete \\u escape"))
+    (cond
+      ;; \u{...} form
+      ((char= (char source next-pos) #\{)
+       (let ((hex-start (+ next-pos 1))
+             (hex-end   (+ next-pos 1)))
+         (loop while (and (< hex-end (length source))
+                          (js-hex-digit-p (char source hex-end)))
+               do (incf hex-end))
+         (when (>= hex-end (length source))
+           (error "JS template lex error: unterminated \\u{} escape"))
+         (unless (char= (char source hex-end) #\})
+           (error "JS template lex error: expected } to close \\u{} escape"))
+         (when (= hex-start hex-end)
+           (error "JS template lex error: empty \\u{} escape"))
+         (let ((codepoint 0))
+           (loop for i from hex-start below hex-end
+                 do (setf codepoint
+                          (+ (* codepoint 16)
+                             (js-hex-digit-value (char source i)))))
+           (when (> codepoint #x10FFFF)
+             (error "JS template lex error: unicode codepoint ~X out of range" codepoint))
+           (values (code-char codepoint) (1+ hex-end)))))
+      ;; \uXXXX form — exactly 4 hex digits required
+      (t
+       (let ((end (+ next-pos 4)))
+         (when (> end (length source))
+           (error "JS template lex error: incomplete \\uXXXX escape"))
+         (loop for i from next-pos below end
+               unless (js-hex-digit-p (char source i))
+               do (error "JS template lex error: non-hex digit in \\uXXXX escape at position ~D" i))
+         (let ((codepoint 0))
+           (loop for i from next-pos below end
+                 do (setf codepoint
+                          (+ (* codepoint 16)
+                             (js-hex-digit-value (char source i)))))
+           (values (code-char codepoint) end)))))))
+
+(defun %js-lex-template-hex-escape (source pos)
+  "Process a \\xXX escape starting at POS (the position of 'x' itself) —
+exactly 2 hex digits required. Returns (values char new-pos)."
+  (let ((hex-start (1+ pos))
+        (hex-end   (+ pos 3)))
+    (when (> hex-end (length source))
+      (error "JS template lex error: incomplete \\xXX escape"))
+    (loop for i from hex-start below hex-end
+          unless (js-hex-digit-p (char source i))
+          do (error "JS template lex error: non-hex digit in \\xXX escape at position ~D" i))
+    (let ((byte (+ (* (js-hex-digit-value (char source hex-start)) 16)
+                   (js-hex-digit-value (char source (1+ hex-start))))))
+      (values (code-char byte) hex-end))))
+
 (defun js-lex-template-escape (source pos)
   "Process escape sequence starting at POS (after backslash was consumed).
   Returns (values char new-pos).
@@ -56,59 +114,8 @@
       (#\`  (values #\`       (1+ pos)))
       (#\$  (values #\$       (1+ pos)))
       (#\0  (values #\Null    (1+ pos)))
-      (#\u
-       ;; Unicode escape: \uXXXX or \u{XXXXXX}
-       (let ((next-pos (1+ pos)))
-         (when (>= next-pos (length source))
-           (error "JS template lex error: incomplete \\u escape"))
-         (cond
-           ;; \u{...} form
-           ((char= (char source next-pos) #\{)
-            (let ((hex-start (+ next-pos 1))
-                  (hex-end   (+ next-pos 1)))
-              (loop while (and (< hex-end (length source))
-                               (js-hex-digit-p (char source hex-end)))
-                    do (incf hex-end))
-              (when (>= hex-end (length source))
-                (error "JS template lex error: unterminated \\u{} escape"))
-              (unless (char= (char source hex-end) #\})
-                (error "JS template lex error: expected } to close \\u{} escape"))
-              (when (= hex-start hex-end)
-                (error "JS template lex error: empty \\u{} escape"))
-              (let ((codepoint 0))
-                (loop for i from hex-start below hex-end
-                      do (setf codepoint
-                               (+ (* codepoint 16)
-                                  (js-hex-digit-value (char source i)))))
-                (when (> codepoint #x10FFFF)
-                  (error "JS template lex error: unicode codepoint ~X out of range" codepoint))
-                (values (code-char codepoint) (1+ hex-end)))))
-           ;; \uXXXX form — exactly 4 hex digits required
-           (t
-            (let ((end (+ next-pos 4)))
-              (when (> end (length source))
-                (error "JS template lex error: incomplete \\uXXXX escape"))
-              (loop for i from next-pos below end
-                    unless (js-hex-digit-p (char source i))
-                    do (error "JS template lex error: non-hex digit in \\uXXXX escape at position ~D" i))
-              (let ((codepoint 0))
-                (loop for i from next-pos below end
-                      do (setf codepoint
-                               (+ (* codepoint 16)
-                                  (js-hex-digit-value (char source i)))))
-                (values (code-char codepoint) end)))))))
-      (#\x
-       ;; Hex escape: \xXX — exactly 2 hex digits required
-       (let ((hex-start (1+ pos))
-             (hex-end   (+ pos 3)))
-         (when (> hex-end (length source))
-           (error "JS template lex error: incomplete \\xXX escape"))
-         (loop for i from hex-start below hex-end
-               unless (js-hex-digit-p (char source i))
-               do (error "JS template lex error: non-hex digit in \\xXX escape at position ~D" i))
-         (let ((byte (+ (* (js-hex-digit-value (char source hex-start)) 16)
-                        (js-hex-digit-value (char source (1+ hex-start))))))
-           (values (code-char byte) hex-end))))
+      (#\u  (%js-lex-template-unicode-escape source pos))
+      (#\x  (%js-lex-template-hex-escape source pos))
       (otherwise
        ;; Permissive fallback — e.g. \a, \b, \v, \f, unrecognized sequences
        ;; In tagged template literals these may be intentional (cooked = undefined)

@@ -23,25 +23,25 @@ generator functions, class expressions, new expr, template literals,
 yield, await, import()."
   (let ((type (js-peek-type stream))
         (val  (js-peek-value stream)))
-    (cond
+    (case type
       ;; Numeric literal (integer or float)
-      ((eq type :T-NUMBER)
+      (:T-NUMBER
        (multiple-value-bind (tok rest) (js-consume stream)
          (let ((v (js-tok-value tok)))
            (if (integerp v)
                (values (make-ast-int :value v) rest)
                (values (make-ast-quote :value v) rest)))))
       ;; BigInt literal
-      ((eq type :T-BIGINT)
+      (:T-BIGINT
        (multiple-value-bind (tok rest) (js-consume stream)
          (values (make-ast-int :value (js-tok-value tok)) rest)))
       ;; String literal
-      ((eq type :T-STRING)
+      (:T-STRING
        (multiple-value-bind (tok rest) (js-consume stream)
          (values (make-ast-quote :value (js-tok-value tok)) rest)))
       ;; Regex literal — token value is (:regex pattern-string flags-string);
       ;; %js-make-regex takes (pattern &optional flags) as separate strings.
-      ((eq type :T-REGEX)
+      (:T-REGEX
        (multiple-value-bind (tok rest) (js-consume stream)
          (let ((v (js-tok-value tok)))
            (values (%js-call '%js-make-regex
@@ -49,16 +49,15 @@ yield, await, import()."
                              (make-ast-quote :value (third v)))
                    rest))))
       ;; Template literal
-      ((or (eq type :T-TEMPLATE-START)
-           (eq type :T-TEMPLATE-PARTS))
+      ((:T-TEMPLATE-START :T-TEMPLATE-PARTS)
        (%js-parse-template-literal stream))
       ;; Boolean true
-      ((eq type :T-TRUE)
+      (:T-TRUE
        (multiple-value-bind (tok rest) (js-consume stream)
          (declare (ignore tok))
          (values (make-ast-quote :value t) rest)))
       ;; Boolean false
-      ((eq type :T-FALSE)
+      (:T-FALSE
        (multiple-value-bind (tok rest) (js-consume stream)
          (declare (ignore tok))
          (values (make-ast-quote :value nil) rest)))
@@ -66,53 +65,53 @@ yield, await, import()."
       ;; MUST match it, not the bare :null keyword — otherwise %js-to-string prints
       ;; "NULL" and %js-not-nullish treats `null' as non-nullish (null ?? x broke).
       ;; (+js-null+ itself can't be named here: this file compiles before runtime.)
-      ((eq type :T-NULL)
+      (:T-NULL
        (multiple-value-bind (tok rest) (js-consume stream)
          (declare (ignore tok))
          (values (make-ast-quote :value :js-null) rest)))
       ;; undefined — likewise the +js-undefined+ sentinel (= :js-undefined)
-      ((eq type :T-UNDEFINED)
+      (:T-UNDEFINED
        (multiple-value-bind (tok rest) (js-consume stream)
          (declare (ignore tok))
          (values (make-ast-quote :value :js-undefined) rest)))
       ;; this
-      ((eq type :T-THIS)
+      (:T-THIS
        (multiple-value-bind (tok rest) (js-consume stream)
          (declare (ignore tok))
          (values (make-ast-var :name '%js-this) rest)))
       ;; super
-      ((eq type :T-SUPER)
+      (:T-SUPER
        (multiple-value-bind (tok rest) (js-consume stream)
          (declare (ignore tok))
          (values (make-ast-var :name '%js-super) rest)))
       ;; Array literal [...]
-      ((eq type :T-LBRACKET)
+      (:T-LBRACKET
        (js-parse-array-literal stream))
       ;; Object literal {...}
-      ((eq type :T-LBRACE)
+      (:T-LBRACE
        (js-parse-object-literal stream))
       ;; Parenthesized expression or arrow function params
-      ((eq type :T-LPAREN)
+      (:T-LPAREN
        (%js-parse-paren-or-arrow stream))
       ;; function expression
-      ((eq type :T-FUNCTION)
+      (:T-FUNCTION
        (multiple-value-bind (tok rest) (js-consume stream)
          (declare (ignore tok))
          (js-parse-function-expr rest)))
       ;; async function / async arrow
-      ((eq type :T-ASYNC)
+      (:T-ASYNC
        (%js-parse-async-expr stream))
       ;; class expression
-      ((eq type :T-CLASS)
+      (:T-CLASS
        (%js-parse-class-expr stream))
       ;; new expression (including new.target)
-      ((eq type :T-NEW)
+      (:T-NEW
        (js-parse-new-expr stream))
       ;; import() dynamic import
-      ((eq type :T-IMPORT)
+      (:T-IMPORT
        (%js-parse-import-expr stream))
       ;; yield as expression (when used as identifier-like)
-      ((eq type :T-YIELD)
+      (:T-YIELD
        (multiple-value-bind (tok rest) (js-consume stream)
          (declare (ignore tok))
          (if (and (eq (js-peek-type rest) :T-OP) (string= (js-peek-value rest) "*"))
@@ -127,30 +126,32 @@ yield, await, import()."
                  (multiple-value-bind (expr rest2) (js-parse-assignment-expr rest)
                    (values (%js-call '%js-yield expr) rest2))))))
       ;; await as expression
-      ((eq type :T-AWAIT)
+      (:T-AWAIT
        (multiple-value-bind (tok rest) (js-consume stream)
          (declare (ignore tok))
          (multiple-value-bind (expr rest2) (js-parse-unary rest)
            (values (%js-call '%js-await expr) rest2))))
       ;; Identifier — may begin a single-parameter arrow function: x => body
-      ((eq type :T-IDENT)
+      (:T-IDENT
        (multiple-value-bind (tok rest) (js-consume stream)
          (declare (ignore tok))
          (if (eq (js-peek-type rest) :T-ARROW)
              (%js-finish-arrow-function (list (js-ident-sym val)) rest)
              (values (make-ast-var :name (js-ident-sym val)) rest))))
-      ;; Contextual keywords used as identifiers (get, set, from, as, of, target, meta, using, static)
-      ((member type '(:T-GET :T-SET :T-FROM :T-AS :T-OF
-                      :T-TARGET :T-META :T-USING :T-STATIC :T-LET) :test #'eq)
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
-         (values (make-ast-var :name (js-ident-sym val)) rest)))
       ;; Private field identifier #name — as standalone (for #name in obj)
-      ((eq type :T-PRIVATE-IDENT)
+      (:T-PRIVATE-IDENT
        (multiple-value-bind (tok rest) (js-consume stream)
          (values (make-ast-var :name (js-ident-sym (concatenate 'string "#" val))) rest)))
       (t
-       (error "JS parse error: unexpected token ~S in expression" (js-peek stream))))))
+       ;; Contextual keywords used as identifiers (get, set, from, as, of,
+       ;; target, meta, using, static) — a CASE clause's keys must be a
+       ;; literal list, so this membership test (against the table shared
+       ;; with parser-stmt-binding.lisp) lives here instead of as a clause key.
+       (if (member type *js-contextual-keyword-token-types* :test #'eq)
+           (multiple-value-bind (tok rest) (js-consume stream)
+             (declare (ignore tok))
+             (values (make-ast-var :name (js-ident-sym val)) rest))
+           (error "JS parse error: unexpected token ~S in expression" (js-peek stream)))))))
 
 
 ;;; Arrow/paren/async/class/import expression helpers → see parser-arrow.lisp
@@ -194,10 +195,7 @@ assignment (right-assoc), ternary, binary ops, and comma."
                          rest rest3)))))
             ;; Assignment operators (right-associative)
             ((and (eq op-type :T-OP)
-                  (member op-val '("=" "+=" "-=" "*=" "/=" "%=" "**="
-                                   "<<=" ">>=" ">>>=" "&=" "|=" "^="
-                                   "&&=" "||=" "??=")
-                          :test #'string=))
+                  (member op-val *js-assignment-op-strings* :test #'string=))
              ;; Only assign if prec > min-prec (for right-assoc, use >= on rhs)
              (when (> prec min-prec)
                (multiple-value-bind (tok rest2) (js-consume rest)
@@ -234,7 +232,7 @@ assignment (right-assoc), ternary, binary ops, and comma."
          ((string= op-val "=")
           (make-ast-setq :var var-sym :value rhs))
          ;; Logical assign
-         ((member op-val '("&&=" "||=" "??=") :test #'string=)
+         ((assoc op-val *js-logical-assign-ops* :test #'string=)
           (%js-lower-logical-assign op-val var-sym rhs))
          ;; Compound assign
          (t
@@ -277,6 +275,3 @@ Use for function arguments and array/object elements."
 
 ;;; ─── Entry Point Helpers ─────────────────────────────────────────────────────
 
-(defun js-parse-expression-from-tokens (tokens)
-  "Parse a single expression from a token list. Returns (values ast remaining)."
-  (js-parse-expr tokens 0))

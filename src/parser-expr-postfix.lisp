@@ -36,6 +36,49 @@
                             (%js-call '%js-make-array))
                   rest2)))))
 
+(defun %js-parse-member-dot (ast stream)
+  "obj.prop for a 'new' member expression. Unlike the postfix version, there
+is no private-field (#name) special-casing here — that only applies in
+class-body postfix context. STREAM points past '.'.
+Returns (values ast new-stream)."
+  (multiple-value-bind (prop-tok rest3) (js-consume stream)
+    (let* ((prop-str (js-tok-value prop-tok))
+           (key (make-ast-quote :value prop-str)))
+      (values (make-ast-call :func (make-ast-var :name '%js-get-prop)
+                             :args (list ast key))
+              rest3))))
+
+(defun %js-parse-member-optional-chain (ast stream)
+  "?.prop / ?.[expr] for a 'new' member expression. Unlike the postfix
+version, there is no standalone ?.(args) case — calls are not valid in
+member-expression context. STREAM points past '?.'.
+Returns (values ast new-stream continue-p); CONTINUE-P is false when nothing
+recognizable follows, matching the original inline loop-exit (return)."
+  (cond
+    ;; ?.prop — if followed by ( emit optional-method-call, else optional-chain
+    ((eq (js-peek-type stream) :T-IDENT)
+     (multiple-value-bind (prop-tok rest3) (js-consume stream)
+       (let ((key (make-ast-quote :value (js-tok-value prop-tok))))
+         (if (eq (js-peek-type rest3) :T-LPAREN)
+             (multiple-value-bind (args rest4) (js-parse-arguments rest3)
+               (values (make-ast-call :func (make-ast-var :name '%js-optional-method-call)
+                                      :args (list* ast key args))
+                       rest4 t))
+             (values (make-ast-call :func (make-ast-var :name '%js-optional-chain)
+                                    :args (list ast key))
+                     rest3 t)))))
+    ;; ?.[expr]
+    ((eq (js-peek-type stream) :T-LBRACKET)
+     (multiple-value-bind (tok2 rest3) (js-consume stream)
+       (declare (ignore tok2))
+       (multiple-value-bind (idx-ast rest4) (js-parse-assignment-expr rest3)
+         (multiple-value-bind (tok3 rest5) (js-expect :T-RBRACKET rest4)
+           (declare (ignore tok3))
+           (values (make-ast-call :func (make-ast-var :name '%js-optional-chain)
+                                  :args (list ast idx-ast))
+                   rest5 t)))))
+    (t (values ast stream nil))))
+
 (defun js-parse-member-expr (stream)
   "Parse a member expression for 'new' context (no call, only . and []).
 Returns (values ast rest)."
@@ -49,52 +92,22 @@ Returns (values ast rest)."
           ((eq type :T-DOT)
            (multiple-value-bind (tok rest2) (js-consume rest)
              (declare (ignore tok))
-             (multiple-value-bind (prop-tok rest3) (js-consume rest2)
-               (let* ((prop-str (js-tok-value prop-tok))
-                      (key (make-ast-quote :value prop-str)))
-                 (setf ast (make-ast-call :func (make-ast-var :name '%js-get-prop)
-                                          :args (list ast key))
-                       rest rest3)))))
+             (multiple-value-bind (new-ast new-rest) (%js-parse-member-dot ast rest2)
+               (setf ast new-ast rest new-rest))))
           ;; obj[expr]
           ((eq type :T-LBRACKET)
            (multiple-value-bind (tok rest2) (js-consume rest)
              (declare (ignore tok))
-             (multiple-value-bind (idx-ast rest3) (js-parse-assignment-expr rest2)
-               (multiple-value-bind (tok2 rest4) (js-expect :T-RBRACKET rest3)
-                 (declare (ignore tok2))
-                 (setf ast (make-ast-call :func (make-ast-var :name '%js-get-prop)
-                                          :args (list ast idx-ast))
-                       rest rest4)))))
+             (multiple-value-bind (new-ast new-rest) (%js-parse-postfix-computed-member ast rest2)
+               (setf ast new-ast rest new-rest))))
           ;; optional chain ?.
           ((and (eq type :T-OP) (string= val "?."))
            (multiple-value-bind (tok rest2) (js-consume rest)
              (declare (ignore tok))
-             (cond
-               ;; ?.prop — if followed by ( emit optional-method-call, else optional-chain
-               ((eq (js-peek-type rest2) :T-IDENT)
-                (multiple-value-bind (prop-tok rest3) (js-consume rest2)
-                  (let ((key (make-ast-quote :value (js-tok-value prop-tok))))
-                    (if (eq (js-peek-type rest3) :T-LPAREN)
-                        (multiple-value-bind (args rest4) (js-parse-arguments rest3)
-                          (setf ast (make-ast-call :func (make-ast-var :name '%js-optional-method-call)
-                                                   :args (list* ast key args))
-                                rest rest4))
-                        (setf ast (make-ast-call :func (make-ast-var :name '%js-optional-chain)
-                                                 :args (list ast key))
-                              rest rest3)))))
-               ;; ?.[expr]
-               ((eq (js-peek-type rest2) :T-LBRACKET)
-                (multiple-value-bind (tok2 rest3) (js-consume rest2)
-                  (declare (ignore tok2))
-                  (multiple-value-bind (idx-ast rest4) (js-parse-assignment-expr rest3)
-                    (multiple-value-bind (tok3 rest5) (js-expect :T-RBRACKET rest4)
-                      (declare (ignore tok3))
-                      (setf ast (make-ast-call :func (make-ast-var :name '%js-optional-chain)
-                                               :args (list ast idx-ast))
-                            rest rest5)))))
-               (t
-                (setf rest rest2)
-                (return)))))
+             (multiple-value-bind (new-ast new-rest continue-p)
+                 (%js-parse-member-optional-chain ast rest2)
+               (setf ast new-ast rest new-rest)
+               (unless continue-p (return)))))
           (t (return)))))
     (values ast rest)))
 
@@ -143,7 +156,100 @@ expression is evaluated exactly once."
                                (bumped))
                      (if return-new-p (bumped) (make-ast-var :name old-tmp)))))))))
 
+(defun %js-lower-incdec (expr op-sym prefix-p fallback-helper)
+  "Lower a ++/-- application to EXPR (OP-SYM is '+ or '-), shared by prefix
+and postfix parsing. A plain variable rewrites to a direct setq (prefix:
+yields the updated value; postfix: binds the original to a temp and yields
+that). A property/element place delegates to %js-lower-place-incdec, which
+already knows prefix vs postfix. Anything else falls back to FALLBACK-HELPER
+\(%js-prefix-inc / %js-postfix-inc / -dec at the call site)."
+  (cond
+    ((ast-var-p expr)
+     (let ((var-sym (ast-var-name expr)))
+       (if prefix-p
+           (make-ast-setq :var var-sym
+                          :value (make-ast-binop :op op-sym :lhs expr :rhs (make-ast-int :value 1)))
+           (let ((tmp (gensym "JS-POSTFIX-")))
+             (make-ast-let
+              :bindings (list (cons tmp (make-ast-var :name var-sym)))
+              :body (list (make-ast-setq
+                           :var var-sym
+                           :value (make-ast-binop :op op-sym
+                                                  :lhs (make-ast-var :name var-sym)
+                                                  :rhs (make-ast-int :value 1)))
+                          (make-ast-var :name tmp)))))))
+    ((%js-place-get-prop-p expr)
+     (%js-lower-place-incdec expr op-sym prefix-p))
+    (t (%js-call fallback-helper expr))))
+
 ;;; ─── Postfix ─────────────────────────────────────────────────────────────────
+
+(defun %js-parse-postfix-dot (ast stream)
+  "obj.prop or obj.#privateField — STREAM points past '.'."
+  (multiple-value-bind (prop-tok rest2) (js-consume stream)
+    (let ((key (make-ast-quote :value (js-tok-value prop-tok)))
+          (accessor (if (eq (js-peek-type stream) :T-PRIVATE-IDENT)
+                        '%js-class-private-field-get
+                        '%js-get-prop)))
+      (values (make-ast-call :func (make-ast-var :name accessor) :args (list ast key))
+              rest2))))
+
+(defun %js-parse-postfix-computed-member (ast stream)
+  "obj[expr] — STREAM points past '['."
+  (multiple-value-bind (idx-ast rest2) (js-parse-assignment-expr stream)
+    (multiple-value-bind (tok2 rest3) (js-expect :T-RBRACKET rest2)
+      (declare (ignore tok2))
+      (values (make-ast-call :func (make-ast-var :name '%js-get-prop)
+                             :args (list ast idx-ast))
+              rest3))))
+
+(defun %js-parse-postfix-call (ast stream)
+  "fn(args) — STREAM points at '('."
+  (multiple-value-bind (args rest) (js-parse-arguments stream)
+    (values (cond
+              ((%js-items-have-spread-p args)
+               (make-ast-apply :func ast :args (list (%js-spread-list-expr args))))
+              ((and (ast-var-p ast)
+                    (gethash (ast-var-name ast) *js-coercion-call-helpers*))
+               (%js-lower-coercion-call
+                (gethash (ast-var-name ast) *js-coercion-call-helpers*) args))
+              (t (make-ast-call :func ast :args args)))
+            rest)))
+
+(defun %js-parse-postfix-optional-chain (ast stream)
+  "?.prop / ?.[expr] / ?.(args) — STREAM points past '?.'.
+Returns (values ast new-stream continue-p); CONTINUE-P is false when nothing
+recognizable follows, matching the original inline loop-exit (return)."
+  (cond
+    ;; ?.prop — if followed by ( emit optional-method-call, else optional-chain
+    ((eq (js-peek-type stream) :T-IDENT)
+     (multiple-value-bind (prop-tok rest2) (js-consume stream)
+       (let ((key (make-ast-quote :value (js-tok-value prop-tok))))
+         (if (eq (js-peek-type rest2) :T-LPAREN)
+             (multiple-value-bind (args rest3) (js-parse-arguments rest2)
+               (values (make-ast-call :func (make-ast-var :name '%js-optional-method-call)
+                                      :args (list* ast key args))
+                       rest3 t))
+             (values (make-ast-call :func (make-ast-var :name '%js-optional-chain)
+                                    :args (list ast key))
+                     rest2 t)))))
+    ;; ?.[expr]
+    ((eq (js-peek-type stream) :T-LBRACKET)
+     (multiple-value-bind (tok2 rest2) (js-consume stream)
+       (declare (ignore tok2))
+       (multiple-value-bind (idx-ast rest3) (js-parse-assignment-expr rest2)
+         (multiple-value-bind (tok3 rest4) (js-expect :T-RBRACKET rest3)
+           (declare (ignore tok3))
+           (values (make-ast-call :func (make-ast-var :name '%js-optional-chain)
+                                  :args (list ast idx-ast))
+                   rest4 t)))))
+    ;; ?.(args)
+    ((eq (js-peek-type stream) :T-LPAREN)
+     (multiple-value-bind (args rest2) (js-parse-arguments stream)
+       (values (make-ast-call :func (make-ast-var :name '%js-optional-call)
+                              :args (cons ast args))
+               rest2 t)))
+    (t (values ast stream nil))))
 
 (defun js-parse-postfix (ast stream)
   "Apply postfix operations: ++ -- . [] () ?. to AST.
@@ -156,116 +262,38 @@ Returns (values ast rest). Loops until no more postfix ops."
         ((and (eq type :T-OP) (string= val "++"))
          (multiple-value-bind (tok rest) (js-consume stream)
            (declare (ignore tok))
-           (if (ast-var-p ast)
-               (let* ((var-sym (ast-var-name ast))
-                      (tmp (gensym "JS-POSTFIX-")))
-                 (setf ast (make-ast-let
-                            :bindings (list (cons tmp (make-ast-var :name var-sym)))
-                            :body (list (make-ast-setq
-                                         :var var-sym
-                                         :value (make-ast-binop :op '+
-                                                                :lhs (make-ast-var :name var-sym)
-                                                                :rhs (make-ast-int :value 1)))
-                                        (make-ast-var :name tmp)))
-                       stream rest))
-               (setf ast (if (%js-place-get-prop-p ast)
-                             (%js-lower-place-incdec ast '+ nil)
-                             (%js-call '%js-postfix-inc ast))
-                     stream rest))))
+           (setf ast (%js-lower-incdec ast '+ nil '%js-postfix-inc)
+                 stream rest)))
         ;; Postfix --
         ((and (eq type :T-OP) (string= val "--"))
          (multiple-value-bind (tok rest) (js-consume stream)
            (declare (ignore tok))
-           (if (ast-var-p ast)
-               (let* ((var-sym (ast-var-name ast))
-                      (tmp (gensym "JS-POSTFIX-")))
-                 (setf ast (make-ast-let
-                            :bindings (list (cons tmp (make-ast-var :name var-sym)))
-                            :body (list (make-ast-setq
-                                         :var var-sym
-                                         :value (make-ast-binop :op '-
-                                                                :lhs (make-ast-var :name var-sym)
-                                                                :rhs (make-ast-int :value 1)))
-                                        (make-ast-var :name tmp)))
-                       stream rest))
-               (setf ast (if (%js-place-get-prop-p ast)
-                             (%js-lower-place-incdec ast '- nil)
-                             (%js-call '%js-postfix-dec ast))
-                     stream rest))))
+           (setf ast (%js-lower-incdec ast '- nil '%js-postfix-dec)
+                 stream rest)))
         ;; Property access: obj.prop
         ((eq type :T-DOT)
          (multiple-value-bind (tok rest) (js-consume stream)
            (declare (ignore tok))
-           ;; private field #name
-           (if (eq (js-peek-type rest) :T-PRIVATE-IDENT)
-               (multiple-value-bind (prop-tok rest2) (js-consume rest)
-                 (let ((key (make-ast-quote :value (js-tok-value prop-tok))))
-                   (setf ast (make-ast-call :func (make-ast-var :name '%js-class-private-field-get)
-                                            :args (list ast key))
-                         stream rest2)))
-               (multiple-value-bind (prop-tok rest2) (js-consume rest)
-                 (let ((key (make-ast-quote :value (js-tok-value prop-tok))))
-                   (setf ast (make-ast-call :func (make-ast-var :name '%js-get-prop)
-                                            :args (list ast key))
-                         stream rest2))))))
+           (multiple-value-bind (new-ast new-stream) (%js-parse-postfix-dot ast rest)
+             (setf ast new-ast stream new-stream))))
         ;; Computed member: obj[expr]
         ((eq type :T-LBRACKET)
          (multiple-value-bind (tok rest) (js-consume stream)
            (declare (ignore tok))
-           (multiple-value-bind (idx-ast rest2) (js-parse-assignment-expr rest)
-             (multiple-value-bind (tok2 rest3) (js-expect :T-RBRACKET rest2)
-               (declare (ignore tok2))
-               (setf ast (make-ast-call :func (make-ast-var :name '%js-get-prop)
-                                        :args (list ast idx-ast))
-                     stream rest3)))))
+           (multiple-value-bind (new-ast new-stream) (%js-parse-postfix-computed-member ast rest)
+             (setf ast new-ast stream new-stream))))
         ;; Call: fn(args)
         ((eq type :T-LPAREN)
-         (multiple-value-bind (args rest) (js-parse-arguments stream)
-           (setf ast (cond
-                       ((%js-items-have-spread-p args)
-                        (make-ast-apply :func ast :args (list (%js-spread-list-expr args))))
-                       ((and (ast-var-p ast)
-                             (gethash (ast-var-name ast) *js-coercion-call-helpers*))
-                        (%js-lower-coercion-call
-                         (gethash (ast-var-name ast) *js-coercion-call-helpers*) args))
-                       (t (make-ast-call :func ast :args args)))
-                 stream rest)))
+         (multiple-value-bind (new-ast new-stream) (%js-parse-postfix-call ast stream)
+           (setf ast new-ast stream new-stream)))
         ;; Optional chain ?.
         ((and (eq type :T-OP) (string= val "?."))
          (multiple-value-bind (tok rest) (js-consume stream)
            (declare (ignore tok))
-           (cond
-             ;; ?.prop — if followed by ( emit optional-method-call, else optional-chain
-             ((eq (js-peek-type rest) :T-IDENT)
-              (multiple-value-bind (prop-tok rest2) (js-consume rest)
-                (let ((key (make-ast-quote :value (js-tok-value prop-tok))))
-                  (if (eq (js-peek-type rest2) :T-LPAREN)
-                      (multiple-value-bind (args rest3) (js-parse-arguments rest2)
-                        (setf ast (make-ast-call :func (make-ast-var :name '%js-optional-method-call)
-                                                 :args (list* ast key args))
-                              stream rest3))
-                      (setf ast (make-ast-call :func (make-ast-var :name '%js-optional-chain)
-                                               :args (list ast key))
-                            stream rest2)))))
-             ;; ?.[expr]
-             ((eq (js-peek-type rest) :T-LBRACKET)
-              (multiple-value-bind (tok2 rest2) (js-consume rest)
-                (declare (ignore tok2))
-                (multiple-value-bind (idx-ast rest3) (js-parse-assignment-expr rest2)
-                  (multiple-value-bind (tok3 rest4) (js-expect :T-RBRACKET rest3)
-                    (declare (ignore tok3))
-                    (setf ast (make-ast-call :func (make-ast-var :name '%js-optional-chain)
-                                             :args (list ast idx-ast))
-                          stream rest4)))))
-             ;; ?.(args)
-             ((eq (js-peek-type rest) :T-LPAREN)
-              (multiple-value-bind (args rest2) (js-parse-arguments rest)
-                (setf ast (make-ast-call :func (make-ast-var :name '%js-optional-call)
-                                         :args (cons ast args))
-                      stream rest2)))
-             (t
-              (setf stream rest)
-              (return)))))
+           (multiple-value-bind (new-ast new-stream continue-p)
+               (%js-parse-postfix-optional-chain ast rest)
+             (setf ast new-ast stream new-stream)
+             (unless continue-p (return)))))
         ;; Tagged template literal
         ((or (eq type :T-TEMPLATE-START)
              (eq type :T-TEMPLATE-PARTS))

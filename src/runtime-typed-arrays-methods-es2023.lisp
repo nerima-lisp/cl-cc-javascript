@@ -43,47 +43,56 @@
         +js-undefined+
         (coerce (aref (js-ta-buffer ta) i) 'double-float))))
 
-(defun %js-ta-find (ta fn)
-  "TypedArray.prototype.find()."
-  (dotimes (i (js-ta-length ta) +js-undefined+)
-    (let ((v (coerce (aref (js-ta-buffer ta) i) 'double-float)))
-      (when (%js-truthy (%js-funcall fn v i ta))
-        (return v)))))
+(defmacro define-js-ta-find (name direction return docstring)
+  "Define a TypedArray find/findLast (RETURN :value) or findIndex/findLastIndex
+(RETURN :index) variant, iterating forward or in reverse — the TypedArray
+analogue of runtime-array-core.lisp's DEFINE-JS-ARRAY-FIND-INDEX, generalized
+to also return the found value (find/findLast return elements, not indices)."
+  (let* ((not-found (if (eq return :value) '+js-undefined+ '-1.0d0))
+         (found-form (if (eq return :value) 'v '(coerce i 'double-float)))
+         (loop-clause
+           (if (eq direction :forward)
+               `(dotimes (i (js-ta-length ta) ,not-found)
+                  (let ((v (coerce (aref (js-ta-buffer ta) i) 'double-float)))
+                    (when (%js-truthy (%js-funcall fn v i ta))
+                      (return ,found-form))))
+               `(loop for i from (1- (js-ta-length ta)) downto 0
+                      do (let ((v (coerce (aref (js-ta-buffer ta) i) 'double-float)))
+                           (when (%js-truthy (%js-funcall fn v i ta))
+                             (return ,found-form)))
+                      finally (return ,not-found)))))
+    `(defun ,name (ta fn)
+       ,docstring
+       ,loop-clause)))
 
-(defun %js-ta-find-index (ta fn)
-  "TypedArray.prototype.findIndex()."
-  (dotimes (i (js-ta-length ta) -1.0d0)
-    (let ((v (coerce (aref (js-ta-buffer ta) i) 'double-float)))
-      (when (%js-truthy (%js-funcall fn v i ta))
-        (return (coerce i 'double-float))))))
+(define-js-ta-find %js-ta-find :forward :value
+  "TypedArray.prototype.find().")
 
-(defun %js-ta-find-last (ta fn)
-  "TypedArray.prototype.findLast()."
-  (loop for i from (1- (js-ta-length ta)) downto 0
-        do (let ((v (coerce (aref (js-ta-buffer ta) i) 'double-float)))
-             (when (%js-truthy (%js-funcall fn v i ta))
-               (return v)))
-        finally (return +js-undefined+)))
+(define-js-ta-find %js-ta-find-index :forward :index
+  "TypedArray.prototype.findIndex().")
 
-(defun %js-ta-find-last-index (ta fn)
-  "TypedArray.prototype.findLastIndex()."
-  (loop for i from (1- (js-ta-length ta)) downto 0
-        do (let ((v (coerce (aref (js-ta-buffer ta) i) 'double-float)))
-             (when (%js-truthy (%js-funcall fn v i ta))
-               (return (coerce i 'double-float))))
-        finally (return -1.0d0)))
+(define-js-ta-find %js-ta-find-last :reverse :value
+  "TypedArray.prototype.findLast().")
 
-(defun %js-ta-every (ta fn)
-  "TypedArray.prototype.every()."
-  (dotimes (i (js-ta-length ta) t)
-    (unless (%js-truthy (%js-funcall fn (coerce (aref (js-ta-buffer ta) i) 'double-float) i ta))
-      (return nil))))
+(define-js-ta-find %js-ta-find-last-index :reverse :index
+  "TypedArray.prototype.findLastIndex().")
 
-(defun %js-ta-some (ta fn)
-  "TypedArray.prototype.some()."
-  (dotimes (i (js-ta-length ta) nil)
-    (when (%js-truthy (%js-funcall fn (coerce (aref (js-ta-buffer ta) i) 'double-float) i ta))
-      (return t))))
+(defmacro define-js-ta-predicate-test (name clause early-result final-result docstring)
+  "Define a JS TypedArray predicate-test (some/every) from the shared loop
+pattern — the TypedArray analogue of DEFINE-JS-ARRAY-PREDICATE-TEST."
+  `(defun ,name (ta fn)
+     ,docstring
+     (loop for i below (js-ta-length ta)
+           for element = (coerce (aref (js-ta-buffer ta) i) 'double-float)
+           ,clause (%js-truthy (%js-funcall fn element i ta))
+             return ,early-result
+           finally (return ,final-result))))
+
+(define-js-ta-predicate-test %js-ta-every unless nil t
+  "TypedArray.prototype.every().")
+
+(define-js-ta-predicate-test %js-ta-some when t nil
+  "TypedArray.prototype.some().")
 
 (defun %js-ta-reverse (ta)
   "TypedArray.prototype.reverse() — mutating."
@@ -128,38 +137,36 @@
                 return (coerce i 'double-float)
               finally (return -1.0d0)))))
 
-(defun %js-ta-values (ta)
-  "TypedArray.prototype.values() — returns an iterator."
-  (let ((i (list 0)) (n (js-ta-length ta)) (buf (js-ta-buffer ta)))
-    (%js-make-object
-     "next" (lambda ()
-               (if (< (car i) n)
-                   (prog1 (%js-make-object "value" (coerce (aref buf (car i)) 'double-float) "done" nil)
-                     (incf (car i)))
-                   (%js-make-object "value" +js-undefined+ "done" t)))
-     "@@iterator" (lambda () (gethash "@@iterator" (%js-ta-values ta))))))
+(defmacro define-js-ta-iterator (name docstring value-form &key self-iterator)
+  "Define a TypedArray prototype iterator method (values/keys/entries): an
+object whose \"next\" method walks index I from 0 to (js-ta-length ta),
+yielding VALUE-FORM (which may reference I, N, and BUF) at each step. When
+SELF-ITERATOR is true, the object is also its own @@iterator (as values() is)."
+  `(defun ,name (ta)
+     ,docstring
+     (let ((i (list 0)) (n (js-ta-length ta)) (buf (js-ta-buffer ta)))
+       (declare (ignorable buf))
+       (%js-make-object
+        "next" (lambda ()
+                 (if (< (car i) n)
+                     (prog1 (%js-make-object "value" ,value-form "done" nil)
+                       (incf (car i)))
+                     (%js-make-object "value" +js-undefined+ "done" t)))
+        ,@(when self-iterator
+            `("@@iterator" (lambda () (gethash "@@iterator" (,name ta)))))))))
 
-(defun %js-ta-keys (ta)
-  "TypedArray.prototype.keys()."
-  (let ((i (list 0)) (n (js-ta-length ta)))
-    (%js-make-object
-     "next" (lambda ()
-               (if (< (car i) n)
-                   (prog1 (%js-make-object "value" (coerce (car i) 'double-float) "done" nil)
-                     (incf (car i)))
-                   (%js-make-object "value" +js-undefined+ "done" t))))))
+(define-js-ta-iterator %js-ta-values
+    "TypedArray.prototype.values() — returns an iterator."
+    (coerce (aref buf (car i)) 'double-float)
+  :self-iterator t)
 
-(defun %js-ta-entries (ta)
-  "TypedArray.prototype.entries()."
-  (let ((i (list 0)) (n (js-ta-length ta)) (buf (js-ta-buffer ta)))
-    (%js-make-object
-     "next" (lambda ()
-               (if (< (car i) n)
-                   (let ((pair (%js-make-array (coerce (car i) 'double-float)
-                                               (coerce (aref buf (car i)) 'double-float))))
-                     (prog1 (%js-make-object "value" pair "done" nil)
-                       (incf (car i))))
-                   (%js-make-object "value" +js-undefined+ "done" t))))))
+(define-js-ta-iterator %js-ta-keys
+    "TypedArray.prototype.keys()."
+    (coerce (car i) 'double-float))
+
+(define-js-ta-iterator %js-ta-entries
+    "TypedArray.prototype.entries()."
+    (%js-make-array (coerce (car i) 'double-float) (coerce (aref buf (car i)) 'double-float)))
 
 (defparameter *js-typed-array-method-table*
   (list (cons "set"           #'%js-ta-set-from)

@@ -28,10 +28,6 @@
 (defvar *js-module-exports* (%js-make-object)
   "Current module export namespace accumulated while evaluating a module.")
 
-(defun %js-reset-module-exports ()
-  "Reset and return the current module export namespace."
-  (setf *js-module-exports* (%js-make-object)))
-
 (defun %js-current-module-exports ()
   "Return the current module export namespace object."
   *js-module-exports*)

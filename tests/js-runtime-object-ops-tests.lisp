@@ -6,33 +6,15 @@
 ;;;;
 ;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr, %jr-list)
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── Internal key filter ─────────────────────────────────────────────────────
 
-(it-sequential "js-rt-internal-key-p dunder-proto"
-  (destructuring-bind (k expected) (list "__proto__" t)
-    (expect (cl-cc/javascript::%js-internal-key-p k) :to-equal expected)))
-
-(it-sequential "js-rt-internal-key-p dunder-class"
-  (destructuring-bind (k expected) (list "__class__" t)
-    (expect (cl-cc/javascript::%js-internal-key-p k) :to-equal expected)))
-
-(it-sequential "js-rt-internal-key-p get-prefix"
-  (destructuring-bind (k expected) (list "__get_foo" t)
-    (expect (cl-cc/javascript::%js-internal-key-p k) :to-equal expected)))
-
-(it-sequential "js-rt-internal-key-p set-prefix"
-  (destructuring-bind (k expected) (list "__set_foo" t)
-    (expect (cl-cc/javascript::%js-internal-key-p k) :to-equal expected)))
-
-(it-sequential "js-rt-internal-key-p plain-key"
-  (destructuring-bind (k expected) (list "name" nil)
-    (expect (cl-cc/javascript::%js-internal-key-p k) :to-equal expected)))
-
-(it-sequential "js-rt-internal-key-p empty"
-  (destructuring-bind (k expected) (list "" nil)
-    (expect (cl-cc/javascript::%js-internal-key-p k) :to-equal expected)))
+(it-sequential-each (("__proto__" t) ("__class__" t) ("__get_foo" t) ("__set_foo" t)
+                     ("name" nil) ("" nil))
+    "js-rt-internal-key-p ~S"
+    (k expected)
+  (expect (cl-cc/javascript::%js-internal-key-p k) :to-equal expected))
 
 ;;; ─── Object.keys / values / entries ─────────────────────────────────────────
 
@@ -182,15 +164,11 @@
 
 ;;; ─── Object.hasOwn ───────────────────────────────────────────────────────────
 
-(it-sequential "js-rt-object-has-own present"
-  (destructuring-bind (key expected) (list "a" t)
-    (let ((obj (cl-cc/javascript::%js-make-object "a" 1)))
-    (expect (cl-cc/javascript::%js-object-has-own obj key) :to-equal expected))))
-
-(it-sequential "js-rt-object-has-own absent"
-  (destructuring-bind (key expected) (list "z" nil)
-    (let ((obj (cl-cc/javascript::%js-make-object "a" 1)))
-    (expect (cl-cc/javascript::%js-object-has-own obj key) :to-equal expected))))
+(it-sequential-each (("a" t) ("z" nil))
+    "js-rt-object-has-own ~S"
+    (key expected)
+  (let ((obj (cl-cc/javascript::%js-make-object "a" 1)))
+    (expect (cl-cc/javascript::%js-object-has-own obj key) :to-equal expected)))
 
 (it-sequential "js-rt-object-has-own-symbol-key"
   (let* ((obj (cl-cc/javascript::%js-make-object))
@@ -303,29 +281,15 @@
 
 ;;; ─── 32-bit integer coercion ─────────────────────────────────────────────────
 
-(it-sequential "js-rt-to-int32 small"
-  (destructuring-bind (x expected) (list 5 5)
-    (expect (= expected (cl-cc/javascript::%js-to-int32 x)) :to-be-truthy)))
+(it-sequential-each ((5 5) (3.7d0 3) (#x100000001 1))
+    "js-rt-to-int32 ~A"
+    (x expected)
+  (expect (= expected (cl-cc/javascript::%js-to-int32 x)) :to-be-truthy))
 
-(it-sequential "js-rt-to-int32 float"
-  (destructuring-bind (x expected) (list 3.7d0 3)
-    (expect (= expected (cl-cc/javascript::%js-to-int32 x)) :to-be-truthy)))
-
-(it-sequential "js-rt-to-int32 over-32"
-  (destructuring-bind (x expected) (list #x100000001 1)
-    (expect (= expected (cl-cc/javascript::%js-to-int32 x)) :to-be-truthy)))
-
-(it-sequential "js-rt-sign-extend32 positive"
-  (destructuring-bind (n expected) (list 5 5)
-    (expect (= expected (cl-cc/javascript::%js-sign-extend32 n)) :to-be-truthy)))
-
-(it-sequential "js-rt-sign-extend32 max-int32"
-  (destructuring-bind (n expected) (list #x7FFFFFFF 2147483647)
-    (expect (= expected (cl-cc/javascript::%js-sign-extend32 n)) :to-be-truthy)))
-
-(it-sequential "js-rt-sign-extend32 min-int32"
-  (destructuring-bind (n expected) (list #x80000000 -2147483648)
-    (expect (= expected (cl-cc/javascript::%js-sign-extend32 n)) :to-be-truthy)))
+(it-sequential-each ((5 5) (#x7FFFFFFF 2147483647) (#x80000000 -2147483648))
+    "js-rt-sign-extend32 ~A"
+    (n expected)
+  (expect (= expected (cl-cc/javascript::%js-sign-extend32 n)) :to-be-truthy))
 
 ;;; ─── Bitwise operators ───────────────────────────────────────────────────────
 
@@ -383,38 +347,18 @@
 
 ;;; ─── BigInt extras ───────────────────────────────────────────────────────────
 
-(it-sequential "js-rt-bigint-constructor integer"
-  (destructuring-bind (x expected) (list 42 42)
-    (let ((bi (cl-cc/javascript::%js-bigint x)))
+(it-sequential-each ((42 42) (3.9d0 3) ("100" 100))
+    "js-rt-bigint-constructor ~S"
+    (x expected)
+  (let ((bi (cl-cc/javascript::%js-bigint x)))
     (expect (cl-cc/javascript::js-bigint-p bi) :to-be-truthy)
-    (expect (= expected (cl-cc/javascript::js-bigint-value bi)) :to-be-truthy))))
+    (expect (= expected (cl-cc/javascript::js-bigint-value bi)) :to-be-truthy)))
 
-(it-sequential "js-rt-bigint-constructor float"
-  (destructuring-bind (x expected) (list 3.9d0 3)
-    (let ((bi (cl-cc/javascript::%js-bigint x)))
-    (expect (cl-cc/javascript::js-bigint-p bi) :to-be-truthy)
-    (expect (= expected (cl-cc/javascript::js-bigint-value bi)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-constructor string"
-  (destructuring-bind (x expected) (list "100" 100)
-    (let ((bi (cl-cc/javascript::%js-bigint x)))
-    (expect (cl-cc/javascript::js-bigint-p bi) :to-be-truthy)
-    (expect (= expected (cl-cc/javascript::js-bigint-value bi)) :to-be-truthy))))
-
-(it-sequential "js-rt-bigint-to-string-radix decimal"
-  (destructuring-bind (n radix expected) (list 255 10 "255")
-    (let ((bi (cl-cc/javascript::%make-js-bigint n)))
-    (expect (cl-cc/javascript::%js-bigint-to-string bi radix) :to-equal expected))))
-
-(it-sequential "js-rt-bigint-to-string-radix hex"
-  (destructuring-bind (n radix expected) (list 255 16 "ff")
-    (let ((bi (cl-cc/javascript::%make-js-bigint n)))
-    (expect (cl-cc/javascript::%js-bigint-to-string bi radix) :to-equal expected))))
-
-(it-sequential "js-rt-bigint-to-string-radix binary"
-  (destructuring-bind (n radix expected) (list 5 2 "101")
-    (let ((bi (cl-cc/javascript::%make-js-bigint n)))
-    (expect (cl-cc/javascript::%js-bigint-to-string bi radix) :to-equal expected))))
+(it-sequential-each ((255 10 "255") (255 16 "ff") (5 2 "101"))
+    "js-rt-bigint-to-string-radix ~A/~A"
+    (n radix expected)
+  (let ((bi (cl-cc/javascript::%make-js-bigint n)))
+    (expect (cl-cc/javascript::%js-bigint-to-string bi radix) :to-equal expected)))
 
 (it-sequential "js-rt-bigint-div-mod div"
   (destructuring-bind (fn a b expected) (list #'cl-cc/javascript::%js-bigint-div 10 3 3)
@@ -426,17 +370,10 @@
     (let ((result (funcall fn a b)))
     (expect (= expected (cl-cc/javascript::js-bigint-value result)) :to-be-truthy))))
 
-(it-sequential "js-rt-bigint-compare lt"
-  (destructuring-bind (a b expected) (list 3 5 -1)
-    (expect (= expected (cl-cc/javascript::%js-bigint-compare a b)) :to-be-truthy)))
-
-(it-sequential "js-rt-bigint-compare eq"
-  (destructuring-bind (a b expected) (list 5 5 0)
-    (expect (= expected (cl-cc/javascript::%js-bigint-compare a b)) :to-be-truthy)))
-
-(it-sequential "js-rt-bigint-compare gt"
-  (destructuring-bind (a b expected) (list 7 5 1)
-    (expect (= expected (cl-cc/javascript::%js-bigint-compare a b)) :to-be-truthy)))
+(it-sequential-each ((3 5 -1) (5 5 0) (7 5 1))
+    "js-rt-bigint-compare ~A/~A"
+    (a b expected)
+  (expect (= expected (cl-cc/javascript::%js-bigint-compare a b)) :to-be-truthy))
 
 (it-sequential "js-rt-bigint-shift lshift"
   (destructuring-bind (fn a n expected) (list #'cl-cc/javascript::%js-bigint-lshift 1 3 8)

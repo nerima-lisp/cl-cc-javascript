@@ -100,24 +100,6 @@
       (flush)
       (make-ast-tagbody :tags (nreverse tags)))))
 
-(defun %js-lower-while-loop (cond-expr body)
-  "Lower while(cond){body} to block/tagbody/go AST.
-  The loop tag serves as both the continue target and the back-edge."
-  (let ((loop-tag (gensym "WHILE-"))
-        (end-tag  (or *js-loop-break-target* (gensym "WHILE-END-"))))
-    (make-ast-block :name nil
-      :body (list (%js-make-tagbody
-                   (append (list loop-tag
-                                 (make-ast-if
-                                  :cond cond-expr
-                                  :then (make-ast-quote :value nil)
-                                  :else (make-ast-return-from
-                                         :name nil
-                                         :value (make-ast-quote :value nil))))
-                           body
-                           (list (make-ast-go :tag loop-tag)
-                                 end-tag)))))))
-
 (defun %js-lower-while-with-tags (cond-expr body loop-tag end-tag)
   "Lower while with caller-supplied LOOP-TAG (continue) and END-TAG (break)."
   (make-ast-block :name nil

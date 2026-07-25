@@ -4,77 +4,37 @@
 ;;;;
 ;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr)
 
-(in-package :cl-cc/test)
+(in-package :cl-cc-javascript/test)
 
 ;;; ─── Temporal helper functions ───────────────────────────────────────────────
 
-(it-sequential "js-rt-temporal-pad year-4"
-  (destructuring-bind (n width expected) (list 2025 4 "2025")
-    (expect (cl-cc/javascript::%temporal-pad n width) :to-equal expected)))
+(it-sequential-each ((2025 4 "2025") (3 2 "03") (15 2 "15") (9 1 "9"))
+    "js-rt-temporal-pad ~A"
+    (n width expected)
+  (expect (cl-cc/javascript::%temporal-pad n width) :to-equal expected))
 
-(it-sequential "js-rt-temporal-pad month-2"
-  (destructuring-bind (n width expected) (list 3 2 "03")
-    (expect (cl-cc/javascript::%temporal-pad n width) :to-equal expected)))
+(it-sequential-each ((1 2 -1.0d0) (5 5 0.0d0) (9 3 1.0d0))
+    "js-rt-temporal-3way-compare ~A/~A"
+    (a b expected)
+  (expect (= expected (cl-cc/javascript::%temporal-3way-compare a b)) :to-be-truthy))
 
-(it-sequential "js-rt-temporal-pad day-2"
-  (destructuring-bind (n width expected) (list 15 2 "15")
-    (expect (cl-cc/javascript::%temporal-pad n width) :to-equal expected)))
-
-(it-sequential "js-rt-temporal-pad narrow"
-  (destructuring-bind (n width expected) (list 9 1 "9")
-    (expect (cl-cc/javascript::%temporal-pad n width) :to-equal expected)))
-
-(it-sequential "js-rt-temporal-3way-compare less"
-  (destructuring-bind (a b expected) (list 1 2 -1.0d0)
-    (expect (= expected (cl-cc/javascript::%temporal-3way-compare a b)) :to-be-truthy)))
-
-(it-sequential "js-rt-temporal-3way-compare equal"
-  (destructuring-bind (a b expected) (list 5 5 0.0d0)
-    (expect (= expected (cl-cc/javascript::%temporal-3way-compare a b)) :to-be-truthy)))
-
-(it-sequential "js-rt-temporal-3way-compare greater"
-  (destructuring-bind (a b expected) (list 9 3 1.0d0)
-    (expect (= expected (cl-cc/javascript::%temporal-3way-compare a b)) :to-be-truthy)))
-
-(it-sequential "js-rt-temporal-parse-iso-fields full"
-  (destructuring-bind (s exp-y exp-mo exp-d exp-h exp-mi exp-s) (list "2025-06-13T14:30:00" 2025 6 13 14 30 0)
-    (multiple-value-bind (y mo d h mi s) (cl-cc/javascript::%temporal-parse-iso-fields s)
+(it-sequential-each (("2025-06-13T14:30:00" 2025 6 13 14 30 0)
+                     ("2025-01-01" 2025 1 1 0 0 0))
+    "js-rt-temporal-parse-iso-fields ~S"
+    (s exp-y exp-mo exp-d exp-h exp-mi exp-s)
+  (multiple-value-bind (y mo d h mi sec) (cl-cc/javascript::%temporal-parse-iso-fields s)
     (expect (= exp-y y) :to-be-truthy)
     (expect (= exp-mo mo) :to-be-truthy)
     (expect (= exp-d d) :to-be-truthy)
     (expect (= exp-h h) :to-be-truthy)
     (expect (= exp-mi mi) :to-be-truthy)
-    (expect (= exp-s s) :to-be-truthy))))
+    (expect (= exp-s sec) :to-be-truthy)))
 
-(it-sequential "js-rt-temporal-parse-iso-fields date-only"
-  (destructuring-bind (s exp-y exp-mo exp-d exp-h exp-mi exp-s) (list "2025-01-01" 2025 1 1 0 0 0)
-    (multiple-value-bind (y mo d h mi s) (cl-cc/javascript::%temporal-parse-iso-fields s)
-    (expect (= exp-y y) :to-be-truthy)
-    (expect (= exp-mo mo) :to-be-truthy)
-    (expect (= exp-d d) :to-be-truthy)
-    (expect (= exp-h h) :to-be-truthy)
-    (expect (= exp-mi mi) :to-be-truthy)
-    (expect (= exp-s s) :to-be-truthy))))
-
-(it-sequential "js-rt-temporal-duration-to-seconds one-hour"
-  (destructuring-bind (unit n expected) (list "hours" 1 3600)
-    (let ((dur (cl-cc/javascript::%js-make-object unit (coerce n 'double-float))))
-    (expect (= expected (cl-cc/javascript::%temporal-duration-to-seconds dur)) :to-be-truthy))))
-
-(it-sequential "js-rt-temporal-duration-to-seconds one-minute"
-  (destructuring-bind (unit n expected) (list "minutes" 1 60)
-    (let ((dur (cl-cc/javascript::%js-make-object unit (coerce n 'double-float))))
-    (expect (= expected (cl-cc/javascript::%temporal-duration-to-seconds dur)) :to-be-truthy))))
-
-(it-sequential "js-rt-temporal-duration-to-seconds one-second"
-  (destructuring-bind (unit n expected) (list "seconds" 1 1)
-    (let ((dur (cl-cc/javascript::%js-make-object unit (coerce n 'double-float))))
-    (expect (= expected (cl-cc/javascript::%temporal-duration-to-seconds dur)) :to-be-truthy))))
-
-(it-sequential "js-rt-temporal-duration-to-seconds one-day"
-  (destructuring-bind (unit n expected) (list "days" 1 86400)
-    (let ((dur (cl-cc/javascript::%js-make-object unit (coerce n 'double-float))))
-    (expect (= expected (cl-cc/javascript::%temporal-duration-to-seconds dur)) :to-be-truthy))))
+(it-sequential-each (("hours" 1 3600) ("minutes" 1 60) ("seconds" 1 1) ("days" 1 86400))
+    "js-rt-temporal-duration-to-seconds ~A"
+    (unit n expected)
+  (let ((dur (cl-cc/javascript::%js-make-object unit (coerce n 'double-float))))
+    (expect (= expected (cl-cc/javascript::%temporal-duration-to-seconds dur)) :to-be-truthy)))
 
 (it-sequential "js-rt-temporal-parse-time-fields"
   (multiple-value-bind (h m s) (cl-cc/javascript::%temporal-parse-time-fields "14:30:05")
@@ -448,39 +408,79 @@
     (cl-cc/javascript::%js-date-set-seconds d 11 1)
     (expect (cl-cc/javascript::%js-date-to-iso-string d) :to-equal "1970-01-02T03:04:11.999Z")))
 
+(it-sequential "js-rt-date-to-string"
+  (let ((d (cl-cc/javascript::%js-make-date 97445000)))
+    (expect (cl-cc/javascript::%js-date-to-string d) :to-equal "1970-01-02T03:04:05.000Z")))
+
+;;; 97445123 ms = 1970-01-02T03:04:05.123Z, a Friday (CL dow 0=Mon..6=Sun → 4)
+(it-sequential "js-rt-date-method-table-getters-dispatch"
+  (let ((d (cl-cc/javascript::%js-make-date 97445123)))
+    (flet ((call (name)
+             (funcall (cdr (assoc name cl-cc/javascript::*js-date-method-table* :test #'string=)) d)))
+      (expect (= 97445123.0d0 (call "getTime")) :to-be-truthy)
+      (expect (= 1970 (call "getFullYear")) :to-be-truthy)
+      (expect (= 1970 (call "getUTCFullYear")) :to-be-truthy)
+      (expect (= 0 (call "getMonth")) :to-be-truthy)
+      (expect (= 0 (call "getUTCMonth")) :to-be-truthy)
+      (expect (= 2 (call "getDate")) :to-be-truthy)
+      (expect (= 2 (call "getUTCDate")) :to-be-truthy)
+      (expect (= 4 (call "getDay")) :to-be-truthy)
+      (expect (= 4 (call "getUTCDay")) :to-be-truthy)
+      (expect (= 3 (call "getHours")) :to-be-truthy)
+      (expect (= 3 (call "getUTCHours")) :to-be-truthy)
+      (expect (= 4 (call "getMinutes")) :to-be-truthy)
+      (expect (= 4 (call "getUTCMinutes")) :to-be-truthy)
+      (expect (= 5 (call "getSeconds")) :to-be-truthy)
+      (expect (= 5 (call "getUTCSeconds")) :to-be-truthy)
+      (expect (= 123 (call "getMilliseconds")) :to-be-truthy)
+      (expect (= 0.0d0 (call "getTimezoneOffset")) :to-be-truthy)
+      (expect (string= "1970-01-02T03:04:05.123Z" (call "toISOString")) :to-be-truthy)
+      (expect (string= "1970/01/02" (call "toLocaleDateString")) :to-be-truthy)
+      (expect (string= "03:04:05 GMT+0000 (Coordinated Universal Time)" (call "toLocaleTimeString")) :to-be-truthy)
+      (expect (string= "1970-01-02T03:04:05.123Z" (call "toLocaleString")) :to-be-truthy)
+      (expect (string= "1970-01-02T03:04:05.123Z" (call "toUTCString")) :to-be-truthy)
+      (expect (string= "Fri Jan 02 1970" (call "toDateString")) :to-be-truthy)
+      (expect (string= "03:04:05 GMT+0000 (Coordinated Universal Time)" (call "toTimeString")) :to-be-truthy)
+      (expect (string= "1970-01-02T03:04:05.123Z" (call "toJSON")) :to-be-truthy)
+      (expect (string= "1970-01-02T03:04:05.123Z" (call "toString")) :to-be-truthy)
+      (expect (= 97445123.0d0 (call "valueOf")) :to-be-truthy))))
+
+(it-sequential "js-rt-date-method-table-setters-dispatch"
+  (let ((d (cl-cc/javascript::%js-make-date 97445999)))
+    (flet ((call (name &rest args)
+             (apply #'funcall (cdr (assoc name cl-cc/javascript::*js-date-method-table* :test #'string=))
+                    d args)))
+      (call "setTime" 5000)
+      (expect (= 5000 (cl-cc/javascript::js-date-ms d)) :to-be-truthy)
+      (call "setFullYear" 2024.0d0)
+      (expect (= 2024 (cl-cc/javascript::%js-date-get-full-year d)) :to-be-truthy)
+      (call "setMonth" 5.0d0)
+      (expect (= 5 (cl-cc/javascript::%js-date-get-month d)) :to-be-truthy)
+      (call "setDate" 15.0d0)
+      (expect (= 15 (cl-cc/javascript::%js-date-get-date d)) :to-be-truthy)
+      (call "setHours" 6.0d0 7.0d0 8.0d0)
+      (expect (= 6 (cl-cc/javascript::%js-date-get-hours d)) :to-be-truthy)
+      (expect (= 7 (cl-cc/javascript::%js-date-get-minutes d)) :to-be-truthy)
+      (expect (= 8 (cl-cc/javascript::%js-date-get-seconds d)) :to-be-truthy)
+      (call "setMinutes" 9.0d0 10.0d0)
+      (expect (= 9 (cl-cc/javascript::%js-date-get-minutes d)) :to-be-truthy)
+      (expect (= 10 (cl-cc/javascript::%js-date-get-seconds d)) :to-be-truthy)
+      (call "setSeconds" 11.0d0)
+      (expect (= 11 (cl-cc/javascript::%js-date-get-seconds d)) :to-be-truthy))))
+
 ;;; ─── JSON stringify ──────────────────────────────────────────────────────────
 
-(it-sequential "js-rt-json-stringify-primitives null"
-  (destructuring-bind (val expected) (list cl-cc/javascript::+js-null+ "null")
-    (expect (cl-cc/javascript::%js-json-stringify val) :to-equal expected)))
-
-(it-sequential "js-rt-json-stringify-primitives undefined"
-  (destructuring-bind (val expected) (list cl-cc/javascript::+js-undefined+ "null")
-    (expect (cl-cc/javascript::%js-json-stringify val) :to-equal expected)))
-
-(it-sequential "js-rt-json-stringify-primitives true"
-  (destructuring-bind (val expected) (list t "true")
-    (expect (cl-cc/javascript::%js-json-stringify val) :to-equal expected)))
-
-(it-sequential "js-rt-json-stringify-primitives false"
-  (destructuring-bind (val expected) (list nil "false")
-    (expect (cl-cc/javascript::%js-json-stringify val) :to-equal expected)))
-
-(it-sequential "js-rt-json-stringify-primitives integer"
-  (destructuring-bind (val expected) (list 42.0d0 "42")
-    (expect (cl-cc/javascript::%js-json-stringify val) :to-equal expected)))
-
-(it-sequential "js-rt-json-stringify-primitives float"
-  (destructuring-bind (val expected) (list 1.5d0 "1.5")
-    (expect (cl-cc/javascript::%js-json-stringify val) :to-equal expected)))
-
-(it-sequential "js-rt-json-stringify-primitives string"
-  (destructuring-bind (val expected) (list "hello" "\"hello\"")
-    (expect (cl-cc/javascript::%js-json-stringify val) :to-equal expected)))
-
-(it-sequential "js-rt-json-stringify-primitives nan"
-  (destructuring-bind (val expected) (list cl-cc/javascript::*js-nan-float* "null")
-    (expect (cl-cc/javascript::%js-json-stringify val) :to-equal expected)))
+(it-sequential-each ((:js-null "null")
+                     (:js-undefined "null")
+                     (t "true")
+                     (nil "false")
+                     (42.0d0 "42")
+                     (1.5d0 "1.5")
+                     ("hello" "\"hello\"")
+                     (#.cl-cc/javascript::*js-nan-float* "null"))
+    "js-rt-json-stringify-primitives ~A"
+    (val expected)
+  (expect (cl-cc/javascript::%js-json-stringify val) :to-equal expected))
 
 (it-sequential "js-rt-json-stringify-string-escapes"
   (expect (cl-cc/javascript::%js-json-stringify "line1
@@ -521,30 +521,11 @@ line2") :to-equal "\"line1\\nline2\"")
 
 ;;; ─── JSON parse ──────────────────────────────────────────────────────────────
 
-(it-sequential "js-rt-json-parse-non-undefined null-lit"
-  (destructuring-bind (input) (list "null")
-    (let ((result (cl-cc/javascript::%js-json-parse input)))
-    (expect (not (eq result cl-cc/javascript::+js-undefined+)) :to-be-truthy))))
-
-(it-sequential "js-rt-json-parse-non-undefined true-lit"
-  (destructuring-bind (input) (list "true")
-    (let ((result (cl-cc/javascript::%js-json-parse input)))
-    (expect (not (eq result cl-cc/javascript::+js-undefined+)) :to-be-truthy))))
-
-(it-sequential "js-rt-json-parse-non-undefined false-lit"
-  (destructuring-bind (input) (list "false")
-    (let ((result (cl-cc/javascript::%js-json-parse input)))
-    (expect (not (eq result cl-cc/javascript::+js-undefined+)) :to-be-truthy))))
-
-(it-sequential "js-rt-json-parse-non-undefined number-42"
-  (destructuring-bind (input) (list "42")
-    (let ((result (cl-cc/javascript::%js-json-parse input)))
-    (expect (not (eq result cl-cc/javascript::+js-undefined+)) :to-be-truthy))))
-
-(it-sequential "js-rt-json-parse-non-undefined str-hello"
-  (destructuring-bind (input) (list "\"hello\"")
-    (let ((result (cl-cc/javascript::%js-json-parse input)))
-    (expect (not (eq result cl-cc/javascript::+js-undefined+)) :to-be-truthy))))
+(it-sequential-each (("null") ("true") ("false") ("42") ("\"hello\""))
+    "js-rt-json-parse-non-undefined ~S"
+    (input)
+  (let ((result (cl-cc/javascript::%js-json-parse input)))
+    (expect (not (eq result cl-cc/javascript::+js-undefined+)) :to-be-truthy)))
 
 (it-sequential "js-rt-json-parse-null"
   (expect (eq cl-cc/javascript::+js-null+ (cl-cc/javascript::%js-json-parse "null")) :to-be-truthy))
@@ -553,17 +534,10 @@ line2") :to-equal "\"line1\\nline2\"")
   (expect (eq t   (cl-cc/javascript::%js-json-parse "true")) :to-be-truthy)
   (expect (eq nil (cl-cc/javascript::%js-json-parse "false")) :to-be-truthy))
 
-(it-sequential "js-rt-json-parse-number integer"
-  (destructuring-bind (str expected) (list "42" 42.0d0)
-    (expect (= expected (cl-cc/javascript::%js-json-parse str)) :to-be-truthy)))
-
-(it-sequential "js-rt-json-parse-number float"
-  (destructuring-bind (str expected) (list "3.14" 3.14d0)
-    (expect (= expected (cl-cc/javascript::%js-json-parse str)) :to-be-truthy)))
-
-(it-sequential "js-rt-json-parse-number negative"
-  (destructuring-bind (str expected) (list "-1" -1.0d0)
-    (expect (= expected (cl-cc/javascript::%js-json-parse str)) :to-be-truthy)))
+(it-sequential-each (("42" 42.0d0) ("3.14" 3.14d0) ("-1" -1.0d0))
+    "js-rt-json-parse-number ~A"
+    (str expected)
+  (expect (= expected (cl-cc/javascript::%js-json-parse str)) :to-be-truthy))
 
 (it-sequential "js-rt-json-parse-string"
   (expect (cl-cc/javascript::%js-json-parse "\"hello\"") :to-equal "hello")
@@ -587,6 +561,13 @@ b"))
     (let ((arr (gethash "arr" obj)))
       (expect (cl-cc/javascript::%js-vec-p arr) :to-be-truthy)
       (expect (= 2 (length arr)) :to-be-truthy))))
+
+;;; Kept as separate forms rather than merged into an it-sequential-each: the
+;;; shared body's (= expected result) branch does type-constrained arithmetic
+;;; on EXPECTED, and mixing a string case ("x") with a numeric case (42.0d0)
+;;; in the same quoted case list makes SBCL derive a NUMBER/VECTOR union type
+;;; for EXPECTED that the (stringp expected) guard cannot narrow back down at
+;;; compile time — a real compile-time type error, not just a style nit.
 
 (it-sequential "js-rt-json-parse-whitespace number"
   (destructuring-bind (input expected) (list "  42  " 42.0d0)

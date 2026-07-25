@@ -66,6 +66,112 @@ Handles elision (holes), spread elements, and assignment expressions."
 
 ;;; ─── Object Literal ──────────────────────────────────────────────────────────
 
+(defun %js-parse-object-property-spread (stream)
+  "...expr — STREAM points at the ellipsis token."
+  (multiple-value-bind (tok rest) (js-consume stream)
+    (declare (ignore tok))
+    (multiple-value-bind (expr rest2) (js-parse-assignment-expr rest)
+      (values :spread expr nil nil rest2))))
+
+(defun %js-parse-object-property-computed (stream)
+  "[expr]: value or [expr](...) {} — STREAM points at '['."
+  (multiple-value-bind (tok rest) (js-consume stream)
+    (declare (ignore tok))
+    (multiple-value-bind (key-expr rest2) (js-parse-assignment-expr rest)
+      (multiple-value-bind (tok2 rest3) (js-expect :T-RBRACKET rest2)
+        (declare (ignore tok2))
+        (if (eq (js-peek-type rest3) :T-LPAREN)
+            (multiple-value-bind (fn-ast rest4) (js-parse-function-expr rest3 :name nil)
+              (values key-expr fn-ast t t rest4))
+            (multiple-value-bind (tok3 rest4) (js-expect :T-COLON rest3)
+              (declare (ignore tok3))
+              (multiple-value-bind (val-expr rest5) (js-parse-assignment-expr rest4)
+                (values key-expr val-expr nil t rest5))))))))
+
+(defun %js-parse-object-property-generator-method (stream)
+  "*name(...) {} — STREAM points past '*'."
+  (let ((key-str (js-peek-value stream)))
+    (multiple-value-bind (key-tok rest) (js-consume stream)
+      (declare (ignore key-tok))
+      (multiple-value-bind (fn-ast rest2)
+          (js-parse-function-expr rest :generator-p t :name (js-ident-sym key-str))
+        (values (make-ast-quote :value key-str) fn-ast t nil rest2)))))
+
+(defun %js-parse-object-property-async-method (stream)
+  "async [*]name(...) {} or the {async} shorthand — STREAM points past 'async'."
+  (let ((next-type (js-peek-type stream))
+        (next-val  (js-peek-value stream)))
+    (cond
+      ;; async * name — async generator
+      ((and (eq next-type :T-OP) (string= next-val "*"))
+       (multiple-value-bind (tok2 rest2) (js-consume stream)
+         (declare (ignore tok2))
+         (let ((key-str (js-peek-value rest2)))
+           (multiple-value-bind (key-tok rest3) (js-consume rest2)
+             (declare (ignore key-tok))
+             (multiple-value-bind (fn-ast rest4)
+                 (js-parse-function-expr rest3 :async-p t :generator-p t
+                                               :name (js-ident-sym key-str))
+               (values (make-ast-quote :value key-str) fn-ast t nil rest4))))))
+      ;; async name (not followed by = or , — it's a shorthand method)
+      ((or (eq next-type :T-IDENT)
+           (eq next-type :T-STRING)
+           (eq next-type :T-NUMBER))
+       (let ((key-str next-val))
+         (multiple-value-bind (key-tok rest2) (js-consume stream)
+           (declare (ignore key-tok))
+           (multiple-value-bind (fn-ast rest3)
+               (js-parse-function-expr rest2 :async-p t :name (js-ident-sym key-str))
+             (values (make-ast-quote :value key-str) fn-ast t nil rest3)))))
+      ;; async used as shorthand property name: { async }
+      (t
+       (let ((key-sym (js-ident-sym "async")))
+         (if (eq (js-peek-type stream) :T-COLON)
+             (multiple-value-bind (tok2 rest2) (js-consume stream)
+               (declare (ignore tok2))
+               (multiple-value-bind (val-expr rest3) (js-parse-assignment-expr rest2)
+                 (values (make-ast-quote :value "async") val-expr nil nil rest3)))
+             (values (make-ast-quote :value "async")
+                     (make-ast-var :name key-sym)
+                     nil nil stream)))))))
+
+(defun %js-parse-object-property-accessor (stream)
+  "get name() {} / set name(x) {} — STREAM points at the T-GET/T-SET token."
+  (let ((accessor-kind (js-tok-value (car stream))))
+    (multiple-value-bind (tok rest) (js-consume stream)
+      (declare (ignore tok))
+      (let ((key-str (js-peek-value rest)))
+        (multiple-value-bind (key-tok rest2) (js-consume rest)
+          (declare (ignore key-tok))
+          (multiple-value-bind (fn-ast rest3)
+              (js-parse-function-expr rest2 :name (js-ident-sym key-str))
+            (let ((tagged-fn (%js-call '%js-accessor
+                                       (make-ast-quote :value accessor-kind)
+                                       fn-ast)))
+              (values (make-ast-quote :value key-str) tagged-fn t nil rest3))))))))
+
+(defun %js-parse-object-property-shorthand-or-method-or-kv (stream key-str)
+  "name(...) {} / name: value / {name} shorthand — STREAM points past the
+already-consumed key token; KEY-STR is that key's value."
+  (let ((next-type (js-peek-type stream)))
+    (cond
+      ;; Method shorthand: name(...) { }
+      ((eq next-type :T-LPAREN)
+       (multiple-value-bind (fn-ast rest2)
+           (js-parse-function-expr stream :name (js-ident-sym key-str))
+         (values (make-ast-quote :value key-str) fn-ast t nil rest2)))
+      ;; Key : value
+      ((eq next-type :T-COLON)
+       (multiple-value-bind (tok2 rest2) (js-consume stream)
+         (declare (ignore tok2))
+         (multiple-value-bind (val-expr rest3) (js-parse-assignment-expr rest2)
+           (values (make-ast-quote :value key-str) val-expr nil nil rest3))))
+      ;; Shorthand: { name } — same as { name: name }
+      (t
+       (values (make-ast-quote :value key-str)
+               (make-ast-var :name (js-ident-sym key-str))
+               nil nil stream)))))
+
 (defun %js-parse-object-property (stream)
   "Parse one property in an object literal.
 Returns (values key-expr value-expr method-p computed-p rest)."
@@ -73,80 +179,15 @@ Returns (values key-expr value-expr method-p computed-p rest)."
         (val  (js-peek-value stream)))
     (cond
       ;; Spread: ...expr
-      ((eq type :T-ELLIPSIS)
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
-         (multiple-value-bind (expr rest2) (js-parse-assignment-expr rest)
-           (values :spread expr nil nil rest2))))
+      ((eq type :T-ELLIPSIS) (%js-parse-object-property-spread stream))
       ;; Computed property: [expr]: value
-      ((eq type :T-LBRACKET)
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
-         (multiple-value-bind (key-expr rest2) (js-parse-assignment-expr rest)
-           (multiple-value-bind (tok2 rest3) (js-expect :T-RBRACKET rest2)
-             (declare (ignore tok2))
-             (cond
-               ;; Method shorthand: [expr](...) { }
-               ((eq (js-peek-type rest3) :T-LPAREN)
-                (multiple-value-bind (fn-ast rest4)
-                    (js-parse-function-expr rest3 :name nil)
-                  (values key-expr fn-ast t t rest4)))
-               (t
-                (multiple-value-bind (tok3 rest4) (js-expect :T-COLON rest3)
-                  (declare (ignore tok3))
-                  (multiple-value-bind (val-expr rest5) (js-parse-assignment-expr rest4)
-                    (values key-expr val-expr nil t rest5)))))))))
+      ((eq type :T-LBRACKET) (%js-parse-object-property-computed stream))
       ;; Generator method: * name(...) { }
       ((and (eq type :T-OP) (string= val "*"))
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
-         (let ((key-str (js-peek-value rest)))
-           (multiple-value-bind (key-tok rest2) (js-consume rest)
-             (declare (ignore key-tok))
-             (multiple-value-bind (fn-ast rest3)
-                 (js-parse-function-expr rest2 :generator-p t :name (js-ident-sym key-str))
-               (values (make-ast-quote :value key-str) fn-ast t nil rest3))))))
+       (%js-parse-object-property-generator-method (cdr stream)))
       ;; async method: async name(...) { }
       ((eq type :T-ASYNC)
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
-         (let ((next-type (js-peek-type rest))
-               (next-val  (js-peek-value rest)))
-           (cond
-             ;; async * name — async generator
-             ((and (eq next-type :T-OP) (string= next-val "*"))
-              (multiple-value-bind (tok2 rest2) (js-consume rest)
-                (declare (ignore tok2))
-                (let ((key-str (js-peek-value rest2)))
-                  (multiple-value-bind (key-tok rest3) (js-consume rest2)
-                    (declare (ignore key-tok))
-                    (multiple-value-bind (fn-ast rest4)
-                        (js-parse-function-expr rest3 :async-p t :generator-p t
-                                                      :name (js-ident-sym key-str))
-                      (values (make-ast-quote :value key-str) fn-ast t nil rest4))))))
-             ;; async name (not followed by = or , — it's a shorthand method)
-             ((or (eq next-type :T-IDENT)
-                  (eq next-type :T-STRING)
-                  (eq next-type :T-NUMBER))
-              (let ((key-str next-val))
-                (multiple-value-bind (key-tok rest2) (js-consume rest)
-                  (declare (ignore key-tok))
-                  (multiple-value-bind (fn-ast rest3)
-                      (js-parse-function-expr rest2 :async-p t :name (js-ident-sym key-str))
-                    (values (make-ast-quote :value key-str) fn-ast t nil rest3)))))
-             ;; async used as shorthand property name: { async }
-             (t
-              (let ((key-sym (js-ident-sym "async")))
-                (cond
-                  ((eq (js-peek-type rest) :T-COLON)
-                   (multiple-value-bind (tok2 rest2) (js-consume rest)
-                     (declare (ignore tok2))
-                     (multiple-value-bind (val-expr rest3) (js-parse-assignment-expr rest2)
-                       (values (make-ast-quote :value "async") val-expr nil nil rest3))))
-                  (t
-                   (values (make-ast-quote :value "async")
-                           (make-ast-var :name key-sym)
-                           nil nil rest)))))))))
+       (%js-parse-object-property-async-method (cdr stream)))
       ;; get/set accessor: get name() { } / set name(x) { }
       ((and (or (eq type :T-GET) (eq type :T-SET))
             ;; Distinguish from shorthand {get} or {get, ...}, and from a
@@ -158,43 +199,12 @@ Returns (values key-expr value-expr method-p computed-p rest)."
                    (not (eq next :T-COLON))
                    (not (eq next :T-LPAREN))
                    (not (eq next :T-EOF)))))
-       (let ((accessor-kind (js-tok-value (car stream))))
-         (multiple-value-bind (tok rest) (js-consume stream)
-           (declare (ignore tok))
-           (let ((key-str (js-peek-value rest)))
-             (multiple-value-bind (key-tok rest2) (js-consume rest)
-               (declare (ignore key-tok))
-               (multiple-value-bind (fn-ast rest3)
-                   (js-parse-function-expr rest2 :name (js-ident-sym key-str))
-                 (let ((tagged-fn (%js-call '%js-accessor
-                                            (make-ast-quote :value accessor-kind)
-                                            fn-ast)))
-                   (values (make-ast-quote :value key-str) tagged-fn t nil rest3))))))))
+       (%js-parse-object-property-accessor stream))
       ;; Identifier shorthand, method, or key: value
       (t
-       ;; Consume the key
-       (let ((key-str val))
-         (multiple-value-bind (key-tok rest) (js-consume stream)
-           (declare (ignore key-tok))
-           (let ((next-type (js-peek-type rest)))
-             (cond
-               ;; Method shorthand: name(...) { }
-               ((eq next-type :T-LPAREN)
-                (multiple-value-bind (fn-ast rest2)
-                    (js-parse-function-expr rest :name (js-ident-sym key-str))
-                  (values (make-ast-quote :value key-str) fn-ast t nil rest2)))
-               ;; Key : value
-               ((eq next-type :T-COLON)
-                (multiple-value-bind (tok2 rest2) (js-consume rest)
-                  (declare (ignore tok2))
-                  (multiple-value-bind (val-expr rest3) (js-parse-assignment-expr rest2)
-                    (values (make-ast-quote :value key-str) val-expr nil nil rest3))))
-               ;; Shorthand: { name } — same as { name: name }
-               (t
-                (let ((sym (js-ident-sym key-str)))
-                  (values (make-ast-quote :value key-str)
-                          (make-ast-var :name sym)
-                          nil nil rest)))))))))))
+       (multiple-value-bind (key-tok rest) (js-consume stream)
+         (declare (ignore key-tok))
+         (%js-parse-object-property-shorthand-or-method-or-kv rest val))))))
 
 (defun js-parse-object-literal (stream)
   "Parse {...} object literal. Returns (values ast rest).
