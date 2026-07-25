@@ -30,13 +30,19 @@
     # follows that repo's default branch, so an upstream push to main breaks
     # this repo's CI without warning.
     #
-    # cl-cc is the one deliberate exception. It is mid-way through a large
-    # restructuring, and its only tag (v0.1.0) predates the packages/ layout
-    # that :cl-cc-ast/-bootstrap/-parse/-vm are resolved from. Pinning it now
-    # would pin to a tree this repository cannot build against. Revisit once
-    # cl-cc cuts a tag that matches its current layout.
+    # cl-cc is pinned to a commit rather than a tag. Its only tag is v0.1.0,
+    # which predates the packages/ layout that :cl-cc-ast/-bootstrap/-parse/-vm
+    # are resolved from, and it cannot cut a new one yet: its own
+    # `nix flake check` fails with 55 failures and 31 errors. Those are not new
+    # — its pre-migration check only ran the cl-cc-prolog-tools sub-suite, so
+    # the main suite had never been wired to the gate at all.
+    #
+    # A commit is as immutable as a tag, which is what the pinning rule is
+    # actually for; a bare `github:nerima-lisp/cl-cc` follows the default
+    # branch and would break this repository on an unrelated upstream push.
+    # Move to `/vX.Y.Z` once cl-cc's suite is green and it releases.
     cl-cc = {
-      url = "github:nerima-lisp/cl-cc";
+      url = "github:nerima-lisp/cl-cc/594456c6671356508a9393a97761be41e4ef8f1f";
       flake = false;
     };
     cl-weave = {
