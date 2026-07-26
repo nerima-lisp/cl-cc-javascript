@@ -1,5 +1,72 @@
 (defpackage :cl-cc/javascript
-  (:use :cl :cl-cc/ast :cl-cc/bootstrap :cl-cc/parse)
+  (:use #:cl)
+  ;; The AST constructors and accessors the lexer/parser emit and the runtime
+  ;; walks. Imported one by one rather than :use'd: a future export in
+  ;; cl-cc-ast then cannot collide with a name defined here, and every
+  ;; borrowed name is visible in one place.
+  (:import-from #:cl-cc/ast
+                #:ast-apply-args
+                #:ast-apply-func
+                #:ast-apply-p
+                #:ast-call-args
+                #:ast-call-func
+                #:ast-call-p
+                #:ast-defclass-name
+                #:ast-defclass-p
+                #:ast-defun-body
+                #:ast-defun-name
+                #:ast-defun-p
+                #:ast-defun-params
+                #:ast-imports
+                #:ast-int-p
+                #:ast-int-value
+                #:ast-lambda-body
+                #:ast-lambda-p
+                #:ast-let-bindings
+                #:ast-let-body
+                #:ast-let-declarations
+                #:ast-let-p
+                #:ast-list
+                #:ast-progn-forms
+                #:ast-progn-p
+                #:ast-quote-p
+                #:ast-quote-value
+                #:ast-slot-def-p
+                #:ast-slot-initform
+                #:ast-slot-name
+                #:ast-var-name
+                #:ast-var-p
+                #:make-ast-apply
+                #:make-ast-binop
+                #:make-ast-block
+                #:make-ast-call
+                #:make-ast-defclass
+                #:make-ast-defun
+                #:make-ast-defvar
+                #:make-ast-function
+                #:make-ast-go
+                #:make-ast-if
+                #:make-ast-int
+                #:make-ast-lambda
+                #:make-ast-let
+                #:make-ast-progn
+                #:make-ast-quote
+                #:make-ast-return-from
+                #:make-ast-setq
+                #:make-ast-slot-def
+                #:make-ast-tagbody
+                #:make-ast-var)
+  ;; The four registration hooks this frontend calls at load time, from
+  ;; runtime-bridge-provider.lisp and vm-integration.lisp.
+  ;;
+  ;; cl-cc/parse used to be :use'd here as well, but no symbol of it is
+  ;; referenced from src/. The system dependency stays: cl-cc-parse is still
+  ;; needed at load time by the bootstrap registration.
+  (:import-from #:cl-cc/bootstrap
+                #:register-backend-bridge-provider
+                #:register-backend-global-seeder
+                #:register-backend-parser
+                #:register-backend-vm-integration-installer)
   (:export
    ;; Entry points
    #:tokenize-js-source
