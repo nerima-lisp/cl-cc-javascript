@@ -48,14 +48,22 @@
   (hash-table-p x))
 
 (defun %js-float-nan-p (x)
-  "Portable NaN test: NaN is the only float not numerically equal to itself."
-  (and (floatp x) (/= x x)))
+  "NaN test that inspects the bit pattern rather than comparing.
+
+The self-comparison idiom is not portable here: comparing a NaN raises
+FLOATING-POINT-INVALID-OPERATION wherever the :INVALID trap is enabled, which is
+SBCL's default on x86-64. ARM64 does not take the trap, so (/= x x) looks correct
+on macOS and turns every NaN-valued test into an error on Linux CI."
+  (and (floatp x) (sb-ext:float-nan-p x)))
 
 (defun %js-float-infinity-p (x)
-  "Portable infinity test against the largest finite double magnitudes."
+  "Infinity test that inspects the bit pattern rather than comparing.
+
+The magnitude comparison traps on a NaN argument for the reason given in
+%JS-FLOAT-NAN-P, and callers do reach here with NaN."
   (and (floatp x)
-       (or (> x most-positive-double-float)
-           (< x most-negative-double-float))))
+       (not (sb-ext:float-nan-p x))
+       (sb-ext:float-infinity-p x)))
 
 (defun %js-nan-p (x)
   (or (eq x :js-nan)
@@ -199,7 +207,11 @@ parameter (parseInt's radix, toFixed's digits, toString's radix, ...)."
 (defun %js-strict-eq (a b)
   "JS === strict equality, no coercion."
   (cond
-    ((and (%js-nan-p a) (%js-nan-p b)) nil)  ; NaN !== NaN
+    ;; Either operand being NaN makes === false, and neither may reach (=):
+    ;; comparing a NaN raises FLOATING-POINT-INVALID-OPERATION where the
+    ;; :INVALID trap is enabled. Testing for both operands being NaN is not
+    ;; enough — (= NaN 5d0) traps exactly as (= NaN NaN) does.
+    ((or (%js-nan-p a) (%js-nan-p b)) nil)  ; NaN !== anything, itself included
     ((and (numberp a) (numberp b)) (= a b))
     (t (equal a b))))
 
@@ -207,6 +219,9 @@ parameter (parseInt's radix, toFixed's digits, toString's radix, ...)."
   "ECMAScript SameValueZero equality for Map/Set-style key matching."
   (cond
     ((and (%js-nan-p a) (%js-nan-p b)) t)
+    ;; Exactly one NaN: not the same value, and (=) must not see it. See
+    ;; %JS-STRICT-EQ.
+    ((or (%js-nan-p a) (%js-nan-p b)) nil)
     ((and (numberp a) (numberp b)) (= a b))
     (t (%js-strict-eq a b))))
 
