@@ -28,7 +28,8 @@
 (declaim (type double-float *js-nan-float* *js-inf-float* *js-neg-inf-float*))
 (defparameter *js-nan-float*     (sb-kernel:make-double-float #x7FF80000 0))   ; quiet NaN
 (defparameter *js-inf-float*     (sb-kernel:make-double-float #x7FF00000 0))   ; +Infinity
-(defparameter *js-neg-inf-float* (sb-kernel:make-double-float -1048576 0))     ; -Infinity (#xFFF00000)
+;;; -1048576 is #xFFF00000 read as a signed 32-bit high word.
+(defparameter *js-neg-inf-float* (sb-kernel:make-double-float -1048576 0))     ; -Infinity
 
 ;;; -----------------------------------------------------------------------
 ;;;  Internal helpers

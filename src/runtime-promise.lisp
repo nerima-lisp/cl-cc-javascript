@@ -54,8 +54,12 @@ THUNK is a VM closure so use %js-funcall (not CL:FUNCALL) to re-enter the VM."
 (defun %js-promise-then (promise on-fulfilled &optional on-rejected)
   "Chain a promise through on-fulfilled / on-rejected callbacks."
   (if (js-promise-rejected-p promise)
-      (if on-rejected (%js-promise-apply-handler (js-promise-value promise) on-rejected) promise)
-      (if on-fulfilled (%js-promise-apply-handler (js-promise-value promise) on-fulfilled) promise)))
+      (if on-rejected
+          (%js-promise-apply-handler (js-promise-value promise) on-rejected)
+          promise)
+      (if on-fulfilled
+          (%js-promise-apply-handler (js-promise-value promise) on-fulfilled)
+          promise)))
 
 (defun %js-promise-finally (promise on-finally)
   "Run ON-FINALLY regardless of outcome."

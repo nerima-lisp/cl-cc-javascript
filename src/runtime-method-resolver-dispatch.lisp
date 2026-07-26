@@ -1,4 +1,5 @@
-;;;; packages/javascript/src/runtime-method-resolver-dispatch.lisp — JS method resolvers and dispatcher
+;;;; packages/javascript/src/runtime-method-resolver-dispatch.lisp
+;;;; JS method resolvers and dispatcher
 
 (in-package :cl-cc/javascript)
 

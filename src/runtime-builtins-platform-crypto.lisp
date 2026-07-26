@@ -36,7 +36,14 @@ silently passed as a 1-byte integer type instead of being rejected."
     (setf (aref bytes 6) (logior #x40 (logand (aref bytes 6) #x0f))
           (aref bytes 8) (logior #x80 (logand (aref bytes 8) #x3f)))
     (string-downcase
-     (format nil "~2,'0x~2,'0x~2,'0x~2,'0x-~2,'0x~2,'0x-~2,'0x~2,'0x-~2,'0x~2,'0x-~2,'0x~2,'0x~2,'0x~2,'0x~2,'0x~2,'0x"
+     ;; The 8-4-4-4-12 hex grouping of RFC 4122. Assembled from its five groups
+     ;; because the whole control string does not fit in 100 columns.
+     (format nil (concatenate 'string
+                              "~2,'0x~2,'0x~2,'0x~2,'0x-"
+                              "~2,'0x~2,'0x-"
+                              "~2,'0x~2,'0x-"
+                              "~2,'0x~2,'0x-"
+                              "~2,'0x~2,'0x~2,'0x~2,'0x~2,'0x~2,'0x")
              (aref bytes 0) (aref bytes 1) (aref bytes 2) (aref bytes 3)
              (aref bytes 4) (aref bytes 5)
              (aref bytes 6) (aref bytes 7)

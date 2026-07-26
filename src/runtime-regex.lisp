@@ -118,19 +118,27 @@ COMPLEMENT-P inverts the result."
                      (values (lambda (str i groups)
                                (declare (ignore groups))
                                (when (and (< i (length str))
-                                          (funcall fn (if ic (char-downcase (char str i)) (char str i))))
+                                          (funcall fn (if ic
+                                                          (char-downcase (char str i))
+                                                          (char str i))))
                                  (1+ i)))
                              end)))
                   ;; Non-capturing group (?:...) or lookahead (?=...)
                   ((and (char= ch #\() (< (+ pos 2) (length pat))
                         (char= (char pat (1+ pos)) #\?) (char= (char pat (+ pos 2)) #\:))
                    (multiple-value-bind (inner-fn end) (funcall compile-alt (+ pos 3))
-                     (let ((close (if (and (< end (length pat)) (char= (char pat end) #\))) (1+ end) end)))
+                     (let ((close (if (and (< end (length pat))
+                                           (char= (char pat end) #\)))
+                                      (1+ end)
+                                      end)))
                        (values inner-fn close))))
                   ;; Capturing group (...)
                   ((char= ch #\()
                    (multiple-value-bind (inner-fn end) (funcall compile-alt (1+ pos))
-                     (let ((close (if (and (< end (length pat)) (char= (char pat end) #\))) (1+ end) end)))
+                     (let ((close (if (and (< end (length pat))
+                                           (char= (char pat end) #\)))
+                                      (1+ end)
+                                      end)))
                        (values (lambda (str i groups)
                                  (let ((result (funcall inner-fn str i groups)))
                                    result))
@@ -163,12 +171,18 @@ COMPLEMENT-P inverts the result."
                    (let* ((esc  (char pat (1+ pos)))
                           (pred (or (%js-regex-escape-predicate esc)
                                     (when (not (char= esc #\b))  ; word boundary — special
-                                      (let ((lit (case esc (#\n #\Newline) (#\t #\Tab) (#\r #\Return) (t esc))))
+                                      (let ((lit (case esc
+                                                   (#\n #\Newline)
+                                                   (#\t #\Tab)
+                                                   (#\r #\Return)
+                                                   (t esc))))
                                         (lambda (c) (char= c lit)))))))
                      (values (lambda (str i groups)
                                (declare (ignore groups))
                                (when (and (< i (length str)) pred
-                                          (funcall pred (if ic (char-downcase (char str i)) (char str i))))
+                                          (funcall pred (if ic
+                                                            (char-downcase (char str i))
+                                                            (char str i))))
                                  (1+ i)))
                              (+ pos 2))))
                   ;; Literal character
@@ -177,7 +191,10 @@ COMPLEMENT-P inverts the result."
                      (values (lambda (str i groups)
                                (declare (ignore groups))
                                (when (and (< i (length str))
-                                          (char= (if ic (char-downcase (char str i)) (char str i)) lit))
+                                          (char= (if ic
+                                                     (char-downcase (char str i))
+                                                     (char str i))
+                                                 lit))
                                  (1+ i)))
                              (1+ pos)))))))))  ; closes cond, let(ch), if, lambda(pos))
       (setf compile-seq
@@ -202,7 +219,8 @@ COMPLEMENT-P inverts the result."
                                        (declare (ignore groups))
                                        (if lazy
                                            i  ; lazy: match 0 first (simplified)
-                                           (loop for j = (funcall fn str i groups) then (funcall fn str j groups)
+                                           (loop for j = (funcall fn str i groups)
+                                                   then (funcall fn str j groups)
                                                  while j
                                                  do (setf i j)
                                                  finally (return i))))))))
@@ -214,7 +232,8 @@ COMPLEMENT-P inverts the result."
                                    (lambda (str i groups)
                                      (let ((j (funcall fn str i groups)))
                                        (when j
-                                         (loop for k = (funcall fn str j groups) then (funcall fn str k groups)
+                                         (loop for k = (funcall fn str j groups)
+                                                 then (funcall fn str k groups)
                                                while k do (setf j k)
                                                finally (return j))))))))
                           ((char= q #\?)

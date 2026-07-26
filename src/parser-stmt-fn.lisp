@@ -117,7 +117,8 @@ body is wrapped in a let binding REST-SYM to that list converted to a JS array
                 (list (make-ast-let
                        :bindings (list (cons rest-sym
                                              (make-ast-call
-                                              :func (make-ast-var :name 'cl-cc/javascript::%js-list-to-array)
+                                              :func (make-ast-var
+                                                     :name 'cl-cc/javascript::%js-list-to-array)
                                               :args (list (make-ast-var :name raw)))))
                        :body body-forms))))
       (values nil body-forms)))

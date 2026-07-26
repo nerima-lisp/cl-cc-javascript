@@ -1,4 +1,5 @@
-;;;; packages/javascript/src/runtime-weak-collections.lisp — JS WeakMap, WeakSet, WeakRef, FinalizationRegistry
+;;;; packages/javascript/src/runtime-weak-collections.lisp
+;;;; JS WeakMap, WeakSet, WeakRef, FinalizationRegistry
 
 (in-package :cl-cc/javascript)
 
@@ -26,7 +27,8 @@
   (multiple-value-bind (v f) (gethash key (js-weak-map-ht m))
     (if f v +js-undefined+)))
 
-(define-js-map-like-get-or-insert %js-weak-map-get-or-insert %js-weak-map-get-or-insert-computed (m key)
+(define-js-map-like-get-or-insert %js-weak-map-get-or-insert
+                                  %js-weak-map-get-or-insert-computed (m key)
   (gethash key (js-weak-map-ht m))
   (%js-weak-map-set m key v))
 

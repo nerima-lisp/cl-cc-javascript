@@ -1,4 +1,5 @@
-;;;; packages/javascript/src/runtime-array-transforms.lisp — JS Array transforms and mutation helpers
+;;;; packages/javascript/src/runtime-array-transforms.lisp
+;;;; JS Array transforms and mutation helpers
 ;;;;
 ;;;; Load order: after runtime-array-core.lisp and before runtime-array-es2023.lisp.
 

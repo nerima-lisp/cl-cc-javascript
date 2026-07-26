@@ -186,13 +186,16 @@ semantics) instead of trapping in encode-universal-time."
 (defun %js-date-set-month (date month &optional day)
   "Date.prototype.setMonth(month[, day]) — MONTH is 0-based."
   (%js-date-rebuild date :month (truncate (%js-to-number month))
-                         :day (and day (not (eq day +js-undefined+)) (truncate (%js-to-number day)))))
+                         :day (and day
+                                   (not (eq day +js-undefined+))
+                                   (truncate (%js-to-number day)))))
 
 (defun %js-date-set-date (date day)
   "Date.prototype.setDate(day) — day of month, 1-based."
   (%js-date-rebuild date :day (truncate (%js-to-number day))))
 
-(defmacro define-js-date-cascading-setter (name docstring (primary-var primary-key) &rest secondary-specs)
+(defmacro define-js-date-cascading-setter (name docstring (primary-var primary-key)
+                                           &rest secondary-specs)
   "Define a Date.prototype cascading setter (setHours/setMinutes/setSeconds):
 PRIMARY-VAR is required and stored under PRIMARY-KEY; each (VAR KEY) in
 SECONDARY-SPECS is an optional trailing component, defaulting to \"leave

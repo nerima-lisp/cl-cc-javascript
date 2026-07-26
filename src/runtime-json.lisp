@@ -119,7 +119,9 @@
     (error () +js-undefined+)))
 
 (defun %js-json-skip-ws (str pos)
-  (or (position-if-not (lambda (c) (member c *%json-whitespace-chars* :test #'char=)) str :start pos)
+  (or (position-if-not (lambda (c)
+                         (member c *%json-whitespace-chars* :test #'char=))
+                       str :start pos)
       (length str)))
 
 (defun %js-json-parse-value (str pos)
@@ -178,7 +180,8 @@
         (vector-push-extend val result)
         (setf pos (%js-json-skip-ws str new-pos))
         (cond ((and (< pos (length str)) (char= (char str pos) #\,)) (incf pos))
-              ((and (< pos (length str)) (char= (char str pos) #\])) (return (values result (1+ pos))))
+              ((and (< pos (length str)) (char= (char str pos) #\]))
+               (return (values result (1+ pos))))
               (t (return (values result pos))))))))
 
 (defun %js-json-parse-object (str pos)
@@ -196,5 +199,6 @@
           (setf (gethash key ht) val
                 pos (%js-json-skip-ws str new-pos2))
           (cond ((and (< pos (length str)) (char= (char str pos) #\,)) (incf pos))
-                ((and (< pos (length str)) (char= (char str pos) #\})) (return (values ht (1+ pos))))
+                ((and (< pos (length str)) (char= (char str pos) #\}))
+                 (return (values ht (1+ pos))))
                 (t (return (values ht pos)))))))))

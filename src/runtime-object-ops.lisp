@@ -57,7 +57,9 @@
     ((or (eq val t) (eq val nil)) val)
     ((gethash val seen)      (gethash val seen))
     ((%js-vec-p val)
-     (let ((clone (make-array (length val) :element-type t :adjustable t :fill-pointer (length val))))
+     (let ((clone (make-array (length val)
+                              :element-type t :adjustable t
+                              :fill-pointer (length val))))
        (setf (gethash val seen) clone)
        (loop for i below (length val)
              do (setf (aref clone i) (%js-deep-clone (aref val i) seen)))

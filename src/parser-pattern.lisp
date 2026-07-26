@@ -9,7 +9,9 @@
 ;;;;
 ;;;;   BindingPattern     ::= ArrayPattern | ObjectPattern | BindingIdent
 ;;;;   ArrayPattern       ::= '[' ArrayElementList ']'
-;;;;   ArrayElementList   ::= (Elision? BindingElement (',' Elision? BindingElement)* (',' Elision? BindingRestElement)?)?
+;;;;   ArrayElementList   ::= (Elision? BindingElement
+;;;;                              (',' Elision? BindingElement)*
+;;;;                              (',' Elision? BindingRestElement)?)?
 ;;;;   BindingElement     ::= BindingPattern ('=' AssignmentExpr)?
 ;;;;   BindingRestElement ::= '...' BindingPattern
 ;;;;   Elision            ::= ',' (empty slot)
@@ -205,7 +207,8 @@ default}). Returns (values prop new-stream) where PROP is a
                               (setf default dflt stream rest3)))
                           (list key-str local-pat default nil))))
                     ;; Shorthand {key} or {key = default}
-                    (let ((local-pat (make-js-binding-pattern :kind :ident :name (%js-ident-sym key-str)))
+                    (let ((local-pat (make-js-binding-pattern
+                                      :kind :ident :name (%js-ident-sym key-str)))
                           (default nil))
                       (when (and (eq (%js-peek-type stream) :T-OP)
                                  (equal (%js-peek-value stream) "="))

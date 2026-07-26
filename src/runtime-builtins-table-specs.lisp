@@ -175,7 +175,9 @@
     ("atob"                    . ,#'%js-atob)
     ;; TextEncoder/TextDecoder
     ("TextEncoder"             . ,(lambda (&rest _) (declare (ignore _)) (%js-make-text-encoder)))
-    ("TextDecoder"             . ,(lambda (&optional encoding &rest _) (declare (ignore _)) (%js-make-text-decoder encoding)))
+    ("TextDecoder"             . ,(lambda (&optional encoding &rest _)
+                                    (declare (ignore _))
+                                    (%js-make-text-decoder encoding)))
     ;; Object property descriptor ops
     ("Object.defineProperty"            . ,#'%js-object-define-property)
     ("Object.defineProperties"          . ,#'%js-object-define-properties)
@@ -269,12 +271,13 @@
     ("AbortController"   . ,(%js-make-abort-controller-constructor))
     ("AbortSignal"       . ,(%js-make-abort-signal-constructor))
     ;; Performance API extras
-    ("performance"       . ,(%js-make-object "now" (lambda ()
-                                                      (coerce (- (get-internal-real-time) 0) 'double-float))
-                                             "mark" (lambda (&rest _) (declare (ignore _)) +js-undefined+)
-                                             "measure" (lambda (&rest _) (declare (ignore _)) +js-undefined+)
-                                             "getEntries" (lambda () (%js-make-array))
-                                             "clearMarks" (lambda (&rest _) (declare (ignore _)) +js-undefined+)))
+    ("performance"       . ,(%js-make-object
+                             "now" (lambda ()
+                                     (coerce (- (get-internal-real-time) 0) 'double-float))
+                             "mark" (lambda (&rest _) (declare (ignore _)) +js-undefined+)
+                             "measure" (lambda (&rest _) (declare (ignore _)) +js-undefined+)
+                             "getEntries" (lambda () (%js-make-array))
+                             "clearMarks" (lambda (&rest _) (declare (ignore _)) +js-undefined+)))
     ;; Crypto (stub)
     ("crypto"            . ,(%js-make-crypto))
     ;; structuredClone
@@ -284,7 +287,9 @@
     ;; RegExp constructor
     ("RegExp"                  . ,(lambda (pattern &optional flags)
                                     (%js-make-regex (%js-to-string pattern)
-                                                    (if (eq flags +js-undefined+) "" (%js-to-string flags)))))
+                                                    (if (eq flags +js-undefined+)
+                                                        ""
+                                                        (%js-to-string flags)))))
     ;; Date constructor
     ("Date"                    . ,#'%js-make-date)
     ("Date.now"                . ,(lambda () (coerce (%js-date-now) 'double-float)))

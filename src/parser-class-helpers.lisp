@@ -149,7 +149,8 @@ methods under ORIG-NAME); NIL for computed names."
                                               :params (if (eq kind :getter) nil params)
                                               :body (list body))
                     :allocation (if static-p :class :instance)
-                    :imports (%js-member-kind-metadata kind static-p private-p nil nil decorators))))
+                    :imports (%js-member-kind-metadata kind static-p private-p
+                                                       nil nil decorators))))
         (values slot (js-skip-semis rest2))))))
 
 (defun %js-parse-method-params-body (stream)

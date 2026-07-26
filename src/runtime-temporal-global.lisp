@@ -55,7 +55,8 @@
                     (%js-temporal-plain-time (gethash "hour" str-or-obj)
                                              (gethash "minute" str-or-obj)
                                              (gethash "second" str-or-obj))
-                    (multiple-value-bind (h m s) (%temporal-parse-time-fields (%js-to-string str-or-obj))
+                    (multiple-value-bind (h m s)
+                        (%temporal-parse-time-fields (%js-to-string str-or-obj))
                       (%js-temporal-plain-time h m s))))))
 
 (defun %js-make-temporal-plain-datetime-namespace ()
@@ -92,7 +93,8 @@
 (defun %js-make-temporal-duration-namespace ()
   (%js-make-object
    "__call__" (lambda (&optional (y 0) (mo 0) (w 0) (d 0) (h 0) (mn 0) (s 0))
-                (%js-temporal-duration :years y :months mo :weeks w :days d :hours h :minutes mn :seconds s))
+                (%js-temporal-duration :years y :months mo :weeks w :days d
+                                       :hours h :minutes mn :seconds s))
    "from"     (lambda (str-or-obj)
                 (if (%js-ht-p str-or-obj)
                     (%js-temporal-duration
@@ -112,7 +114,8 @@
    "__call__" (lambda (y m) (%js-temporal-plain-year-month y m))
    "from"     (lambda (str-or-obj)
                 (if (%js-ht-p str-or-obj)
-                    (%js-temporal-plain-year-month (gethash "year" str-or-obj) (gethash "month" str-or-obj))
+                    (%js-temporal-plain-year-month (gethash "year" str-or-obj)
+                                                   (gethash "month" str-or-obj))
                     (%js-temporal-plain-year-month 2000 1)))))
 
 (defun %js-make-temporal-plain-month-day-namespace ()
@@ -120,7 +123,8 @@
    "__call__" (lambda (m d) (%js-temporal-plain-month-day m d))
    "from"     (lambda (str-or-obj)
                 (if (%js-ht-p str-or-obj)
-                    (%js-temporal-plain-month-day (gethash "month" str-or-obj) (gethash "day" str-or-obj))
+                    (%js-temporal-plain-month-day (gethash "month" str-or-obj)
+                                                  (gethash "day" str-or-obj))
                     (%js-temporal-plain-month-day 1 1)))))
 
 (defun %js-make-temporal-global ()

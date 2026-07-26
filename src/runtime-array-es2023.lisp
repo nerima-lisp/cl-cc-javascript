@@ -26,7 +26,9 @@
   "Array.prototype.toSorted([compareFn]) — return sorted copy (stable, non-mutating)."
   (stable-sort (copy-seq arr) (%js-sort-comparator compare-fn)))
 
-(defun %js-array-to-spliced (arr start &optional (delete-count nil delete-count-supplied-p) &rest items)
+(defun %js-array-to-spliced (arr start
+                             &optional (delete-count nil delete-count-supplied-p)
+                             &rest items)
   "Array.prototype.toSpliced(start, deleteCount, ...items) — return modified copy."
   (let* ((n (length arr))
          (st (%js-array-relative-start start n))

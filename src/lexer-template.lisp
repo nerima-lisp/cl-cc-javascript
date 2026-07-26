@@ -171,7 +171,8 @@ inside them do not count. Returns the index OF the matching } ."
            (let ((q ch))
              (incf pos)
              (loop
-               (when (>= pos len) (error "JS template lex error: unterminated string in interpolation"))
+               (when (>= pos len)
+                 (error "JS template lex error: unterminated string in interpolation"))
                (let ((c (char source pos)))
                  (cond ((char= c #\\) (incf pos 2))
                        ((char= c q) (incf pos) (return))

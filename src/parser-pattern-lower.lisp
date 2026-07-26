@@ -93,7 +93,9 @@
                  :body body))
           ;; Nested pattern: same threading strategy as %js-lower-element
           (let* ((nested-tmp  (gensym "JSPAT-OBJ-"))
-                 (nested-form (%js-build-pattern-let local-pat (make-ast-var :name nested-tmp) body)))
+                 (nested-form (%js-build-pattern-let local-pat
+                                                     (make-ast-var :name nested-tmp)
+                                                     body)))
             (list (make-ast-let
                    :bindings (list (cons nested-tmp val-expr))
                    :body nested-form)))))))

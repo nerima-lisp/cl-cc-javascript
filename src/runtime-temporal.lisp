@@ -66,20 +66,24 @@
    "instant"         (lambda () (%js-temporal-instant (%temporal-now-unix-seconds)))
    "plainDateTimeISO" (lambda (&optional _tz)
                         (declare (ignore _tz))
-                        (multiple-value-bind (s mn h d m y) (%temporal-decode (%temporal-now-unix-seconds))
+                        (multiple-value-bind (s mn h d m y)
+                            (%temporal-decode (%temporal-now-unix-seconds))
                           (%js-temporal-plain-datetime y m d h mn s)))
    "plainDateISO"    (lambda (&optional _tz)
                         (declare (ignore _tz))
-                        (multiple-value-bind (s mn h d m y) (%temporal-decode (%temporal-now-unix-seconds))
+                        (multiple-value-bind (s mn h d m y)
+                            (%temporal-decode (%temporal-now-unix-seconds))
                           (declare (ignore s mn h))
                           (%js-temporal-plain-date y m d)))
    "plainTimeISO"    (lambda (&optional _tz)
                         (declare (ignore _tz))
-                        (multiple-value-bind (s mn h) (%temporal-decode (%temporal-now-unix-seconds))
+                        (multiple-value-bind (s mn h)
+                            (%temporal-decode (%temporal-now-unix-seconds))
                           (%js-temporal-plain-time h mn s)))
    "zonedDateTimeISO" (lambda (&optional _tz)
                         (declare (ignore _tz))
-                        (multiple-value-bind (s mn h d m y) (%temporal-decode (%temporal-now-unix-seconds))
+                        (multiple-value-bind (s mn h d m y)
+                            (%temporal-decode (%temporal-now-unix-seconds))
                           (%js-temporal-zoned-datetime y m d h mn s "UTC")))
    "timeZoneId"      (lambda () "UTC")))
 
@@ -124,13 +128,16 @@
      "month"      (coerce m 'double-float)
      "day"        (coerce d 'double-float)
      "calendarId" "iso8601"
-     "dayOfWeek"  (coerce (1+ (nth-value 6 (%temporal-decode (%temporal-encode y m d)))) 'double-float)
+     "dayOfWeek"  (coerce (1+ (nth-value 6 (%temporal-decode (%temporal-encode y m d))))
+                          'double-float)
      "toString"   (lambda () (format nil "~A-~A-~A"
                                      (%temporal-pad y 4) (%temporal-pad m 2) (%temporal-pad d 2)))
      "toPlainDateTime" (lambda (&optional plain-time)
                          (if (and plain-time (gethash "hour" plain-time))
                              (%js-temporal-plain-datetime y m d
-                               (gethash "hour" plain-time) (gethash "minute" plain-time) (gethash "second" plain-time))
+                                                          (gethash "hour" plain-time)
+                                                          (gethash "minute" plain-time)
+                                                          (gethash "second" plain-time))
                              (%js-temporal-plain-datetime y m d 0 0 0)))
      "add"        (lambda (duration)
                     (let* ((ts (%temporal-encode y m d))
@@ -144,11 +151,16 @@
                       (multiple-value-bind (s mn h nd nm ny) (%temporal-decode ts2)
                         (declare (ignore s mn h))
                         (%js-temporal-plain-date ny nm nd))))
-     "equals"     (lambda (other) (and (= y (gethash "year" other)) (= m (gethash "month" other)) (= d (gethash "day" other))))
+     "equals"     (lambda (other)
+                    (and (= y (gethash "year" other))
+                         (= m (gethash "month" other))
+                         (= d (gethash "day" other))))
      "compare"    (lambda (other)
                     (%temporal-3way-compare
                      (%temporal-encode y m d)
-                     (%temporal-encode (gethash "year" other) (gethash "month" other) (gethash "day" other)))))))
+                     (%temporal-encode (gethash "year" other)
+                                       (gethash "month" other)
+                                       (gethash "day" other)))))))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Temporal.PlainTime
@@ -168,12 +180,16 @@
      "toString"   (lambda () (format nil "~A:~A:~A"
                                      (%temporal-pad h 2) (%temporal-pad mn 2) (%temporal-pad s 2)))
      "add"        (lambda (duration)
-                    (let* ((total (+ (* h 3600) (* mn 60) s (%temporal-duration-to-seconds duration)))
+                    (let* ((total (+ (* h 3600) (* mn 60) s
+                                     (%temporal-duration-to-seconds duration)))
                            (new-h (mod (floor total 3600) 24))
                            (new-mn (mod (floor (mod total 3600) 60) 60))
                            (new-s (mod total 60)))
                       (%js-temporal-plain-time new-h new-mn (floor new-s))))
-     "equals"     (lambda (other) (and (= h (gethash "hour" other)) (= mn (gethash "minute" other)) (= s (gethash "second" other)))))))
+     "equals"     (lambda (other)
+                    (and (= h (gethash "hour" other))
+                         (= mn (gethash "minute" other))
+                         (= s (gethash "second" other)))))))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Temporal.PlainDateTime
@@ -213,8 +229,12 @@
                          (%js-temporal-plain-datetime ny nm nd nh nmn ns))))
      "equals"      (lambda (other)
                      (= (%temporal-encode y m d h mn s)
-                        (%temporal-encode (gethash "year" other) (gethash "month" other) (gethash "day" other)
-                                          (gethash "hour" other) (gethash "minute" other) (gethash "second" other)))))))
+                        (%temporal-encode (gethash "year" other)
+                                          (gethash "month" other)
+                                          (gethash "day" other)
+                                          (gethash "hour" other)
+                                          (gethash "minute" other)
+                                          (gethash "second" other)))))))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Temporal.ZonedDateTime

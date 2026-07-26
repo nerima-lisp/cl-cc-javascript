@@ -1,4 +1,5 @@
-;;;; packages/javascript/src/runtime-builtins-platform-abort.lisp — AbortController / AbortSignal helpers
+;;;; packages/javascript/src/runtime-builtins-platform-abort.lisp
+;;;; AbortController / AbortSignal helpers
 
 (in-package :cl-cc/javascript)
 
@@ -130,7 +131,10 @@
                   (when (functionp add-listener)
                     (%js-call-with-this
                      signal add-listener
-                     (list "abort" (lambda (&rest _) (declare (ignore _)) (abort-from signal)))))))))))
+                     (list "abort"
+                           (lambda (&rest _)
+                             (declare (ignore _))
+                             (abort-from signal)))))))))))
     combined))
 
 (defun %js-make-abort-signal-constructor ()

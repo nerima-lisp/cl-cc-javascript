@@ -154,10 +154,13 @@
   (if (js-regexp-p re)
       (let* ((fn (js-regexp-compiled re))
              (results (make-array 0 :element-type t :adjustable t :fill-pointer 0))
-             (max-count (if (and limit (not (eq limit +js-undefined+))) (truncate limit) most-positive-fixnum))
+             (max-count (if (and limit (not (eq limit +js-undefined+)))
+                            (truncate limit)
+                            most-positive-fixnum))
              (pos 0))
         (when (or (null fn) (string= str ""))
-          (return-from %js-string-split-regex (%js-string-split str (%js-to-string (js-regexp-source re)) limit)))
+          (return-from %js-string-split-regex
+            (%js-string-split str (%js-to-string (js-regexp-source re)) limit)))
         ;; Scan forward for each separator match; the text between matches is
         ;; a field. Zero-width matches only split between characters.
         (let ((n (length str)))

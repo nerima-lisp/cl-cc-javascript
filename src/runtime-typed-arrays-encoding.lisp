@@ -40,7 +40,10 @@
                       (b2 (if (< (+ i 2) n) (aref buf (+ i 2)) 0)))
                  (write-char (char alphabet (ash b0 -2)) out)
                  (write-char (char alphabet (logior (ash (logand b0 3) 4) (ash b1 -4))) out)
-                 (write-char (if (< (1+ i) n) (char alphabet (logior (ash (logand b1 15) 2) (ash b2 -6))) #\=) out)
+                 (write-char (if (< (1+ i) n)
+                                 (char alphabet (logior (ash (logand b1 15) 2) (ash b2 -6)))
+                                 #\=)
+                             out)
                  (write-char (if (< (+ i 2) n) (char alphabet (logand b2 63)) #\=) out))))))
 
 (defun %js-uint8-from-base64 (b64-str &optional opts)

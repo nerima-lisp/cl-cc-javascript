@@ -45,18 +45,27 @@
      "milliseconds" 0.0d0
      "microseconds" 0.0d0
      "nanoseconds"  0.0d0
-     "sign"       (if (or (plusp y) (plusp mo) (plusp w) (plusp d) (plusp h) (plusp mn) (plusp s)) 1.0d0 -1.0d0)
+     "sign"       (if (or (plusp y) (plusp mo) (plusp w) (plusp d)
+                          (plusp h) (plusp mn) (plusp s))
+                      1.0d0
+                      -1.0d0)
      "toString"   (lambda ()
                     (format nil "P~AY~AM~AW~ADT~AH~AM~AS"
                             y mo w d h mn s))
-     "abs"        (lambda () (%js-temporal-duration :years (abs y) :months (abs mo) :weeks (abs w)
-                                                    :days (abs d) :hours (abs h) :minutes (abs mn) :seconds (abs s)))
-     "negated"    (lambda () (%js-temporal-duration :years (- y) :months (- mo) :weeks (- w)
-                                                    :days (- d) :hours (- h) :minutes (- mn) :seconds (- s)))
+     "abs"        (lambda () (%js-temporal-duration :years (abs y) :months (abs mo)
+                                                    :weeks (abs w) :days (abs d)
+                                                    :hours (abs h) :minutes (abs mn)
+                                                    :seconds (abs s)))
+     "negated"    (lambda () (%js-temporal-duration :years (- y) :months (- mo)
+                                                    :weeks (- w) :days (- d)
+                                                    :hours (- h) :minutes (- mn)
+                                                    :seconds (- s)))
      "total"      (lambda (&optional opts)
                     (declare (ignore opts))
-                    (coerce (%temporal-duration-to-seconds (%js-make-object
-                                                            "years" y "months" mo "weeks" w "days" d
-                                                            "hours" h "minutes" mn "seconds" s)) 'double-float)))))
+                    (coerce (%temporal-duration-to-seconds
+                             (%js-make-object "years" y "months" mo "weeks" w
+                                              "days" d "hours" h "minutes" mn
+                                              "seconds" s))
+                            'double-float)))))
 
 ;;; Temporal.PlainYearMonth / Temporal.PlainMonthDay remain in runtime-temporal.lisp.
