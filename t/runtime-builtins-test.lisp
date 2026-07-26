@@ -1,4 +1,4 @@
-;;;; t/js-runtime-misc-tests.lisp
+;;;; t/runtime-builtins-test.lisp
 ;;;;
 ;;;; Unit tests for remaining uncovered runtime functions:
 ;;;; Promise.race/allSettled/finally/withResolvers/try,
@@ -8,7 +8,7 @@
 ;;;; URL, TypedArray constructor factory, Object.defineProperties,
 ;;;; Reflect.defineProperty / Object.defineProperty.
 ;;;;
-;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr, %jr-list)
+;;;; Depends on: runtime-core-test.lisp (%jr-arr, %jr-list)
 
 (in-package :cl-cc-javascript/test)
 

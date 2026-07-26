@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Test files are named `t/<source>-test.lisp` after the source file they cover,
+  per `CODING_STANDARD.md`. The redundant `js-` prefix is gone (no source file
+  carries it) and the plural `-tests` is now singular, so `js-lexer-tests.lisp`
+  is `lexer-test.lisp`. Three names that did not identify a source file were
+  changed to ones that do. No test content changed.
+- `src/package.lisp` no longer `:use`s `cl-cc/ast`, `cl-cc/bootstrap` or
+  `cl-cc/parse`; the 55 symbols actually borrowed are now listed in
+  `:import-from`. The exported symbol set is unchanged.
 - The test system moved from a separate `cl-cc-javascript-test.asd` into
   `cl-cc-javascript.asd` as `cl-cc-javascript/test`, and both `defsystem` names are now
   strings rather than keywords.

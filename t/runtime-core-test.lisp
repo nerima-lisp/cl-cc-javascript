@@ -1,14 +1,14 @@
-;;;; t/js-runtime-core-tests.lisp
+;;;; t/runtime-core-test.lisp
 ;;;;
 ;;;; Core type coercion, equality, truthiness, for-of/in, try-catch, Object
 ;;;; basic operations, and bitwise operators.
 ;;;;
 ;;;; Helper functions (%jr-arr, %jr-list, %jr-set) are defined here
-;;;; and available to all subsequently-loaded js-runtime-* test files.
+;;;; and available to all subsequently-loaded runtime-*-test files.
 
 (in-package :cl-cc-javascript/test)
 
-;;; ─── Shared helpers (used across all js-runtime-* test files) ─────────────────
+;;; ─── Shared helpers (used across all runtime-*-test files) ───────────────────
 
 (defun %jr-arr (&rest els)
   "Build a JS array (adjustable vector) from ELS."

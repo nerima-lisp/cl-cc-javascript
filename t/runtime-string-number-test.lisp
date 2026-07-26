@@ -1,10 +1,10 @@
-;;;; t/js-runtime-string-number-tests.lisp
+;;;; t/runtime-string-number-test.lisp
 ;;;;
 ;;;; String prototype methods, Math (basic and transcendental), Number.prototype
 ;;;; methods, number format helpers, predicates (isNaN/isFinite/isInteger),
 ;;;; and parseInt/parseFloat.
 ;;;;
-;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr)
+;;;; Depends on: runtime-core-test.lisp (%jr-arr)
 
 (in-package :cl-cc-javascript/test)
 

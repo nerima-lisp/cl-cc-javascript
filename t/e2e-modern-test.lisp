@@ -1,4 +1,4 @@
-;;;; t/js-e2e-modern-tests.lisp — ES2022-ES2026 execution tests
+;;;; t/e2e-modern-test.lisp — ES2022-ES2026 execution tests
 ;;;;
 ;;;; Private class fields, Promise chaining, WeakMap/WeakSet, Object static
 ;;;; methods, ES2021 strings, ES2023 arrays, ES2025 Set/Iterator, ES2025/2026
@@ -6,7 +6,7 @@
 ;;;; Iterator.concat),
 ;;;; AbortController/AbortSignal, Atomics.pause, crypto.
 ;;;;
-;;;; Depends on: js-e2e-core-tests.lisp (%js-run-capture, deftest-js-run).
+;;;; Depends on: e2e-core-test.lisp (%js-run-capture, deftest-js-run).
 
 (in-package :cl-cc-javascript/test)
 

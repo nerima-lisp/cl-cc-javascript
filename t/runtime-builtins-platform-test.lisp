@@ -1,10 +1,10 @@
-;;;; t/js-runtime-misc-platform-tests.lisp
+;;;; t/runtime-builtins-platform-test.lisp
 ;;;;
 ;;;; Unit tests for platform-oriented runtime functions:
 ;;;; URLSearchParams, TextEncoder/TextDecoder, Intl.*, crypto.
 ;;;;
-;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr, %jr-list),
-;;;;             js-runtime-misc-tests.lisp (%jr-assert-string-props)
+;;;; Depends on: runtime-core-test.lisp (%jr-arr, %jr-list),
+;;;;             runtime-builtins-test.lisp (%jr-assert-string-props)
 
 (in-package :cl-cc-javascript/test)
 

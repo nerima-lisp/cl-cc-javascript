@@ -1,4 +1,4 @@
-;;;; t/js-lexer-tests.lisp — ES2026 JavaScript Lexer Tests
+;;;; t/lexer-test.lisp — ES2026 JavaScript Lexer Tests
 ;;;;
 ;;;; Token format: (:type :T-XXX :value val)
 

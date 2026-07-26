@@ -65,7 +65,7 @@ script force-reloads the test system after enabling `sb-cover`.
 cl-cc-javascript.asd   both systems: cl-cc-javascript and cl-cc-javascript/test
 run-tests.lisp         test entry point
 src/                   flat; every defpackage in src/package.lisp
-t/                     tests, one file per concern
+t/                     tests, named t/<source>-test.lisp
 scripts/               dependency resolution, compile check, coverage, timeout
 docs/                  mkdocs.yml + src/
 flake.nix flake.lock
@@ -73,6 +73,12 @@ flake.nix flake.lock
 
 Tests run under [cl-weave](https://github.com/nerima-lisp/cl-weave), the org's test
 framework. Do not introduce FiveAM, parachute, rove or prove.
+
+A test file is named after the source file it covers: `src/lexer.lisp` is tested by
+`t/lexer-test.lisp`. Where one source file has several concerns the concern goes in
+the middle — `t/parser-decl-test.lisp` and `t/parser-stmt-test.lisp` both cover the
+parser. The `t/e2e-*-test.lisp` files have no single source counterpart: they compile
+and run whole JavaScript programs through the frontend and the VM.
 
 ## Adding a builtin
 
@@ -84,7 +90,8 @@ framework. Do not introduce FiveAM, parachute, rove or prove.
    headings are the H2 sections of [the API reference](api-reference.md).
 4. Register it in the relevant dispatch table (`*js-builtin-map*`, or a
    `*js-*-method-table*`) so property access finds it.
-5. Add tests to the matching `t/js-runtime-*-tests.lisp`.
+5. Add tests to the `t/runtime-*-test.lisp` file matching the source file you
+   touched.
 6. Document it in `docs/src/api-reference.md`.
 
 Steps 3 and 6 are not optional: the API reference is required to cover every exported

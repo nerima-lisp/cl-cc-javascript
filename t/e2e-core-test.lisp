@@ -1,4 +1,4 @@
-;;;; t/js-e2e-core-tests.lisp — Core JS execution tests
+;;;; t/e2e-core-test.lisp — Core JS execution tests
 ;;;;
 ;;;; Shared test helpers (loaded first, so subsequent files can use them):
 ;;;;   %js-run-capture SOURCE  → string of captured console.log output
@@ -11,7 +11,7 @@
 
 
 
-;;; ─── Shared helpers (available to all js-e2e-* files via serial load) ────────
+;;; ─── Shared helpers (available to all e2e-*-test files via serial load) ──────
 
 (defun %js-run-capture (source)
   "Compile JavaScript SOURCE to the VM, seed the JS runtime globals, run it, and

@@ -1,10 +1,10 @@
-;;;; t/js-runtime-resolver-tests.lisp
+;;;; t/runtime-method-resolver-test.lisp
 ;;;;
 ;;;; Method dispatch, type resolver coverage (define-js-type-resolver),
 ;;;; RegExp, Reflect helpers, bound-method, Object property descriptor,
 ;;;; string char-iter, and Object fallback method table.
 ;;;;
-;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr)
+;;;; Depends on: runtime-core-test.lisp (%jr-arr)
 
 (in-package :cl-cc-javascript/test)
 

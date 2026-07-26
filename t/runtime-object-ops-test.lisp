@@ -1,10 +1,10 @@
-;;;; t/js-runtime-object-ops-tests.lisp
+;;;; t/runtime-object-ops-test.lisp
 ;;;;
 ;;;; Unit tests for runtime-object.lisp (Object static methods, prototype ops,
 ;;;; destructuring helpers) and runtime-ops.lisp (bitwise ops, shifts, BigInt
 ;;;; extras, URI encoding, accessor/misc stubs).
 ;;;;
-;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr, %jr-list)
+;;;; Depends on: runtime-core-test.lisp (%jr-arr, %jr-list)
 
 (in-package :cl-cc-javascript/test)
 

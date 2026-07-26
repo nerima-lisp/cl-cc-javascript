@@ -1,6 +1,6 @@
-;;;; t/js-parser-decl-tests.lisp — JS parser: declarations
+;;;; t/parser-decl-test.lisp — JS parser: declarations
 ;;;;
-;;;; Shared parse helpers (available to js-parser-stmt-tests via serial load):
+;;;; Shared parse helpers (available to parser-stmt-test via serial load):
 ;;;;   %js-parse SOURCE  → list of top-level AST nodes
 ;;;;   %js-first SOURCE  → first top-level AST node
 ;;;;   %js-call-name AST → upcased name string for an ast-call
@@ -10,7 +10,7 @@
 
 (in-package :cl-cc-javascript/test)
 
-;;; ─── Shared helpers (available to all js-parser-* files via serial load) ─────
+;;; ─── Shared helpers (available to all parser-*-test files via serial load) ───
 
 (defun %js-parse (src)
   "Parse SRC and return the list of top-level AST nodes."

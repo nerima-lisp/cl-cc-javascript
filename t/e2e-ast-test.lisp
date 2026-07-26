@@ -1,9 +1,9 @@
-;;;; t/js-e2e-ast-tests.lisp — JS AST structural tests
+;;;; t/e2e-ast-test.lisp — JS AST structural tests
 ;;;;
 ;;;; Parse-only tests that check the AST shape produced by the JS frontend
 ;;;; without running the program through the VM.
 ;;;;
-;;;; Depends on: js-e2e-core-tests.lisp (loaded before this in serial ASDF module).
+;;;; Depends on: e2e-core-test.lisp (loaded before this in serial ASDF module).
 
 (in-package :cl-cc-javascript/test)
 

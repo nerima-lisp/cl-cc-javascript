@@ -1,8 +1,8 @@
-;;;; t/js-runtime-date-json-tests.lisp
+;;;; t/runtime-date-json-test.lisp
 ;;;;
 ;;;; Temporal helper functions, Date.prototype, JSON stringify, JSON parse.
 ;;;;
-;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr)
+;;;; Depends on: runtime-core-test.lisp (%jr-arr)
 
 (in-package :cl-cc-javascript/test)
 

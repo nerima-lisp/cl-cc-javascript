@@ -1,11 +1,11 @@
-;;;; t/js-runtime-typed-array-methods-tests.lisp
+;;;; t/runtime-typed-arrays-methods-test.lisp
 ;;;;
 ;;;; Unit tests for runtime-typed-arrays-methods.lisp:
 ;;;; ES2023 non-mutating methods (toReversed, toSorted, with, at, findLast…),
 ;;;; mutating methods (reverse, sort, copyWithin), iterator methods
 ;;;; (values, keys, entries), and ES2025 Uint8Array hex/base64 encoding.
 ;;;;
-;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr)
+;;;; Depends on: runtime-core-test.lisp (%jr-arr)
 
 (in-package :cl-cc-javascript/test)
 

@@ -1,10 +1,10 @@
-;;;; t/js-e2e-advanced-tests.lisp — JS advanced execution tests
+;;;; t/e2e-advanced-test.lisp — JS advanced execution tests
 ;;;;
 ;;;; Optional chaining, named function expressions, typeof, arrow params,
 ;;;; getters/setters, static namespaces, operators, coercion, class features,
 ;;;; for-in/of loops, generators, Map/Set/WeakMap/WeakSet.
 ;;;;
-;;;; Depends on: js-e2e-core-tests.lisp (%js-run-capture, deftest-js-run).
+;;;; Depends on: e2e-core-test.lisp (%js-run-capture, deftest-js-run).
 
 (in-package :cl-cc-javascript/test)
 

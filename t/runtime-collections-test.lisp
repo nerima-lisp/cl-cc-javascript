@@ -1,9 +1,9 @@
-;;;; t/js-runtime-collections-tests.lisp
+;;;; t/runtime-collections-test.lisp
 ;;;;
 ;;;; Set, Iterator, Promise, Map, Generator, BigInt, URI/base64,
 ;;;; and AggregateError/WeakRef runtime tests.
 ;;;;
-;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr, %jr-list, %jr-set)
+;;;; Depends on: runtime-core-test.lisp (%jr-arr, %jr-list, %jr-set)
 
 (in-package :cl-cc-javascript/test)
 

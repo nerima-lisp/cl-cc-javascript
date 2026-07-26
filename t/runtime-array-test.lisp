@@ -1,10 +1,10 @@
-;;;; t/js-runtime-array-tests.lisp
+;;;; t/runtime-array-test.lisp
 ;;;;
 ;;;; Array operations (push/pop/shift/map/filter/reduce/sort/flat/splice …),
 ;;;; ES2023 non-mutating variants (toReversed/toSorted/with/toSpliced),
 ;;;; and TypedArray construction and element access.
 ;;;;
-;;;; Depends on: js-runtime-core-tests.lisp (%jr-arr, %jr-list)
+;;;; Depends on: runtime-core-test.lisp (%jr-arr, %jr-list)
 
 (in-package :cl-cc-javascript/test)
 

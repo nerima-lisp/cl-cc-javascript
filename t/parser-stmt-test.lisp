@@ -1,11 +1,11 @@
-;;;; t/js-parser-stmt-tests.lisp — JS parser: statements + expressions
+;;;; t/parser-stmt-test.lisp — JS parser: statements + expressions
 ;;;;
 ;;;; Covers: if/else, while, for loop variants, switch, try/catch/finally,
 ;;;;         destructuring, spread, optional chaining, nullish coalescing,
 ;;;;         logical assignment, template literals, import/export, using,
 ;;;;         throw, return, multi-statement, generators, for-of/in, new, unary.
 ;;;;
-;;;; Depends on: js-parser-decl-tests.lisp (%js-parse, %js-first, %js-call-name).
+;;;; Depends on: parser-decl-test.lisp (%js-parse, %js-first, %js-call-name).
 
 (in-package :cl-cc-javascript/test)
 
