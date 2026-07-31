@@ -28,7 +28,6 @@
 ;;;;   module specifier and the specifier list as quoted data so that the
 ;;;;   VM's %js-import / %js-export host-bridge functions can interpret them
 ;;;;   at runtime.  This mirrors how the PHP parser lowers require/include.
-
 (in-package :cl-cc/javascript)
 
 ;;; ─── Token stream helpers (re-used from parser-class.lisp) ──────────────────
@@ -36,9 +35,7 @@
 ;;; js-peek, js-peek-type, js-peek-value, js-consume, js-expect, js-at-eof-p,
 ;;; js-skip-semis, js-ident-sym are all defined in parser-class.lisp which is
 ;;; loaded before this file in the ASDF serial component list.
-
 ;;; ─── Import-attribute helpers ────────────────────────────────────────────────
-
 (defun %js-parse-import-attributes (stream)
   "Parse an ES2025 import-attributes clause:  with { key: \"value\", ... }
 Returns (values attrs-alist rest) where ATTRS-ALIST is an association list
@@ -90,6 +87,44 @@ of (string . string) pairs."
   (values nil stream))
 
 ;;; ─── Specifier list parsers ──────────────────────────────────────────────────
+;;;
+;;; import's `{ a, b as c }' and export's `{ a, b as c }' share the identical
+;;; "comma-separated NAME [as ALIAS]" grammar; they differ only in what each
+;;; parsed pair is turned into (an :imported/:local plist vs. a :local/:exported
+;;; plist, with the "as" default flipped accordingly). CPS-style: the shared
+;;; loop consumes/recurses over the token stream and hands each (primary
+;;; . alias) pair to a per-caller BUILDER, instead of duplicating the loop.
+(defun %js-parse-as-alias-specifiers (stream builder)
+  "Parse a `{ name [as alias], ... }' specifier list common to import/export
+declarations. STREAM points at the opening '{' (consumed here).  For each
+entry, calls (FUNCALL BUILDER primary alias) — ALIAS defaults to PRIMARY when
+no `as' clause is present — and collects the results.
+Returns (values specifiers rest)."
+  (multiple-value-bind (_ rest) (js-expect :T-LBRACE stream)
+    (declare (ignore _))
+    (let ((specifiers nil)
+          (current rest))
+      (loop until (or (js-at-eof-p current)
+                      (eq (js-peek-type current) :T-RBRACE))
+            do (multiple-value-bind (tok rest2) (js-consume current)
+                 (let ((primary (js-tok-value tok))
+                       (alias nil))
+                   (setf current rest2)
+                   ;; optional: as alias
+                   (if (and current (eq (js-peek-type current) :T-AS))
+                       (progn
+                         (setf current (cdr current))  ; consume 'as'
+                         (multiple-value-bind (tok2 rest3) (js-consume current)
+                           (setf alias (js-tok-value tok2)
+                                 current rest3)))
+                       (setf alias primary))
+                   (push (funcall builder primary alias) specifiers))
+                 ;; optional trailing comma
+                 (when (and current (eq (js-peek-type current) :T-COMMA))
+                   (setf current (cdr current)))))
+      (multiple-value-bind (_ rest2) (js-expect :T-RBRACE current)
+        (declare (ignore _))
+        (values (nreverse specifiers) rest2)))))
 
 (defun js-parse-import-specifiers (stream)
   "Parse a named-imports specifier list:  { a, b as c, ... }
@@ -97,52 +132,16 @@ Consumes the enclosing braces.
 Returns (values specifiers rest) where SPECIFIERS is a list of plists:
   (:imported \"a\" :local \"a\")
   (:imported \"b\" :local \"c\")"
-  (multiple-value-bind (_ rest) (js-expect :T-LBRACE stream)
-    (declare (ignore _))
-    (let ((specifiers nil)
-          (current rest))
-      (loop until (or (js-at-eof-p current)
-                      (eq (js-peek-type current) :T-RBRACE))
-            do (let ((imported nil)
-                     (local nil))
-                 ;; imported name: may be string or identifier or keyword
-                 (cond
-                   ((eq (js-peek-type current) :T-STRING)
-                    (multiple-value-bind (tok rest2) (js-consume current)
-                      (setf imported (js-tok-value tok)
-                            current rest2)))
-                   (t
-                    (multiple-value-bind (tok rest2) (js-consume current)
-                      (setf imported (js-tok-value tok)
-                            current rest2))))
-                 ;; optional: as localName
-                 (if (and current
-                          (eq (js-peek-type current) :T-AS))
-                     (progn
-                       (setf current (cdr current))  ; consume 'as'
-                       (multiple-value-bind (tok rest2) (js-consume current)
-                         (setf local (js-tok-value tok)
-                               current rest2)))
-                     (setf local imported))
-                 (push (list :imported (if (stringp imported)
-                                           imported
-                                           (string-downcase
-                                            (if (stringp imported)
-                                                imported
-                                                (format nil "~A" imported))))
-                             :local    (if (stringp local)
-                                           local
-                                           (string-downcase
-                                            (if (stringp local)
-                                                local
-                                                (format nil "~A" local)))))
-                       specifiers)
-                 ;; optional trailing comma
-                 (when (and current (eq (js-peek-type current) :T-COMMA))
-                   (setf current (cdr current)))))
-      (multiple-value-bind (_ rest2) (js-expect :T-RBRACE current)
-        (declare (ignore _))
-        (values (nreverse specifiers) rest2)))))
+  (%js-parse-as-alias-specifiers
+    stream
+    (lambda (imported local)
+      (list
+        :imported
+        (if (stringp imported) imported
+          (string-downcase (princ-to-string imported)))
+        :local
+        (if (stringp local) local
+          (string-downcase (princ-to-string local)))))))
 
 (defun js-parse-export-specifiers (stream)
   "Parse a named-exports specifier list:  { a, b as c, ... }
@@ -150,64 +149,32 @@ Consumes the enclosing braces.
 Returns (values specifiers rest) where SPECIFIERS is a list of plists:
   (:local \"a\" :exported \"a\")
   (:local \"b\" :exported \"c\")"
-  (multiple-value-bind (_ rest) (js-expect :T-LBRACE stream)
-    (declare (ignore _))
-    (let ((specifiers nil)
-          (current rest))
-      (loop until (or (js-at-eof-p current)
-                      (eq (js-peek-type current) :T-RBRACE))
-            do (let ((local nil)
-                     (exported nil))
-                 ;; local name (may be string for module re-exports)
-                 (cond
-                   ((eq (js-peek-type current) :T-STRING)
-                    (multiple-value-bind (tok rest2) (js-consume current)
-                      (setf local (js-tok-value tok)
-                            current rest2)))
-                   (t
-                    (multiple-value-bind (tok rest2) (js-consume current)
-                      (setf local (js-tok-value tok)
-                            current rest2))))
-                 ;; optional: as exportedName
-                 (if (and current (eq (js-peek-type current) :T-AS))
-                     (progn
-                       (setf current (cdr current))  ; consume 'as'
-                       (multiple-value-bind (tok rest2) (js-consume current)
-                         (setf exported (js-tok-value tok)
-                               current rest2)))
-                     (setf exported local))
-                 (push (list :local    (format nil "~A" local)
-                             :exported (format nil "~A" exported))
-                       specifiers)
-                 ;; optional trailing comma
-                 (when (and current (eq (js-peek-type current) :T-COMMA))
-                   (setf current (cdr current)))))
-      (multiple-value-bind (_ rest2) (js-expect :T-RBRACE current)
-        (declare (ignore _))
-        (values (nreverse specifiers) rest2)))))
+  (%js-parse-as-alias-specifiers
+    stream
+    (lambda (local exported)
+      (list :local (princ-to-string local) :exported (princ-to-string exported)))))
 
 ;;; ─── Import lowering helper ──────────────────────────────────────────────────
-
 (defun %js-lower-import (module-str specifiers attrs)
   "Lower an import declaration to an ast-call for %js-import.
 SPECIFIERS is a list of plists or the keywords :default, :namespace, or NIL.
 ATTRS is an alist of import attributes (or NIL)."
   (make-ast-call
-   :func (make-ast-var :name '%js-import)
-   :args (list (make-ast-quote :value module-str)
-               (make-ast-quote :value specifiers)
-               (make-ast-quote :value attrs))))
+    :func
+    (make-ast-var :name '%js-import)
+    :args
+    (list
+      (make-ast-quote :value module-str)
+      (make-ast-quote :value specifiers)
+      (make-ast-quote :value attrs))))
 
 ;;; ─── js-parse-import-decl ────────────────────────────────────────────────────
-
 ;;; ─── js-parse-import-decl: one sub-parser per import form ──────────────────
-
 (defun %js-parse-import-bare-form (current)
   "import \"module\" — bare side-effect import. CURRENT points at the string token."
   (multiple-value-bind (tok rest) (js-consume current)
     (multiple-value-bind (attrs rest2) (%js-parse-import-attributes rest)
-      (values (%js-lower-import (js-tok-value tok) nil attrs)
-              (js-skip-semis rest2)))))
+      (values (%js-lower-import (js-tok-value tok) nil attrs) (js-skip-semis rest2)))))
 
 (defun %js-parse-import-namespace-form (current)
   "import * as ns from \"module\" — CURRENT points past '*'."
@@ -218,10 +185,12 @@ ATTRS is an alist of import attributes (or NIL)."
         (declare (ignore _))
         (multiple-value-bind (mod-tok rest4) (js-expect :T-STRING rest3)
           (multiple-value-bind (attrs rest5) (%js-parse-import-attributes rest4)
-            (values (%js-lower-import (js-tok-value mod-tok)
-                                     (list (list :namespace (js-tok-value ns-tok)))
-                                     attrs)
-                    (js-skip-semis rest5))))))))
+            (values
+              (%js-lower-import
+                (js-tok-value mod-tok)
+                (list (list :namespace (js-tok-value ns-tok)))
+                attrs)
+              (js-skip-semis rest5))))))))
 
 (defun %js-parse-import-named-form (current)
   "import { a, b as c } from \"module\" — CURRENT points at the '{'."
@@ -230,8 +199,9 @@ ATTRS is an alist of import attributes (or NIL)."
       (declare (ignore _))
       (multiple-value-bind (mod-tok rest3) (js-expect :T-STRING rest2)
         (multiple-value-bind (attrs rest4) (%js-parse-import-attributes rest3)
-          (values (%js-lower-import (js-tok-value mod-tok) specifiers attrs)
-                  (js-skip-semis rest4)))))))
+          (values
+            (%js-lower-import (js-tok-value mod-tok) specifiers attrs)
+            (js-skip-semis rest4)))))))
 
 (defun %js-parse-import-default-and-namespace-form (current default-spec)
   "import name, * as ns from \"module\" — CURRENT points past the comma and '*'."
@@ -242,11 +212,12 @@ ATTRS is an alist of import attributes (or NIL)."
         (declare (ignore _))
         (multiple-value-bind (mod-tok rest4) (js-expect :T-STRING rest3)
           (multiple-value-bind (attrs rest5) (%js-parse-import-attributes rest4)
-            (values (%js-lower-import
-                     (js-tok-value mod-tok)
-                     (list default-spec (list :namespace (js-tok-value ns-tok)))
-                     attrs)
-                    (js-skip-semis rest5))))))))
+            (values
+              (%js-lower-import
+                (js-tok-value mod-tok)
+                (list default-spec (list :namespace (js-tok-value ns-tok)))
+                attrs)
+              (js-skip-semis rest5))))))))
 
 (defun %js-parse-import-default-and-named-form (current default-spec)
   "import name, { a, b } from \"module\" — CURRENT points past the comma, at '{'."
@@ -255,11 +226,9 @@ ATTRS is an alist of import attributes (or NIL)."
       (declare (ignore _))
       (multiple-value-bind (mod-tok rest3) (js-expect :T-STRING rest2)
         (multiple-value-bind (attrs rest4) (%js-parse-import-attributes rest3)
-          (values (%js-lower-import
-                   (js-tok-value mod-tok)
-                   (cons default-spec named-specs)
-                   attrs)
-                  (js-skip-semis rest4)))))))
+          (values
+            (%js-lower-import (js-tok-value mod-tok) (cons default-spec named-specs) attrs)
+            (js-skip-semis rest4)))))))
 
 (defun %js-parse-import-default-only-form (current default-spec)
   "import name from \"module\" — CURRENT points past the default identifier."
@@ -267,8 +236,9 @@ ATTRS is an alist of import attributes (or NIL)."
     (declare (ignore _))
     (multiple-value-bind (mod-tok rest2) (js-expect :T-STRING rest)
       (multiple-value-bind (attrs rest3) (%js-parse-import-attributes rest2)
-        (values (%js-lower-import (js-tok-value mod-tok) (list default-spec) attrs)
-                (js-skip-semis rest3))))))
+        (values
+          (%js-lower-import (js-tok-value mod-tok) (list default-spec) attrs)
+          (js-skip-semis rest3))))))
 
 (defun %js-parse-import-default-form (current)
   "import name ... — CURRENT points at the default-binding identifier. Covers
@@ -276,17 +246,16 @@ import name from \"module\", import name, { a } from \"module\", and
 import name, * as ns from \"module\"."
   (multiple-value-bind (default-tok rest) (js-consume current)
     (let ((default-spec (list :default (js-tok-value default-tok))))
-      (if (and rest (eq (js-peek-type rest) :T-COMMA))
-          (let ((after-comma (cdr rest)))
-            (cond
-              ((and (eq (js-peek-type after-comma) :T-OP)
-                    (equal "*" (js-peek-value after-comma)))
-               (%js-parse-import-default-and-namespace-form (cdr after-comma) default-spec))
-              ((eq (js-peek-type after-comma) :T-LBRACE)
-               (%js-parse-import-default-and-named-form after-comma default-spec))
-              (t
-               (error "JS parse error: expected { or * after import default and comma"))))
-          (%js-parse-import-default-only-form rest default-spec)))))
+      (if (and rest (eq (js-peek-type rest) :T-COMMA)) (let ((after-comma (cdr rest)))
+          (cond
+            ((and
+                (eq (js-peek-type after-comma) :T-OP)
+                (equal "*" (js-peek-value after-comma)))
+              (%js-parse-import-default-and-namespace-form (cdr after-comma) default-spec))
+            ((eq (js-peek-type after-comma) :T-LBRACE)
+              (%js-parse-import-default-and-named-form after-comma default-spec))
+            (t (error "JS parse error: expected { or * after import default and comma"))))
+        (%js-parse-import-default-only-form rest default-spec)))))
 
 (defun js-parse-import-decl (stream)
   "Parse all import statement forms (the 'import' keyword has already been
@@ -306,18 +275,12 @@ Lower to: (ast-call %js-import module specifiers attrs)
 Returns (values ast rest)."
   (let ((current stream))
     (cond
-      ((eq (js-peek-type current) :T-STRING)
-       (%js-parse-import-bare-form current))
-      ((and (eq (js-peek-type current) :T-OP)
-            (equal "*" (js-peek-value current)))
-       (%js-parse-import-namespace-form (cdr current)))
-      ((eq (js-peek-type current) :T-LBRACE)
-       (%js-parse-import-named-form current))
-      ((eq (js-peek-type current) :T-IDENT)
-       (%js-parse-import-default-form current))
+      ((eq (js-peek-type current) :T-STRING) (%js-parse-import-bare-form current))
+      ((and (eq (js-peek-type current) :T-OP) (equal "*" (js-peek-value current)))
+        (%js-parse-import-namespace-form (cdr current)))
+      ((eq (js-peek-type current) :T-LBRACE) (%js-parse-import-named-form current))
+      ((eq (js-peek-type current) :T-IDENT) (%js-parse-import-default-form current))
       (t
-       (error "JS parse error: malformed import declaration near ~S"
-              (js-peek current))))))
-
+        (error "JS parse error: malformed import declaration near ~S" (js-peek current))))))
 
 ;;; Export declarations → see parser-module-export.lisp

@@ -24,23 +24,22 @@
 js-parse-expr (which needs the same set to recognize an assignment RHS)
 so the two can't silently drift apart.")
 
-(defparameter *js-op-infix-prec*
-  (let ((ht (make-hash-table :test #'equal)))
-    ;; Assignment (right-associative, prec 2)
-    (dolist (op *js-assignment-op-strings*)
-      (setf (gethash op ht) '(2 t)))
-    ;; Remaining binary ops (left-associative unless noted)
-    (dolist (entry '(("??"  5 nil) ("||"  6 nil) ("&&"  7 nil)
-                     ("|"   8 nil) ("^"   9 nil) ("&"  10 nil)
-                     ("=="  11 nil) ("!="  11 nil) ("===" 11 nil) ("!==" 11 nil)
-                     ("<"   12 nil) (">"   12 nil) ("<="  12 nil) (">="  12 nil)
-                     ("<<"  13 nil) (">>"  13 nil) (">>>" 13 nil)
-                     ("+"   14 nil) ("-"   14 nil)
-                     ("*"   15 nil) ("/"   15 nil) ("%"   15 nil)
-                     ("**"  16 t)   ("?."  19 nil)))
-      (setf (gethash (first entry) ht) (rest entry)))
-    ht)
-  "Maps JS operator strings to (prec right-assoc-p). Used by js-infix-prec.")
+(define-builder-table *js-op-infix-prec*
+    (;; Assignment operators are all right-associative at precedence 2; they
+     ;; are seeded from *js-assignment-op-strings* rather than re-listed so
+     ;; the two definitions cannot drift apart.
+     :seed (mapcar (lambda (op) (cons op '(2 t))) *js-assignment-op-strings*)
+     :documentation
+     "Maps JS operator strings to (prec right-assoc-p). Used by js-infix-prec.")
+  ;; Remaining binary ops (left-associative unless noted)
+  ("??"  '(5 nil))   ("||"  '(6 nil))   ("&&"  '(7 nil))
+  ("|"   '(8 nil))   ("^"   '(9 nil))   ("&"   '(10 nil))
+  ("=="  '(11 nil))  ("!="  '(11 nil))  ("===" '(11 nil))  ("!==" '(11 nil))
+  ("<"   '(12 nil))  (">"   '(12 nil))  ("<="  '(12 nil))  (">="  '(12 nil))
+  ("<<"  '(13 nil))  (">>"  '(13 nil))  (">>>" '(13 nil))
+  ("+"   '(14 nil))  ("-"   '(14 nil))
+  ("*"   '(15 nil))  ("/"   '(15 nil))  ("%"   '(15 nil))
+  ("**"  '(16 t))    ("?."  '(19 nil)))
 
 (defun js-infix-prec (stream)
   "Return (values prec right-assoc-p) for current token as infix op, or (values 0 nil).
@@ -61,8 +60,9 @@ Precedence levels: 1=comma 2=assign 4=ternary 5=?? 6=|| 7=&& 8=| 9=^ 10=&
 
 ;;; ─── Operator Lowering ───────────────────────────────────────────────────────
 
-(defparameter *js-direct-binop-keywords*
-  (let ((ht (make-hash-table :test #'equal)))
+(define-builder-table *js-direct-binop-keywords*
+    (:documentation
+     "Maps arithmetic operator strings to AST binop operator symbols.")
     ;; Values are the operator SYMBOLS the codegen op→constructor table
     ;; (*numeric-binop-ctor-specs*, keyed by symbol with :test #'eq) expects:
     ;; CL +,-,*,/,<,>,<=,>=. They were keywords (:+, :-, …) which never matched,
@@ -79,67 +79,68 @@ Precedence levels: 1=comma 2=assign 4=ternary 5=?? 6=|| 7=&& 8=| 9=^ 10=&
     ;; comparison returns 1/0 (not a JS boolean) and ignores JS relational
     ;; semantics (string compare, NaN-always-false, ToNumber coercion). They
     ;; route through %js-lt/gt/le/ge via *js-binop-runtime-helpers* instead.
-    (dolist (entry '(("-" . -) ("*" . *)))
-      (setf (gethash (car entry) ht) (cdr entry)))
-    ht)
-  "Maps arithmetic operator strings to AST binop operator symbols.")
+  ("-" '-)
+  ("*" '*))
 
-(defparameter *js-binop-runtime-helpers*
-  (let ((ht (make-hash-table :test #'equal)))
-    (dolist (entry '(("+"   . %js-add)  ("/"  . %js-divide)
-                     ("%"   . %js-mod)  ("**" . %js-pow)
-                     ("===" . %js-strict-eq) ("==" . %js-loose-eq)
-                     ("<"   . %js-lt) (">"  . %js-gt)
-                     ("<="  . %js-le) (">=" . %js-ge)
-                     ("|"   . %js-bitwise-or) ("^"  . %js-bitwise-xor)
-                     ("&"   . %js-bitwise-and)
-                     ("<<"  . %js-shift-left)  (">>" . %js-shift-right)
-                     (">>>" . %js-unsigned-shift-right)
-                     ("instanceof" . %js-instanceof) ("in" . %js-in)))
-      (setf (gethash (car entry) ht) (cdr entry)))
-    ht)
-  "Maps operator strings to their CPS runtime helper symbols.")
+(define-builder-table *js-binop-runtime-helpers*
+    (:documentation
+     "Maps operator strings to their CPS runtime helper symbols.")
+  ("+"   '%js-add)          ("/"   '%js-divide)
+  ("%"   '%js-mod)          ("**"  '%js-pow)
+  ("===" '%js-strict-eq)    ("=="  '%js-loose-eq)
+  ("<"   '%js-lt)           (">"   '%js-gt)
+  ("<="  '%js-le)           (">="  '%js-ge)
+  ("|"   '%js-bitwise-or)   ("^"   '%js-bitwise-xor)
+  ("&"   '%js-bitwise-and)
+  ("<<"  '%js-shift-left)   (">>"  '%js-shift-right)
+  (">>>" '%js-unsigned-shift-right)
+  ("instanceof" '%js-instanceof)  ("in" '%js-in))
 
 (defun %js-call (name &rest args)
   "Build an AST call to a JS runtime helper NAME with ARGS."
   (make-ast-call :func (make-ast-var :name name)
                  :args args))
 
-(defparameter *js-coercion-call-helpers*
-  (let ((ht (make-hash-table :test 'eq)))
-    (dolist (entry '(("Number" . %js-to-number)
-                     ("String" . %js-to-string)
-                     ("Boolean" . %js-truthy)
-                     ("parseInt" . %js-parse-int)
-                     ("parseFloat" . %js-parse-float)
-                     ;; Standalone global builtins whose prelude binding is a value,
-                     ;; not a callable function symbol — lower the direct call to the
-                     ;; helper (the global binding still serves indirect/value use).
-                     ("structuredClone" . %js-structured-clone)
-                     ("queueMicrotask" . %js-queue-microtask)
-                     ;; Symbol(desc) constructs a symbol; Symbol.iterator (member
-                     ;; access on the global) is unaffected.
-                     ("Symbol" . %js-make-symbol)
-                     ;; BigInt(x) coerces; BigInt.asIntN/asUintN (member access
-                     ;; on the global) are unaffected — same shape as Symbol above.
-                     ("BigInt" . %js-bigint)
-                     ;; Other global functions whose prelude binding is a value
-                     ;; (not a callable symbol), so a bare call needs lowering.
-                     ("encodeURIComponent" . %js-encode-uri-component)
-                     ("decodeURIComponent" . %js-decode-uri-component)
-                     ("encodeURI" . %js-encode-uri)
-                     ("decodeURI" . %js-decode-uri)
-                     ("btoa" . %js-btoa)
-                     ("atob" . %js-atob)
-                     ("isNaN" . %js-is-nan)
-                     ("isFinite" . %js-is-finite)))
-      (setf (gethash (js-ident-sym (car entry)) ht) (cdr entry)))
-    ht)
-  "Bare-call coercion builtins -> runtime helper symbols.  Number(x)/String(x)/
+(defun %js-not (ast)
+  "Build an AST call wrapping AST in CL NOT.  JS `!x', `a !== b' and `a != b'
+all lower to the same `(not <boolean-producing-call>)' shape."
+  (make-ast-call :func (make-ast-var :name 'not) :args (list ast)))
+
+(define-builder-table *js-coercion-call-helpers*
+    (:test 'eq
+     :key js-ident-sym
+     :documentation
+     "Bare-call coercion builtins -> runtime helper symbols.  Number(x)/String(x)/
 Boolean(x)/parseInt/parseFloat are called as functions, but the global holding
 each is a value (not a callable function symbol the codegen can dispatch), so a
 bare `Number(x)' raised `Undefined function: NUMBER'.  We lower the CALL directly
 to the helper; `Number.isInteger' (member access) is unaffected.")
+  ("Number"     '%js-to-number)
+  ("String"     '%js-to-string)
+  ("Boolean"    '%js-truthy)
+  ("parseInt"   '%js-parse-int)
+  ("parseFloat" '%js-parse-float)
+  ;; Standalone global builtins whose prelude binding is a value, not a
+  ;; callable function symbol — lower the direct call to the helper (the
+  ;; global binding still serves indirect/value use).
+  ("structuredClone" '%js-structured-clone)
+  ("queueMicrotask"  '%js-queue-microtask)
+  ;; Symbol(desc) constructs a symbol; Symbol.iterator (member access on the
+  ;; global) is unaffected.
+  ("Symbol" '%js-make-symbol)
+  ;; BigInt(x) coerces; BigInt.asIntN/asUintN (member access on the global)
+  ;; are unaffected — same shape as Symbol above.
+  ("BigInt" '%js-bigint)
+  ;; Other global functions whose prelude binding is a value (not a callable
+  ;; symbol), so a bare call needs lowering.
+  ("encodeURIComponent" '%js-encode-uri-component)
+  ("decodeURIComponent" '%js-decode-uri-component)
+  ("encodeURI" '%js-encode-uri)
+  ("decodeURI" '%js-decode-uri)
+  ("btoa"      '%js-btoa)
+  ("atob"      '%js-atob)
+  ("isNaN"     '%js-is-nan)
+  ("isFinite"  '%js-is-finite))
 
 (defun %js-lower-coercion-call (helper args)
   "Lower a coercion builtin CALL to its HELPER. parseInt/parseFloat take the args
@@ -198,12 +199,8 @@ spread in array literals and call arguments via apply."
     ((string= op-str "&&") (%js-lower-logical-and lhs rhs))
     ((string= op-str "??") (%js-lower-nullish-coalesce lhs rhs))
     ;; Negated equality — wrap in NOT
-    ((string= op-str "!==")
-     (make-ast-call :func (make-ast-var :name 'not)
-                    :args (list (%js-call '%js-strict-eq lhs rhs))))
-    ((string= op-str "!=")
-     (make-ast-call :func (make-ast-var :name 'not)
-                    :args (list (%js-call '%js-loose-eq lhs rhs))))
+    ((string= op-str "!==") (%js-not (%js-call '%js-strict-eq lhs rhs)))
+    ((string= op-str "!=")  (%js-not (%js-call '%js-loose-eq  lhs rhs)))
     ;; Runtime helpers — O(1) table lookup
     ((gethash op-str *js-binop-runtime-helpers*)
      (%js-call (gethash op-str *js-binop-runtime-helpers*) lhs rhs))
@@ -257,11 +254,11 @@ silently drift apart.")
                     (:truthy   (%js-call '%js-truthy lhs-var))
                     (:falsy    (%js-call '%js-truthy lhs-var))
                     (:non-null (%js-call '%js-not-nullish lhs-var))))
-         (setq    (make-ast-setq :var lhs-sym :value rhs)))
+         (setq-ast    (make-ast-setq :var lhs-sym :value rhs)))
     (ecase kind
-      (:truthy   (make-ast-if :cond test :then setq    :else lhs-var))
-      (:falsy    (make-ast-if :cond test :then lhs-var :else setq))
-      (:non-null (make-ast-if :cond test :then lhs-var :else setq)))))
+      (:truthy   (make-ast-if :cond test :then setq-ast    :else lhs-var))
+      (:falsy    (make-ast-if :cond test :then lhs-var :else setq-ast))
+      (:non-null (make-ast-if :cond test :then lhs-var :else setq-ast)))))
 
 (defun %js-compound-rhs (op-str lhs-var rhs)
   "Compute the rhs value for compound assignment op like +=, -=, etc."

@@ -7,11 +7,9 @@
 ;;;;
 ;;;; Load order: after parser-stmt.lisp (needs define-js-stmt-parser macro,
 ;;;; js-parse-block, js-parse-var-decl, *js-stmt-parsers*, loop-lowering helpers).
-
 (in-package :cl-cc/javascript)
 
 ;;; ─── Function Declaration Parsing ───────────────────────────────────────────
-
 (defun %js-parse-param-list (stream)
   "Parse (param, ...) parameter list.
   Returns (values params-list rest optionals rest-sym param-patterns), where
@@ -70,19 +68,16 @@ the rest of the body via %js-finish-let-bindings — without that the unbodied l
 fails to compile, the top-level handler-case drops the whole defun, and calls hit
 'Undefined function'.  Re-running the pass is idempotent: already-bodied lets in
 BODY-STMTS pass through unchanged."
-  (if (null param-patterns)
-      body-stmts
-      (%js-finish-let-bindings
-       (append
-        (mapcar (lambda (pp)
-                  (multiple-value-bind (bindings _extras)
-                      (%js-emit-destructure-bindings (cdr pp)
-                                                     (make-ast-var :name (car pp)))
-                    (declare (ignore _extras))
-                    (make-ast-let :bindings bindings :body nil
-                                  :declarations (list :let))))
-                param-patterns)
-        body-stmts))))
+  (if param-patterns (%js-finish-let-bindings
+      (append
+        (mapcar
+          (lambda (pp)
+            (multiple-value-bind (bindings _extras) (%js-emit-destructure-bindings (cdr pp) (make-ast-var :name (car pp)))
+              (declare (ignore _extras))
+              (make-ast-let :bindings bindings :body nil :declarations (list :let))))
+          param-patterns)
+        body-stmts))
+    body-stmts))
 
 (defun %js-split-params-by-defaults (params optionals)
   "Split PARAMS into (values required optional-entries). OPTIONALS is the
@@ -90,38 +85,65 @@ BODY-STMTS pass through unchanged."
 it — becomes an optional entry (sym default-ast nil); JS gives a missing argument
 `undefined', so a trailing parameter with no explicit default defaults to
 undefined. This keeps required params as the positional prefix."
-  (if (null optionals)
-      (values params nil)
-      (let ((first-opt (loop for p in params
-                             when (assoc p optionals :test #'eq) return p)))
-        (let ((required nil) (opts nil) (seen nil))
-          (dolist (p params)
-            (when (eq p first-opt) (setf seen t))
-            (if seen
-                (push (list p
-                            (or (cdr (assoc p optionals :test #'eq))
-                                (make-ast-quote :value cl-cc/javascript::+js-undefined+))
-                            nil)
-                      opts)
-                (push p required)))
-          (values (nreverse required) (nreverse opts))))))
+  (if optionals (let ((first-opt
+          (loop for p in params
+                when (assoc p optionals :test #'eq)
+                  return p)))
+      (let ((required nil)
+            (opts nil)
+            (seen nil))
+        (dolist (p params)
+          (when (eq p first-opt)
+            (setf seen t))
+          (if seen (push
+              (list
+                p
+                (or
+                  (cdr (assoc p optionals :test #'eq))
+                  (make-ast-quote :value cl-cc/javascript::+js-undefined+))
+                nil)
+              opts)
+            (push p required)))
+        (values (nreverse required) (nreverse opts))))
+    (values params nil)))
 
 (defun %js-rest-binding (rest-sym body-forms)
   "When REST-SYM is non-nil, return (values rest-param-sym wrapped-body): the AST
 rest-param is a fresh gensym collecting the trailing args as a CL list, and the
 body is wrapped in a let binding REST-SYM to that list converted to a JS array
 (JS rest parameters are arrays). Otherwise (values nil BODY-FORMS)."
-  (if rest-sym
-      (let ((raw (gensym "JS-REST-")))
-        (values raw
-                (list (make-ast-let
-                       :bindings (list (cons rest-sym
-                                             (make-ast-call
-                                              :func (make-ast-var
-                                                     :name 'cl-cc/javascript::%js-list-to-array)
-                                              :args (list (make-ast-var :name raw)))))
-                       :body body-forms))))
-      (values nil body-forms)))
+  (if rest-sym (let ((raw (gensym "JS-REST-")))
+      (values
+        raw
+        (list
+          (make-ast-let
+            :bindings
+            (list
+              (cons
+                rest-sym
+                (make-ast-call
+                  :func
+                  (make-ast-var :name 'cl-cc/javascript::%js-list-to-array)
+                  :args
+                  (list (make-ast-var :name raw)))))
+            :body
+            body-forms))))
+    (values nil body-forms)))
+
+(defun %js-wrap-callable-body (body-forms generator-p async-p)
+  "Wrap BODY-FORMS so calling the compiled defun returns the right runtime
+object for a generator or async function declaration — the parameters they
+close over are already bound by the outer defun, so the inner lambda takes
+none:
+  generator* f(n) { yield … }  ->  (%js-make-generator (lambda () ...))
+  async function f(…) { … }    ->  (%js-async (lambda () ...))
+A plain function returns BODY-FORMS unchanged."
+  (cond
+    (generator-p (list (%js-call '%js-make-generator
+                                  (make-ast-lambda :params nil :body body-forms))))
+    (async-p (list (%js-call '%js-async
+                              (make-ast-lambda :params nil :body body-forms))))
+    (t body-forms)))
 
 (defun js-parse-function-decl (stream &key async-p generator-p)
   "Parse function [*] name (params) { body }.
@@ -151,32 +173,16 @@ body is wrapped in a let binding REST-SYM to that list converted to a JS array
                 (%js-split-params-by-defaults params optionals)
               (multiple-value-bind (rest-param body-forms)
                   (%js-rest-binding rest-sym (%js-callable-body body-stmts))
-                ;; Generator/async function declarations: wrap body so calling the
-                ;; defun returns the right runtime object.  Parameters captured by
-                ;; closure so the zero-arg inner lambda sees them correctly.
-                ;;   generator* f(n) { yield … }  →  body = [(%js-make-generator (lambda () …))]
-                ;;   async function f(…) { … }     →  body = [(%js-async (lambda () …))]
-                (let ((wrapped-body
-                       (cond
-                         (generator-p
-                          (list (%js-call '%js-make-generator
-                                         (make-ast-lambda :params nil
-                                                          :body body-forms))))
-                         (async-p
-                          (list (%js-call '%js-async
-                                         (make-ast-lambda :params nil
-                                                          :body body-forms))))
-                         (t body-forms))))
-                  (values (make-ast-defun :name (or fn-name (gensym "JS-FN-"))
-                                          :params required
-                                          :optional-params opts
-                                          :rest-param rest-param
-                                          :declarations (nreverse decls)
-                                          :body wrapped-body)
-                          rest2))))))))))
+                (values (make-ast-defun
+                         :name (or fn-name (gensym "JS-FN-"))
+                         :params required
+                         :optional-params opts
+                         :rest-param rest-param
+                         :declarations (nreverse decls)
+                         :body (%js-wrap-callable-body body-forms generator-p async-p))
+                        rest2)))))))))
 
 ;;; ─── If Statement ────────────────────────────────────────────────────────────
-
 (defun %js-parse-if-tail (stream)
   "Parse the then-branch and optional else/else-if tail.
   Returns (values then-ast rest else-ast)."
@@ -210,44 +216,34 @@ body is wrapped in a let binding REST-SYM to that list converted to a JS array
     (multiple-value-bind (cond-expr rest2) (js-parse-expr rest)
       (setf rest2 (%js-consume-expected :T-RPAREN rest2))
       (multiple-value-bind (then-ast rest3 else-ast) (%js-parse-if-tail rest2)
-        (values (make-ast-if :cond (%js-truthy-call cond-expr)
-                             :then then-ast
-                             :else else-ast)
-                rest3)))))
+        (values
+          (make-ast-if :cond (%js-truthy-call cond-expr) :then then-ast :else else-ast)
+          rest3)))))
 
 ;;; ─── While Statement ─────────────────────────────────────────────────────────
-
 (defun js-parse-while-stmt (stream)
   "Parse while (cond) stmt. Returns (values ast rest)."
   (let ((rest (%js-consume-expected :T-LPAREN stream)))
     (multiple-value-bind (cond-expr rest2) (js-parse-expr rest)
       (setf rest2 (%js-consume-expected :T-RPAREN rest2))
-      (let* ((loop-tag (gensym "WHILE-"))
-             (end-tag  (gensym "WHILE-END-"))
-             (*js-loop-continue-target* loop-tag)
-             (*js-loop-break-target*    end-tag)
-             (*js-break-targets*    (cons end-tag  *js-break-targets*))
-             (*js-continue-targets* (cons loop-tag *js-continue-targets*)))
+      (with-js-loop-tags
+        (loop-tag end-tag "WHILE")
         (multiple-value-bind (body-ast rest3) (%js-parse-stmt-body rest2)
-          (let ((body-stmts (if (ast-progn-p body-ast)
-                                (ast-progn-forms body-ast)
-                                (list body-ast))))
-            (values (%js-lower-while-with-tags
-                     (%js-truthy-call cond-expr)
-                     body-stmts
-                     loop-tag end-tag)
-                    rest3)))))))
+          (let ((body-stmts
+                (if (ast-progn-p body-ast) (ast-progn-forms body-ast)
+                  (list body-ast))))
+            (values
+              (%js-lower-while-with-tags
+                (%js-truthy-call cond-expr)
+                body-stmts
+                loop-tag
+                end-tag)
+              rest3)))))))
 
 ;;; ─── Do-While Statement ──────────────────────────────────────────────────────
-
 (defun js-parse-do-while-stmt (stream)
   "Parse do stmt while (cond);. Returns (values ast rest)."
-  (let* ((loop-tag (gensym "DO-WHILE-"))
-         (end-tag  (gensym "DO-WHILE-END-"))
-         (*js-loop-continue-target* loop-tag)
-         (*js-loop-break-target*    end-tag)
-         (*js-break-targets*    (cons end-tag  *js-break-targets*))
-         (*js-continue-targets* (cons loop-tag *js-continue-targets*)))
+  (with-js-loop-tags (loop-tag end-tag "DO-WHILE")
     (multiple-value-bind (body-ast rest) (%js-parse-stmt-body stream)
       (unless (eq (js-peek-type rest) :T-WHILE)
         (error "JS parse error: expected 'while' after do-body, got ~S" (js-peek rest)))

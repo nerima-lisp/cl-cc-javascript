@@ -3,12 +3,10 @@
 ;;;; Extracted from parser-stmt.lisp to isolate the binding/destructuring machinery.
 ;;;; Loaded before parser-stmt.lisp so these helpers are available to all subsequent
 ;;;; parser files (parser-stmt, parser-stmt-control, etc.).
-
 (in-package :cl-cc/javascript)
 
 ;;; ─── Token Stream Helpers (needed by binding parsers) ────────────────────────
 ;;; js-peek*, js-consume, js-expect, js-at-eof-p are in parser.lisp (loads first).
-
 (defun %js-consume-expected (type stream)
   "Like js-expect but returns only the rest stream (discards the token)."
   (nth-value 1 (js-expect type stream)))
@@ -20,7 +18,6 @@
   stream)
 
 ;;; ─── Variable / Binding Pattern Helpers ─────────────────────────────────────
-
 (defun %js-binding-sym (name)
   "Intern a JS binding name (param, let/const/var, destructured name) as a symbol
 in :cl-cc/javascript — using the SAME scheme as js-ident-sym so a binding and its
@@ -35,33 +32,36 @@ symbols, so the prefix was redundant as well as desynchronized.
 
 Preserves CASE — must use the IDENTICAL scheme as js-ident-sym (JavaScript is
 case-sensitive), so a binding and its references resolve to the same symbol."
-  (intern (if (stringp name) name (symbol-name name))
-          :cl-cc/javascript))
+  (intern
+    (if (stringp name) name
+      (symbol-name name))
+    :cl-cc/javascript))
 
 (defun %js-parse-pattern-default (stream)
   "If STREAM begins with `= expr`, consume it and return (values default-ast rest);
 otherwise return (values nil stream). Used for destructuring defaults like
 [a = 1] and {a = 1}."
-  (if (and stream
-           (eq (js-peek-type stream) :T-OP)
-           (equal (js-peek-value stream) "="))
-      (multiple-value-bind (_tok rest) (js-consume stream)
-        (declare (ignore _tok))
-        (js-parse-assignment-expr rest))
-      (values nil stream)))
+  (if (and stream (eq (js-peek-type stream) :T-OP) (equal (js-peek-value stream) "=")) (multiple-value-bind (_tok rest) (js-consume stream)
+      (declare (ignore _tok))
+      (js-parse-assignment-expr rest))
+    (values nil stream)))
 
 (defun %js-default-access (access-expr default-ast)
   "Wrap ACCESS-EXPR so it yields DEFAULT-AST when the access is undefined,
 matching JS destructuring-default semantics. Returns ACCESS-EXPR unchanged when
 DEFAULT-AST is nil."
-  (if default-ast
-      (make-ast-if
-       :cond (make-ast-call
-              :func (make-ast-var :name '%js-strict-eq)
-              :args (list access-expr (make-ast-quote :value :js-undefined)))
-       :then default-ast
-       :else access-expr)
-      access-expr))
+  (if default-ast (make-ast-if
+      :cond
+      (make-ast-call
+        :func
+        (make-ast-var :name '%js-strict-eq)
+        :args
+        (list access-expr (make-ast-quote :value :js-undefined)))
+      :then
+      default-ast
+      :else
+      access-expr)
+    access-expr))
 
 (defun %js-parse-object-binding-pattern (stream)
   "Parse {a, b: c, ...rest} destructuring pattern. STREAM points past '{'.
@@ -165,9 +165,8 @@ Returns (values (:array-pattern tmp elements) rest)."
 
 (defun %js-binding-to-sym (binding-or-sym)
   "Extract the primary gensym from a binding pattern or plain symbol."
-  (if (listp binding-or-sym)
-      (second binding-or-sym)
-      binding-or-sym))
+  (if (listp binding-or-sym) (second binding-or-sym)
+    binding-or-sym))
 
 (defun %js-destructure-sub-bindings (target access-expr)
   "Return an ORDERED list of (sym . init) bindings for a destructuring sub-TARGET
@@ -176,113 +175,120 @@ initialized from ACCESS-EXPR.  When TARGET is itself a nested array/object patte
 are bound too; a plain symbol yields a single binding.  Recursion is what makes
 nested destructuring work — previously the nested pattern's gensym was bound but
 never unpacked, so b/c stayed undefined and the binding form failed to compile."
-  (if (and (listp target)
-           (member (first target) '(:array-pattern :object-pattern)))
-      (multiple-value-bind (b _e) (%js-emit-destructure-bindings target access-expr)
-        (declare (ignore _e))
-        b)
-      (list (cons (%js-binding-to-sym target) access-expr))))
+  (if (and (listp target) (member (first target) '(:array-pattern :object-pattern))) (multiple-value-bind (b _e) (%js-emit-destructure-bindings target access-expr)
+      (declare (ignore _e))
+      b)
+    (list (cons (%js-binding-to-sym target) access-expr))))
+
+(defun %js-emit-rest-property-binding (rest-sym tmp consumed-keys)
+  "The single (sym . init-expr) binding for an object pattern's ...rest
+property: (%js-destructure-object TMP :rest KEY1 KEY2 ...), passing the
+already-bound keys so they're excluded from the rest object. Object-pattern
+rest is syntactically last, so CONSUMED-KEYS is always complete by the time
+this runs."
+  (cons rest-sym
+        (make-ast-call
+         :func (make-ast-var :name '%js-destructure-object)
+         :args (list* (make-ast-var :name tmp)
+                      (make-ast-quote :value :rest)
+                      (mapcar (lambda (k) (make-ast-quote :value k))
+                              (reverse consumed-keys))))))
+
+(defun %js-emit-named-property-bindings (field tmp)
+  "The bindings alist for one named object-pattern property FIELD — (key
+local default). LOCAL may itself be a nested pattern, so this recurses via
+%js-destructure-sub-bindings."
+  (let* ((key    (first field))
+         (local  (second field))
+         (dflt   (third field))
+         (access (%js-default-access
+                  (make-ast-call
+                   :func (make-ast-var :name '%js-get-prop)
+                   :args (list (make-ast-var :name tmp)
+                               (make-ast-quote :value key)))
+                  dflt)))
+    (%js-destructure-sub-bindings local access)))
 
 (defun %js-emit-object-pattern-bindings (tmp desc init-expr)
   "Emit bindings for an :object-pattern with temp symbol TMP and field
 descriptor list DESC (as produced by %js-parse-object-binding-pattern),
 initialized from INIT-EXPR. Returns a bindings alist ((sym . init-expr) ...)
 in let* order."
-  ;; tmp = init-expr, then destructure fields
-  (let ((bindings (list (cons tmp init-expr)))
-        (consumed-keys nil))
-    (dolist (field desc)
-      (if (eq (car field) :rest)
-          ;; rest property: emit (%js-destructure-object tmp :rest k1 k2 …)
-          ;; passing the already-bound keys so they're excluded from the
-          ;; rest object.  Rest is syntactically last, so consumed-keys is
-          ;; complete here.
-          (setf bindings
-                (append bindings
-                        (list (cons (second field)
-                                    (make-ast-call
-                                     :func (make-ast-var :name '%js-destructure-object)
-                                     :args (list* (make-ast-var :name tmp)
-                                                  (make-ast-quote :value :rest)
-                                                  (mapcar (lambda (k)
-                                                            (make-ast-quote :value k))
-                                                          (reverse consumed-keys))))))))
-          ;; named property, with optional default ((key local default)).
-          ;; LOCAL may itself be a nested pattern — recurse via sub-bindings.
-          (let* ((key    (first field))
-                 (local  (second field))
-                 (dflt   (third field))
-                 (access (%js-default-access
-                          (make-ast-call
-                           :func (make-ast-var :name '%js-get-prop)
-                           :args (list (make-ast-var :name tmp)
-                                       (make-ast-quote :value key)))
-                          dflt)))
-            (push key consumed-keys)
-            (setf bindings
-                  (append bindings
-                          (%js-destructure-sub-bindings local access))))))
-    bindings))
+  ;; tmp = init-expr, then destructure fields. LOOP's NCONC clause splices
+  ;; each field's fresh bindings list onto the accumulated tail in O(1), so
+  ;; the whole walk stays O(n) in the number of bindings emitted rather than
+  ;; the O(n^2) a repeated (setf bindings (append bindings ...)) costs.
+  (let ((consumed-keys nil))
+    (cons (cons tmp init-expr)
+          (loop for field in desc
+                nconc (if (eq (car field) :rest)
+                          (list (%js-emit-rest-property-binding (second field) tmp consumed-keys))
+                          (progn
+                            (push (first field) consumed-keys)
+                            (%js-emit-named-property-bindings field tmp)))))))
+
+(defun %js-emit-array-rest-binding (rest-sym tmp idx)
+  "The single (sym . init-expr) binding for an array pattern's ...rest
+element: (%js-destructure-array TMP IDX :rest)."
+  (cons rest-sym
+        (make-ast-call
+         :func (make-ast-var :name '%js-destructure-array)
+         :args (list (make-ast-var :name tmp)
+                     (make-ast-quote :value idx)
+                     (make-ast-quote :value :rest)))))
+
+(defun %js-emit-array-element-bindings (target tmp idx default)
+  "The bindings alist for one array-pattern element at IDX — TARGET may
+itself be a nested pattern. DEFAULT is the :default form's default-ast, or
+nil for a plain element; %js-default-access returns its access-expr
+unchanged when DEFAULT is nil, so this one path covers both cases."
+  (let ((access (%js-default-access
+                 (make-ast-call
+                  :func (make-ast-var :name '%js-get-prop)
+                  :args (list (make-ast-var :name tmp)
+                              (make-ast-quote :value idx)))
+                 default)))
+    (%js-destructure-sub-bindings target access)))
 
 (defun %js-emit-array-pattern-bindings (tmp desc init-expr)
   "Emit bindings for an :array-pattern with temp symbol TMP and element
 descriptor list DESC (as produced by %js-parse-array-binding-pattern),
 initialized from INIT-EXPR. Returns a bindings alist ((sym . init-expr) ...)
 in let* order."
-  ;; tmp = init-expr, then destructure by index
-  (let ((bindings (list (cons tmp init-expr)))
-        (idx 0))
-    (dolist (elem desc)
-      (cond
-        ((eq elem :hole)
-         (incf idx))
-        ((and (listp elem) (eq (car elem) :rest))
-         (setf bindings
-               (append bindings
-                       (list (cons (second elem)
-                                   (make-ast-call
-                                    :func (make-ast-var :name '%js-destructure-array)
-                                    :args (list (make-ast-var :name tmp)
-                                                (make-ast-quote :value idx)
-                                                (make-ast-quote :value :rest))))))))
-        ;; element with default: (:default target default-ast) — TARGET may
-        ;; be a nested pattern.
-        ((and (listp elem) (eq (car elem) :default))
-         (let ((access (%js-default-access
-                        (make-ast-call
-                         :func (make-ast-var :name '%js-get-prop)
-                         :args (list (make-ast-var :name tmp)
-                                     (make-ast-quote :value idx)))
-                        (third elem))))
-           (setf bindings
-                 (append bindings
-                         (%js-destructure-sub-bindings (second elem) access))))
-         (incf idx))
-        ;; plain element — may itself be a nested pattern.
-        (t
-         (let ((access (make-ast-call
-                        :func (make-ast-var :name '%js-get-prop)
-                        :args (list (make-ast-var :name tmp)
-                                    (make-ast-quote :value idx)))))
-           (setf bindings
-                 (append bindings
-                         (%js-destructure-sub-bindings elem access))))
-         (incf idx))))
-    bindings))
+  ;; tmp = init-expr, then destructure by index. See
+  ;; %js-emit-object-pattern-bindings for why NCONC replaces repeated APPEND.
+  (let ((idx 0))
+    (cons (cons tmp init-expr)
+          (loop for elem in desc
+                nconc (cond
+                        ((eq elem :hole)
+                         (incf idx)
+                         nil)
+                        ((and (listp elem) (eq (car elem) :rest))
+                         (list (%js-emit-array-rest-binding (second elem) tmp idx)))
+                        ;; element with default: (:default target default-ast) — TARGET may
+                        ;; be a nested pattern.
+                        ((and (listp elem) (eq (car elem) :default))
+                         (prog1 (%js-emit-array-element-bindings (second elem) tmp idx (third elem))
+                           (incf idx)))
+                        ;; plain element — may itself be a nested pattern.
+                        (t
+                         (prog1 (%js-emit-array-element-bindings elem tmp idx nil)
+                           (incf idx))))))))
 
 (defun %js-emit-destructure-bindings (binding init-expr)
   "Emit let bindings for a destructuring BINDING initialized from INIT-EXPR.
   Returns (values bindings-alist extra-lets) where bindings-alist is
   ((sym . init-expr) ...) in let* order and extra-lets is unused (nil).
-  Bindings are accumulated with APPEND to preserve order: a nested pattern's
-  gensym must be bound before the bindings that read from it."
-  (if (not (listp binding))
-      ;; Simple symbol
-      (values (list (cons binding init-expr)) nil)
-      (let ((kind (first binding))
-            (tmp  (second binding))
-            (desc (third binding)))
-        (case kind
-          (:object-pattern (values (%js-emit-object-pattern-bindings tmp desc init-expr) nil))
-          (:array-pattern  (values (%js-emit-array-pattern-bindings tmp desc init-expr) nil))
-          (t (values (list (cons binding init-expr)) nil))))))
+  Order is preserved throughout: a nested pattern's gensym must be bound
+  before the bindings that read from it."
+  (if (listp binding) (let ((kind (first binding))
+          (tmp (second binding))
+          (desc (third binding)))
+      (case kind
+        (:object-pattern
+          (values (%js-emit-object-pattern-bindings tmp desc init-expr) nil))
+        (:array-pattern
+          (values (%js-emit-array-pattern-bindings tmp desc init-expr) nil))
+        (t (values (list (cons binding init-expr)) nil))))
+    (values (list (cons binding init-expr)) nil)))

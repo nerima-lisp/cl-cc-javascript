@@ -7,12 +7,13 @@
 ;;;; Matches the same style as the PHP parser infrastructure.
 ;;;;
 ;;;; Entry points:
-;;;;   parse-js-source source &key strict-mode module-p → list of AST nodes
-;;;;   parse-js-module  source                          → list of AST nodes
+;;;;   parse-js-source source → list of AST nodes
+;;;;   parse-js-module  source → list of AST nodes
 ;;;;
 ;;;; Recursive statement / expression parsers live in parser-stmt.lisp,
-;;;; parser-expr.lisp, parser-class.lisp, parser-module.lisp, and
-;;;; parser-pattern.lisp.
+;;;; parser-expr.lisp, parser-class.lisp, and parser-module.lisp. Binding-
+;;;; pattern parsing lives in parser-stmt-binding.lisp
+;;;; (%js-parse-binding-pattern and friends).
 
 (in-package :cl-cc/javascript)
 
@@ -40,6 +41,15 @@
   "Return the :value of the first token in STREAM, or NIL if STREAM is empty."
   (when stream (getf (car stream) :value)))
 
+(defun js-at-op-p (stream op)
+  "True when the first token in STREAM is the operator token spelled OP.
+
+An operator is two facts about one token — type :T-OP and a particular
+spelling — and every caller that cares needs both, so testing them separately
+is a conjunction repeated at each site rather than one question asked once."
+  (and (eq (js-peek-type stream) :T-OP)
+       (string= (js-peek-value stream) op)))
+
 (defun js-consume (stream)
   "Return (values first-token rest-of-stream). Does not error on empty stream."
   (values (car stream) (cdr stream)))
@@ -59,31 +69,6 @@ Returns (values token rest-stream). Signals an error on mismatch."
 (defun js-at-eof-p (stream)
   "Return T when STREAM is exhausted or its first token is :T-EOF."
   (or (null stream) (eq (js-peek-type stream) :T-EOF)))
-
-(defun js-try-consume (type stream &optional value)
-  "Consume a token of TYPE (optionally matching VALUE) if present.
-Returns (values token rest-stream) on match, or (values NIL stream) on mismatch."
-  (if (and stream
-           (eq (js-peek-type stream) type)
-           (or (null value) (equal (js-peek-value stream) value)))
-      (js-consume stream)
-      (values nil stream)))
-
-(defun js-skip-semi (stream)
-  "Consume a semicolon token if present (simplified ASI).
-Returns the remaining stream with or without the semicolon consumed."
-  (if (and stream (eq (js-peek-type stream) :T-SEMI))
-      (cdr stream)
-      stream))
-
-;;; ─── Parser Context Variables ───────────────────────────────────────────────
-
-(defvar *js-strict-mode* nil
-  "Non-NIL when the current parse context is strict-mode JavaScript.
-Automatically set to T in module mode and when a 'use strict' directive is seen.")
-
-(defvar *js-module-mode* nil
-  "Non-NIL when parsing an ES module (enables import/export, implies strict mode).")
 
 ;;; ─── Recursion Depth Guard ───────────────────────────────────────────────────
 ;;; The expression and statement parsers are mutually recursive with no inherent
@@ -134,21 +119,20 @@ parser-class.lisp copy."
 ;;; The actual statement-parsing work is delegated to %js-parse-all-stmts,
 ;;; which is implemented in parser-stmt.lisp (loaded after this file).
 
-(defun parse-js-source (source &key strict-mode module-p)
-  "Parse a JavaScript SOURCE string and return a list of top-level AST nodes.
-STRICT-MODE enables strict-mode validation.
-MODULE-P treats the source as an ES module (implies strict mode)."
-  (let ((*js-strict-mode* (or strict-mode module-p))
-        (*js-module-mode* module-p))
-    (let ((tokens (tokenize-js-source source)))
-      (multiple-value-bind (stmts rest) (%js-parse-all-stmts tokens)
-        (declare (ignore rest))
-        stmts))))
+(defun parse-js-source (source)
+  "Parse a JavaScript SOURCE string and return a list of top-level AST nodes."
+  (let ((tokens (tokenize-js-source source)))
+    (multiple-value-bind (stmts rest) (%js-parse-all-stmts tokens)
+      (declare (ignore rest))
+      stmts)))
 
 (defun parse-js-module (source)
-  "Parse a JavaScript ES module SOURCE string.
-Equivalent to (parse-js-source source :strict-mode t :module-p t)."
-  (parse-js-source source :strict-mode t :module-p t))
+  "Parse a JavaScript ES module SOURCE string. Identical to PARSE-JS-SOURCE
+today — import/export syntax already parses unconditionally — but kept as
+its own named entry point for callers who mean \"this is a module\", ahead
+of any future module-only validation (top-level await restrictions, strict
+mode, duplicate export detection) that would only apply through this name."
+  (parse-js-source source))
 
 (defun %js-finish-let-bindings (stmts)
   "Nest each empty-bodied ast-let (from `let'/`const'/`var x = …') around the

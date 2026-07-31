@@ -11,163 +11,53 @@
 
 ;;; Operator lexer
 
-(defparameter *%js-single-char-punctuator-tokens*
-  '((#\( :T-LPAREN   . "(")
-    (#\) :T-RPAREN   . ")")
-    (#\{ :T-LBRACE   . "{")
-    (#\} :T-RBRACE   . "}")
-    (#\[ :T-LBRACKET . "[")
-    (#\] :T-RBRACKET . "]")
-    (#\; :T-SEMI     . ";")
-    (#\, :T-COMMA    . ",")
-    (#\@ :T-AT       . "@")
-    (#\~ :T-OP       . "~")
-    (#\: :T-COLON    . ":"))
-  "JS punctuators with no multi-character extension — every other operator
-character (. ? = ! < > + - * / % &amp; | ^) starts a case arm of its own in
-LEX-JS-OPERATOR because at least one longer operator begins with it.
-Entry shape: (char token-type . token-value).")
+(define-builder-table *js-operator-tokens*
+    (:documentation
+     "Every JS operator and punctuator spelling mapped to its token type.  A
+token's value is always its own spelling, so the spelling is the only key
+needed.  LEX-JS-OPERATOR consults this by maximal munch, which is why the
+table needs no ordering: the longest spelling that matches the source wins.")
+  ;; 4 characters
+  (">>>=" :T-OP)
+  ;; 3 characters
+  ("..." :T-ELLIPSIS)
+  ("??=" :T-OP)  ("===" :T-OP)  ("!==" :T-OP)  ("<<=" :T-OP)
+  (">>>" :T-OP)  (">>=" :T-OP)  ("**=" :T-OP)  ("&&=" :T-OP)  ("||=" :T-OP)
+  ;; 2 characters
+  ("=>" :T-ARROW)
+  ("?." :T-OP)  ("??" :T-OP)  ("==" :T-OP)  ("!=" :T-OP)
+  ("<<" :T-OP)  ("<=" :T-OP)  (">>" :T-OP)  (">=" :T-OP)
+  ("++" :T-OP)  ("+=" :T-OP)  ("--" :T-OP)  ("-=" :T-OP)
+  ("**" :T-OP)  ("*=" :T-OP)  ("/=" :T-OP)  ("%=" :T-OP)
+  ("&&" :T-OP)  ("&=" :T-OP)  ("||" :T-OP)  ("|=" :T-OP)  ("^=" :T-OP)
+  ;; 1 character — operators
+  ("." :T-DOT)  ("?" :T-QUESTION)
+  ("=" :T-OP)  ("!" :T-OP)  ("<" :T-OP)  (">" :T-OP)
+  ("+" :T-OP)  ("-" :T-OP)  ("*" :T-OP)  ("/" :T-OP)  ("%" :T-OP)
+  ("&" :T-OP)  ("|" :T-OP)  ("^" :T-OP)  ("~" :T-OP)
+  ;; 1 character — punctuators with no multi-character extension
+  ("(" :T-LPAREN)    (")" :T-RPAREN)
+  ("{" :T-LBRACE)    ("}" :T-RBRACE)
+  ("[" :T-LBRACKET)  ("]" :T-RBRACKET)
+  (";" :T-SEMI)      ("," :T-COMMA)
+  ("@" :T-AT)        (":" :T-COLON))
+
+(defconstant +js-max-operator-length+ 4
+  "Length of the longest entry in *js-operator-tokens* (`>>>='), and so the
+number of characters LEX-JS-OPERATOR's maximal munch starts from.")
 
 (defun lex-js-operator (source pos)
-  "Lex an operator or punctuation token at POS.
-Handles all multi-character JS operators.
+  "Lex an operator or punctuation token at POS by maximal munch: try the
+longest spelling in *js-operator-tokens* that fits, then shorter ones.
 Returns (values token new-pos)."
-  (let ((ch  (char source pos))
-        (ch2 (%js-lex-peek-char2 source pos))
-        (ch3 (when (< (+ pos 2) (length source)) (char source (+ pos 2)))))
-    (macrolet ((tok3 (str type val)
-                 `(when (and ch2 ch3
-                             (char= ch2 ,(char str 1))
-                             (char= ch3 ,(char str 2)))
-                    (return-from lex-js-operator
-                      (values (make-js-token ,type ,val) (+ pos 3)))))
-               (tok2 (str type val)
-                 `(when (and ch2 (char= ch2 ,(char str 1)))
-                    (return-from lex-js-operator
-                      (values (make-js-token ,type ,val) (+ pos 2)))))
-               (tok1 (type val)
-                 `(return-from lex-js-operator
-                    (values (make-js-token ,type ,val) (1+ pos)))))
-      (case ch
-        (#\.
-         ;; ... ellipsis
-         (when (and ch2 ch3 (char= ch2 #\.) (char= ch3 #\.))
-           (return-from lex-js-operator
-             (values (make-js-token :T-ELLIPSIS "...") (+ pos 3))))
-         (tok1 :T-DOT "."))
-        (#\?
-         ;; ??= null-coalescing assignment
-         (when (and ch2 ch3 (char= ch2 #\?) (char= ch3 #\=))
-           (return-from lex-js-operator
-             (values (make-js-token :T-OP "??=") (+ pos 3))))
-         ;; ?. optional chaining
-         (tok2 "?." :T-OP "?.")
-         ;; ?? null-coalescing
-         (tok2 "??" :T-OP "??")
-         (tok1 :T-QUESTION "?"))
-        (#\=
-         ;; === strict equality
-         (tok3 "===" :T-OP "===")
-         ;; => arrow
-         (tok2 "=>" :T-ARROW "=>")
-         ;; == equality
-         (tok2 "==" :T-OP "==")
-         (tok1 :T-OP "="))
-        (#\!
-         ;; !==
-         (tok3 "!==" :T-OP "!==")
-         ;; !=
-         (tok2 "!=" :T-OP "!=")
-         (tok1 :T-OP "!"))
-        (#\<
-         ;; <<=
-         (when (and ch2 ch3 (char= ch2 #\<) (char= ch3 #\=))
-           (return-from lex-js-operator
-             (values (make-js-token :T-OP "<<=") (+ pos 3))))
-         ;; <<
-         (tok2 "<<" :T-OP "<<")
-         ;; <=
-         (tok2 "<=" :T-OP "<=")
-         (tok1 :T-OP "<"))
-        (#\>
-         ;; >>>= unsigned right-shift assign
-         (let ((ch4 (when (< (+ pos 3) (length source)) (char source (+ pos 3)))))
-           (when (and ch2 ch3 ch4
-                      (char= ch2 #\>) (char= ch3 #\>) (char= ch4 #\=))
-             (return-from lex-js-operator
-               (values (make-js-token :T-OP ">>>=") (+ pos 4)))))
-         ;; >>>
-         (when (and ch2 ch3 (char= ch2 #\>) (char= ch3 #\>))
-           (return-from lex-js-operator
-             (values (make-js-token :T-OP ">>>") (+ pos 3))))
-         ;; >>=
-         (when (and ch2 ch3 (char= ch2 #\>) (char= ch3 #\=))
-           (return-from lex-js-operator
-             (values (make-js-token :T-OP ">>=") (+ pos 3))))
-         ;; >>
-         (tok2 ">>" :T-OP ">>")
-         ;; >=
-         (tok2 ">=" :T-OP ">=")
-         (tok1 :T-OP ">"))
-        (#\+
-         ;; ++
-         (tok2 "++" :T-OP "++")
-         ;; +=
-         (tok2 "+=" :T-OP "+=")
-         (tok1 :T-OP "+"))
-        (#\-
-         ;; --
-         (tok2 "--" :T-OP "--")
-         ;; -=
-         (tok2 "-=" :T-OP "-=")
-         (tok1 :T-OP "-"))
-        (#\*
-         ;; **= exponent assign
-         (when (and ch2 ch3 (char= ch2 #\*) (char= ch3 #\=))
-           (return-from lex-js-operator
-             (values (make-js-token :T-OP "**=") (+ pos 3))))
-         ;; **
-         (tok2 "**" :T-OP "**")
-         ;; *=
-         (tok2 "*=" :T-OP "*=")
-         (tok1 :T-OP "*"))
-        (#\/
-         ;; /=
-         (tok2 "/=" :T-OP "/=")
-         (tok1 :T-OP "/"))
-        (#\%
-         ;; %=
-         (tok2 "%=" :T-OP "%=")
-         (tok1 :T-OP "%"))
-        (#\&
-         ;; &&=
-         (when (and ch2 ch3 (char= ch2 #\&) (char= ch3 #\=))
-           (return-from lex-js-operator
-             (values (make-js-token :T-OP "&&=") (+ pos 3))))
-         ;; &&
-         (tok2 "&&" :T-OP "&&")
-         ;; &=
-         (tok2 "&=" :T-OP "&=")
-         (tok1 :T-OP "&"))
-        (#\|
-         ;; ||=
-         (when (and ch2 ch3 (char= ch2 #\|) (char= ch3 #\=))
-           (return-from lex-js-operator
-             (values (make-js-token :T-OP "||=") (+ pos 3))))
-         ;; ||
-         (tok2 "||" :T-OP "||")
-         ;; |=
-         (tok2 "|=" :T-OP "|=")
-         (tok1 :T-OP "|"))
-        (#\^
-         ;; ^=
-         (tok2 "^=" :T-OP "^=")
-         (tok1 :T-OP "^"))
-        (otherwise
-         (let ((entry (assoc ch *%js-single-char-punctuator-tokens*)))
-           (if entry
-               (tok1 (cadr entry) (cddr entry))
-               (error "JS lex error: unexpected character ~S at position ~D" ch pos))))))))
+  (loop with limit = (min +js-max-operator-length+ (- (length source) pos))
+        for n from limit downto 1
+        for spelling = (subseq source pos (+ pos n))
+        for type = (gethash spelling *js-operator-tokens*)
+        when type
+          do (return (values (make-js-token type spelling) (+ pos n)))
+        finally (error "JS lex error: unexpected character ~S at position ~D"
+                       (char source pos) pos)))
 
 ;;; Main tokenizer
 

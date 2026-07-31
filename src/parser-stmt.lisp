@@ -35,7 +35,27 @@
 (defvar *js-label-continue-targets* (make-hash-table :test #'equal)
   "Maps JS label name strings to their continue target tags (for labeled continue).")
 
-;;; *js-strict-mode* and *js-module-mode* are defined in parser.lisp (loaded first).
+(defmacro with-js-loop-tags ((loop-tag end-tag prefix) &body body)
+  "Establish the loop-context protocol around BODY for one JS loop form.
+
+Binds LOOP-TAG and END-TAG to fresh gensyms named \"PREFIX-\" and
+\"PREFIX-END-\", then rebinds all four loop-control specials from them: the two
+innermost-target variables and the two target stacks.  Every loop parser
+(while, do-while, for, for-in, for-of) needs exactly this block, and each used
+to spell it out; keeping it in one place means a change to the protocol — a new
+special, a different stack discipline — cannot be applied to some loops and
+forgotten in others. PREFIX may be a literal string or any form evaluating to
+one at runtime — it only ever names a gensym for trace readability, so it is
+concatenated at runtime rather than required to be a macroexpansion-time
+constant, letting one caller share this macro across a family of loops that
+picks its own prefix per call (see %js-parse-for-in-of-stmt)."
+  `(let* ((,loop-tag (gensym (concatenate 'string ,prefix "-")))
+          (,end-tag  (gensym (concatenate 'string ,prefix "-END-")))
+          (*js-loop-continue-target* ,loop-tag)
+          (*js-loop-break-target*    ,end-tag)
+          (*js-break-targets*    (cons ,end-tag  *js-break-targets*))
+          (*js-continue-targets* (cons ,loop-tag *js-continue-targets*)))
+     ,@body))
 
 ;;; ─── Statement Dispatcher Table ──────────────────────────────────────────────
 ;;;
@@ -171,7 +191,11 @@
   Handles: x, x = expr, {a,b}=obj, [a,b]=arr, and comma-separated lists.
   Returns (values ast rest)."
   (let ((current stream)
-        (all-bindings nil))
+        ;; Each declarator's bindings list is pushed here whole and flattened
+        ;; once after the loop, instead of repeated (setf all-bindings
+        ;; (append all-bindings bindings)) — quadratic in the number of
+        ;; comma-separated declarators.
+        (binding-chunks nil))
     (loop
       ;; Parse one declarator
       (multiple-value-bind (binding rest) (%js-parse-binding-pattern current)
@@ -195,21 +219,22 @@
           (multiple-value-bind (bindings _extras)
               (%js-emit-destructure-bindings binding init-expr)
             (declare (ignore _extras))
-            (setf all-bindings (append all-bindings bindings)))))
+            (push bindings binding-chunks))))
       ;; More declarators?
       (if (and current (eq (js-peek-type current) :T-COMMA))
           (setf current (cdr current))
           (return)))
     (setf current (js-skip-semis current))
-    ;; A single empty-bodied let carrying all bindings. ast-let binds in PARALLEL,
-    ;; but JS declarations are sequential (let*) — `let a = 1, b = a + 1' and
-    ;; destructuring (a = tmp[0] must see tmp = init) both depend on it. The
-    ;; block-finishing pass %js-finish-let-bindings expands a multi-binding
-    ;; empty-bodied let into nested single-binding lets, giving that sequential
-    ;; scoping (and scoping the bindings over the rest of the block).
-    (values (make-ast-let :bindings all-bindings :body nil
-                          :declarations (list kind))
-            current)))
+    (let ((all-bindings (apply #'append (nreverse binding-chunks))))
+      ;; A single empty-bodied let carrying all bindings. ast-let binds in PARALLEL,
+      ;; but JS declarations are sequential (let*) — `let a = 1, b = a + 1' and
+      ;; destructuring (a = tmp[0] must see tmp = init) both depend on it. The
+      ;; block-finishing pass %js-finish-let-bindings expands a multi-binding
+      ;; empty-bodied let into nested single-binding lets, giving that sequential
+      ;; scoping (and scoping the bindings over the rest of the block).
+      (values (make-ast-let :bindings all-bindings :body nil
+                            :declarations (list kind))
+              current))))
 
 
 ;;; Function declaration + if/while/do-while parsers -> see parser-stmt-fn.lisp

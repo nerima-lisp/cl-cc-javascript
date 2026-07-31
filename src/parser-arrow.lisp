@@ -11,11 +11,9 @@
 ;;;; Load order: after parser-expr-args.lisp and parser-expr-primary.lisp
 ;;;; (CL resolves calls at runtime, so the forward-reference from
 ;;;; js-parse-primary to these helpers is fine).
-
 (in-package :cl-cc/javascript)
 
 ;;; ─── Parenthesized Expression / Arrow Function ───────────────────────────────
-
 (defun %js-call-callee-name (ast)
   "If AST is (ast-call (ast-var NAME) …), return NAME; else NIL."
   (when (and (ast-call-p ast) (ast-var-p (ast-call-func ast)))
@@ -44,17 +42,17 @@ acc src) over (%js-make-object).  Returns the fields in source order
     (cond
       ((eq callee '%js-make-object) nil)
       ((member callee '(%js-object-spread-set %js-object-assign))
-       (let* ((args   (ast-call-args expr))
-              (prefix (%js-object-fold-fields (first args))))
-         (if (eq prefix :fail)
-             :fail
-             (append prefix
-                     (list (if (eq callee '%js-object-spread-set)
-                               (list (and (ast-quote-p (second args))
-                                          (ast-quote-value (second args)))
-                                     (%js-expr-to-binding-pattern (third args))
-                                     nil)
-                               (list :rest (%js-expr-to-binding-pattern (second args)))))))))
+        (let* ((args (ast-call-args expr))
+               (prefix (%js-object-fold-fields (first args))))
+          (if (eq prefix :fail) :fail
+            (append
+              prefix
+              (list
+                (if (eq callee '%js-object-spread-set) (list
+                    (and (ast-quote-p (second args)) (ast-quote-value (second args)))
+                    (%js-expr-to-binding-pattern (third args))
+                    nil)
+                  (list :rest (%js-expr-to-binding-pattern (second args)))))))))
       (t :fail))))
 
 (defun %js-expr-to-binding-pattern (expr)
@@ -113,8 +111,7 @@ rules out the whole list being arrow params."
     ;; stops at the `=' here (it is not an assignment operator in this
     ;; position), so consume it ourselves and parse the default.
     (if (and (ast-var-p expr)
-             (eq (js-peek-type current) :T-OP)
-             (string= (js-peek-value current) "="))
+             (js-at-op-p current "="))
         (multiple-value-bind (eq-tok rest3) (js-consume current)
           (declare (ignore eq-tok))
           (multiple-value-bind (default-expr rest4)
@@ -191,13 +188,9 @@ Returns (values ast rest)."
                  (when optional-pair (push optional-pair optionals))
                  (when pattern-pair (push pattern-pair param-patterns))
                  (unless arrow-candidate-p (setf is-arrow-candidate nil)))))
-            (if (eq (js-peek-type current) :T-COMMA)
-                (multiple-value-bind (tok2 rest2) (js-consume current)
-                  (declare (ignore tok2))
-                  (if (eq (js-peek-type rest2) :T-RPAREN)
-                      (progn (setf current rest2) (return))
-                      (setf current rest2)))
-                (return)))
+            (multiple-value-bind (next-stream more-p) (%js-comma-list-step current :T-RPAREN)
+              (setf current next-stream)
+              (unless more-p (return))))
           (multiple-value-bind (tok2 rest2) (js-expect :T-RPAREN current)
             (declare (ignore tok2))
             ;; Check for =>
@@ -208,9 +201,7 @@ Returns (values ast rest)."
                                            :param-patterns (nreverse param-patterns))
                 ;; Parenthesized expression — return last expression (or progn)
                 (let ((all-exprs (nreverse exprs)))
-                  (values (if (null (cdr all-exprs))
-                              (car all-exprs)
-                              (make-ast-progn :forms all-exprs))
+                  (values (if (cdr all-exprs) (make-ast-progn :forms all-exprs) (car all-exprs))
                           rest2))))))))
 
 (defun %js-finish-arrow-function (params stream &key optionals rest-sym param-patterns)
@@ -251,7 +242,6 @@ body-prologue let, exactly as for named functions).  Returns (values ast rest)."
               (finish (list expr) rest2)))))))
 
 ;;; ─── Async Expression ────────────────────────────────────────────────────────
-
 (defun %js-parse-async-expr (stream)
   "Parse async function or async arrow function.
 Returns (values ast rest)."
@@ -298,19 +288,19 @@ Returns (values ast rest)."
   (multiple-value-bind (tok rest) (js-expect :T-ARROW stream)
     (declare (ignore tok))
     (let ((body-and-rest
-           (if (eq (js-peek-type rest) :T-LBRACE)
-               (multiple-value-bind (tok2 rest2) (js-consume rest)
-                 (declare (ignore tok2))
-                 (multiple-value-bind (body-forms rest3) (js-parse-function-body rest2)
-                   (list (%js-callable-body body-forms) rest3)))
-               (multiple-value-bind (expr rest2) (js-parse-assignment-expr rest)
-                 (list (list expr) rest2)))))
-      (values (%js-call '%js-make-async
-                        (make-ast-lambda :params params :body (car body-and-rest)))
-              (cadr body-and-rest)))))
+          (if (eq (js-peek-type rest) :T-LBRACE) (multiple-value-bind (tok2 rest2) (js-consume rest)
+              (declare (ignore tok2))
+              (multiple-value-bind (body-forms rest3) (js-parse-function-body rest2)
+                (list (%js-callable-body body-forms) rest3)))
+            (multiple-value-bind (expr rest2) (js-parse-assignment-expr rest)
+              (list (list expr) rest2)))))
+      (values
+        (%js-call
+          '%js-make-async
+          (make-ast-lambda :params params :body (car body-and-rest)))
+        (cadr body-and-rest)))))
 
 ;;; ─── Class Expression ────────────────────────────────────────────────────────
-
 (defun %js-parse-class-expr (stream)
   "Parse a class EXPRESSION: class [name] [extends expr] { body }.
 Delegates to js-parse-class-decl (parser-class.lisp) — the single source of
@@ -329,7 +319,6 @@ expression. Routing through js-parse-class-decl removes the duplication."
               rest2))))
 
 ;;; ─── import() Dynamic Import ─────────────────────────────────────────────────
-
 (defun %js-parse-import-expr (stream)
   "Parse import(specifier) or import.meta.
 Returns (values ast rest)."

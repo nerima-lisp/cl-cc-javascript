@@ -4,47 +4,45 @@
 ;;;;
 ;;;; Load order: after parser-stmt.lisp (loop/if/for lowering helpers,
 ;;;; *js-stmt-parsers* variable, and early statement registrations).
-
 (in-package :cl-cc/javascript)
 
 ;;; ─── For Statement ───────────────────────────────────────────────────────────
 ;;;
 ;;; Handles: for(init;cond;update)body, for(var x in obj)body,
 ;;;          for(var x of iter)body, for await(var x of asyncIter)body.
-
 (defun %js-lower-for-c-style (current init-ast)
   "Lower a C-style for(init;cond;update){body} loop from CURRENT (at ;).
 INIT-AST is the already-parsed init form (or NIL for no-init).
 Returns (values ast rest)."
   (let* ((rest2 (%js-consume-expected :T-SEMI current))
-         (cond-expr (if (eq (js-peek-type rest2) :T-SEMI)
-                        (make-ast-quote :value t)
-                        (multiple-value-bind (e r) (js-parse-expr rest2)
-                          (setf rest2 r) e)))
+         (cond-expr
+        (if (eq (js-peek-type rest2) :T-SEMI) (make-ast-quote :value t)
+          (multiple-value-bind (e r) (js-parse-expr rest2)
+            (setf rest2 r)
+            e)))
          (rest3 (%js-consume-expected :T-SEMI rest2))
-         (update-expr (if (eq (js-peek-type rest3) :T-RPAREN)
-                          (make-ast-quote :value nil)
-                          (multiple-value-bind (e r) (js-parse-expr rest3)
-                            (setf rest3 r) e)))
+         (update-expr
+        (if (eq (js-peek-type rest3) :T-RPAREN) (make-ast-quote :value nil)
+          (multiple-value-bind (e r) (js-parse-expr rest3)
+            (setf rest3 r)
+            e)))
          (rest4 (%js-consume-expected :T-RPAREN rest3)))
-    (let* ((loop-tag (gensym "FOR-"))
-           (end-tag  (gensym "FOR-END-"))
-           (*js-loop-continue-target* loop-tag)
-           (*js-loop-break-target*    end-tag)
-           (*js-break-targets*    (cons end-tag  *js-break-targets*))
-           (*js-continue-targets* (cons loop-tag *js-continue-targets*)))
+    (with-js-loop-tags
+      (loop-tag end-tag "FOR")
       (multiple-value-bind (body-ast rest5) (%js-parse-stmt-body rest4)
-        (let* ((body-stmts (if (ast-progn-p body-ast)
-                               (ast-progn-forms body-ast)
-                               (list body-ast)))
-               (loop-ast (%js-lower-while-with-tags
-                          (%js-truthy-call cond-expr)
-                          (append body-stmts (list update-expr))
-                          loop-tag end-tag)))
-          (values (if init-ast
-                      (make-ast-progn :forms (list init-ast loop-ast))
-                      loop-ast)
-                  rest5))))))
+        (let* ((body-stmts
+              (if (ast-progn-p body-ast) (ast-progn-forms body-ast)
+                (list body-ast)))
+               (loop-ast
+              (%js-lower-while-with-tags
+                (%js-truthy-call cond-expr)
+                (append body-stmts (list update-expr))
+                loop-tag
+                end-tag)))
+          (values
+            (if init-ast (make-ast-progn :forms (list init-ast loop-ast))
+              loop-ast)
+            rest5))))))
 
 (defun %js-lower-for-of-in (binding iter-expr body-fn-name loop-tag end-tag)
   "Shared lowering for for-in and for-of loops.
@@ -97,66 +95,57 @@ Returns a closure that accepts the parsed body-ast."
                         (list inner-form)
                         loop-tag end-tag))))))))
 
+(defun %js-parse-for-in-of-stmt (binding kind rest2 tag-prefix wrap-fn-name)
+  "Shared parse+lower for 'for (KIND BINDING in/of EXPR) body'. REST2 points at
+'in'/'of'. TAG-PREFIX (\"FOR-IN\"/\"FOR-OF\") is passed straight through to
+WITH-JS-LOOP-TAGS. WRAP-FN-NAME is %js-iter-keys (for-in) or %js-iter-values
+(for-of/for-await-of, iterated synchronously), wrapping the iterated
+expression. Returns (values ast rest)."
+  (multiple-value-bind (expr rest3) (js-parse-expr (cdr rest2))
+    (setf rest3 (%js-consume-expected :T-RPAREN rest3))
+    (with-js-loop-tags
+      (loop-tag end-tag tag-prefix)
+      (multiple-value-bind (body-ast rest4) (%js-parse-stmt-body rest3)
+        (let ((lower
+              (funcall
+                (%js-lower-for-of-in
+                  binding
+                  (make-ast-call :func (make-ast-var :name wrap-fn-name) :args (list expr))
+                  nil
+                  loop-tag
+                  end-tag)
+                body-ast)))
+          (setf (ast-let-declarations lower) (list kind))
+          (values lower rest4))))))
+
 (defun %js-parse-for-in-stmt (binding kind rest2)
   "Parse and lower 'for (KIND BINDING in obj) body'. REST2 points at 'in'.
 Returns (values ast rest)."
-  (multiple-value-bind (obj-expr rest3) (js-parse-expr (cdr rest2))
-    (setf rest3 (%js-consume-expected :T-RPAREN rest3))
-    (let* ((loop-tag (gensym "FOR-IN-"))
-           (end-tag  (gensym "FOR-IN-END-"))
-           (*js-loop-continue-target* loop-tag)
-           (*js-loop-break-target*    end-tag)
-           (*js-break-targets*    (cons end-tag  *js-break-targets*))
-           (*js-continue-targets* (cons loop-tag *js-continue-targets*)))
-      (multiple-value-bind (body-ast rest4) (%js-parse-stmt-body rest3)
-        (let ((lower (funcall (%js-lower-for-of-in
-                               binding
-                               (make-ast-call
-                                :func (make-ast-var :name '%js-iter-keys)
-                                :args (list obj-expr))
-                               nil loop-tag end-tag)
-                              body-ast)))
-          (setf (ast-let-declarations lower) (list kind))
-          (values lower rest4))))))
+  (%js-parse-for-in-of-stmt binding kind rest2 "FOR-IN" '%js-iter-keys))
 
 (defun %js-parse-for-of-stmt (binding kind rest2)
   "Parse and lower 'for (KIND BINDING of iter) body' / for-await-of (iterated
 synchronously). REST2 points at 'of'. Returns (values ast rest)."
-  (multiple-value-bind (iter-expr rest3) (js-parse-expr (cdr rest2))
-    (setf rest3 (%js-consume-expected :T-RPAREN rest3))
-    (let* ((loop-tag (gensym "FOR-OF-"))
-           (end-tag  (gensym "FOR-OF-END-"))
-           (*js-loop-continue-target* loop-tag)
-           (*js-loop-break-target*    end-tag)
-           (*js-break-targets*    (cons end-tag  *js-break-targets*))
-           (*js-continue-targets* (cons loop-tag *js-continue-targets*)))
-      (multiple-value-bind (body-ast rest4) (%js-parse-stmt-body rest3)
-        (let ((lower (funcall (%js-lower-for-of-in
-                               binding
-                               (make-ast-call
-                                :func (make-ast-var :name '%js-iter-values)
-                                :args (list iter-expr))
-                               nil loop-tag end-tag)
-                              body-ast)))
-          (setf (ast-let-declarations lower) (list kind))
-          (values lower rest4))))))
+  (%js-parse-for-in-of-stmt binding kind rest2 "FOR-OF" '%js-iter-values))
 
 (defun %js-parse-for-c-style-declared-stmt (binding kind rest2)
   "Parse and lower 'for (KIND BINDING [= init] ; cond ; update) body'.
 REST2 points just past the binding (at '=' or ';'). Returns (values ast rest)."
   (let ((init-val (make-ast-quote :value nil))
         (rest-at-semi rest2))
-    (when (and (eq (js-peek-type rest2) :T-OP)
-               (equal (js-peek-value rest2) "="))
+    (when (and (eq (js-peek-type rest2) :T-OP) (equal (js-peek-value rest2) "="))
       (multiple-value-bind (e r) (js-parse-expr (cdr rest2))
         (setf init-val e
               rest-at-semi r)))
-    (let ((init-bindings (make-ast-let
-                           :bindings (list (cons (%js-binding-to-sym binding) init-val))
-                           :declarations (list kind)
-                           :body nil)))
-      (multiple-value-bind (loop-ast rest6)
-          (%js-lower-for-c-style rest-at-semi nil)
+    (let ((init-bindings
+          (make-ast-let
+            :bindings
+            (list (cons (%js-binding-to-sym binding) init-val))
+            :declarations
+            (list kind)
+            :body
+            nil)))
+      (multiple-value-bind (loop-ast rest6) (%js-lower-for-c-style rest-at-semi nil)
         (setf (ast-let-body init-bindings) (list loop-ast))
         (values init-bindings rest6)))))
 
@@ -191,7 +180,6 @@ Returns (values ast rest)."
            (%js-lower-for-c-style rest2 init-expr)))))))
 
 ;;; ─── Switch Statement ────────────────────────────────────────────────────────
-
 (defun %js-parse-switch-body (stream break-tag)
   "Parse switch case/default sections.
   Returns (values cases default-body rest) where cases is a list of
@@ -248,51 +236,60 @@ Returns (values ast rest)."
 (defun %js-lower-switch (switch-expr cases default-body break-tag)
   "Lower switch(expr){case x:...; default:...} to a let/tagbody dispatch form."
   (let* ((value-sym (gensym "SWITCH-VAL-"))
-         (default-tag (when default-body (gensym "SWITCH-DEFAULT-")))
-         (case-labels (loop repeat (length cases) collect (gensym "SWITCH-CASE-")))
+         (default-tag
+        (when default-body
+          (gensym "SWITCH-DEFAULT-")))
+         (case-labels
+        (loop repeat (length cases)
+              collect (gensym "SWITCH-CASE-")))
          (dispatch-forms
-          (append
-           (loop for case in cases
-                 for label in case-labels
-                 collect (make-ast-if
-                          :cond (make-ast-call
-                                 :func (make-ast-var :name '%js-strict-eq)
-                                 :args (list (make-ast-var :name value-sym)
-                                             (car case)))
-                          :then (make-ast-go :tag label)
-                          :else (make-ast-quote :value nil)))
-           (list (make-ast-go :tag (or default-tag break-tag)))))
-         (case-forms
+        (append
           (loop for case in cases
                 for label in case-labels
-                append (list* label (cdr case))))
+                collect (make-ast-if
+              :cond
+              (make-ast-call
+                :func
+                (make-ast-var :name '%js-strict-eq)
+                :args
+                (list (make-ast-var :name value-sym) (car case)))
+              :then
+              (make-ast-go :tag label)
+              :else
+              (make-ast-quote :value nil)))
+          (list (make-ast-go :tag (or default-tag break-tag)))))
+         (case-forms
+        (loop for case in cases
+              for label in case-labels
+              append (cons label (cdr case))))
          (default-forms
-          (when default-body
-            (list* default-tag default-body))))
+        (when default-body
+          (cons default-tag default-body))))
     (make-ast-let
-     :bindings (list (cons value-sym switch-expr))
-     :body (list (make-ast-block :name nil
-                   :body (list (%js-make-tagbody
-                                (append dispatch-forms
-                                        case-forms
-                                        default-forms
-                                        (list break-tag)))))))))
+      :bindings
+      (list (cons value-sym switch-expr))
+      :body
+      (list
+        (make-ast-block
+          :name
+          nil
+          :body
+          (list
+            (%js-make-tagbody
+              (append dispatch-forms case-forms default-forms (list break-tag)))))))))
 
 (defun js-parse-switch-stmt (stream)
   "Parse switch(expr){case x:...; default:...}.
   Lowers to ast-let + ast-if chain via %js-lower-switch.
   Returns (values ast rest)."
-  (let* ((rest (%js-consume-expected :T-LPAREN stream)))
+  (let ((rest (%js-consume-expected :T-LPAREN stream)))
     (multiple-value-bind (switch-expr rest2) (js-parse-expr rest)
       (setf rest2 (%js-consume-expected :T-RPAREN rest2))
       (let* ((break-tag (gensym "SWITCH-END-"))
              (*js-loop-break-target* break-tag)
              (*js-break-targets* (cons break-tag *js-break-targets*)))
-        (multiple-value-bind (cases default-body rest3)
-            (%js-parse-switch-body rest2 break-tag)
-          (values (%js-lower-switch switch-expr cases default-body break-tag)
-                  rest3))))))
-
+        (multiple-value-bind (cases default-body rest3) (%js-parse-switch-body rest2 break-tag)
+          (values (%js-lower-switch switch-expr cases default-body break-tag) rest3))))))
 
 ;;; Flow-control statements (break/continue/return/throw/try/debugger/using) live in
 ;;; parser-stmt-flow.lisp.

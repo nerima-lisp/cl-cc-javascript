@@ -120,27 +120,25 @@ exponent, or BigInt suffix) starting at POS. Returns (values token new-pos)."
                      (parse-integer num-str))))
         (values (make-js-token :T-NUMBER val) pos2)))))
 
+(define-builder-table *js-radix-prefix-readers*
+    (:test #'eql
+     :documentation
+     "Lowercased second character of a `0'-prefixed radix literal, mapped to
+the (DIGIT-READER . RADIX) pair %LEX-JS-RADIX-NUMBER needs.  0x/0X, 0o/0O and
+0b/0B are the same rule three times over — they differ only in these two
+values — so LEX-JS-NUMBER resolves all of them with a single lookup.")
+  (#\x (cons #'%lex-js-hex-digits    16))
+  (#\o (cons #'%lex-js-octal-digits   8))
+  (#\b (cons #'%lex-js-binary-digits  2)))
+
 (defun lex-js-number (source pos)
   "Lex a numeric literal starting at POS.
 Handles decimal, hex (0x), octal (0o), binary (0b), BigInt (n suffix),
 and numeric separators (_). Returns (values token new-pos)."
-  (let ((ch (char source pos)))
-    (cond
-      ;; Hex: 0x or 0X
-      ((and (char= ch #\0) (< (1+ pos) (length source))
-            (member (char source (1+ pos)) '(#\x #\X) :test #'char=))
-       (%lex-js-radix-number source pos #'%lex-js-hex-digits 16))
-
-      ;; Octal: 0o or 0O
-      ((and (char= ch #\0) (< (1+ pos) (length source))
-            (member (char source (1+ pos)) '(#\o #\O) :test #'char=))
-       (%lex-js-radix-number source pos #'%lex-js-octal-digits 8))
-
-      ;; Binary: 0b or 0B
-      ((and (char= ch #\0) (< (1+ pos) (length source))
-            (member (char source (1+ pos)) '(#\b #\B) :test #'char=))
-       (%lex-js-radix-number source pos #'%lex-js-binary-digits 2))
-
-      ;; Decimal (integer or float)
-      (t
-       (%lex-js-decimal-number source pos)))))
+  (let ((spec (and (char= (char source pos) #\0)
+                   (< (1+ pos) (length source))
+                   (gethash (char-downcase (char source (1+ pos)))
+                            *js-radix-prefix-readers*))))
+    (if spec
+        (%lex-js-radix-number source pos (car spec) (cdr spec))
+        (%lex-js-decimal-number source pos))))

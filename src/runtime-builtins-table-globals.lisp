@@ -13,23 +13,21 @@
 ;;;  static methods (Map.groupBy) that JS code accesses via Map.groupBy(...).
 ;;; -----------------------------------------------------------------------
 
-(defparameter *js-map-global*
-  (let ((ht (make-hash-table :test #'equal)))
-    (setf (gethash "__new__"  ht) #'%js-make-map
-          (gethash "groupBy"  ht) #'%js-map-group-by)
-    ht)
-  "JS Map constructor object: __new__ for `new Map()', groupBy static method.")
+(define-builder-table *js-map-global*
+    (:documentation
+     "JS Map constructor object: __new__ for `new Map()', groupBy static method.")
+  ("__new__" #'%js-make-map)
+  ("groupBy" #'%js-map-group-by))
 
-(defparameter *js-regexp-global*
-  (let ((ht (make-hash-table :test #'equal)))
-    (setf (gethash "__new__"  ht) (lambda (pat &optional flags)
-                                    (%js-make-regex (%js-to-string pat)
-                                                    (if (eq flags +js-undefined+)
-                                                        ""
-                                                        (%js-to-string flags))))
-          (gethash "escape"   ht) #'%js-regexp-escape)
-    ht)
-  "JS RegExp constructor object: __new__ for `new RegExp()', escape static method.")
+(define-builder-table *js-regexp-global*
+    (:documentation
+     "JS RegExp constructor object: __new__ for `new RegExp()', escape static method.")
+  ("__new__" (lambda (pat &optional flags)
+               (%js-make-regex (%js-to-string pat)
+                               (if (eq flags +js-undefined+)
+                                   ""
+                                   (%js-to-string flags)))))
+  ("escape"  #'%js-regexp-escape))
 
 ;;; Wire static methods onto class objects after all helpers are defined.
 (setf (gethash "isError" *js-error-class*) #'%js-error-is-error)

@@ -78,67 +78,79 @@
 
 ;;; ─── Try / Catch / Finally ───────────────────────────────────────────────────
 
+(defun %js-parse-catch-binding (stream)
+  "Parse an optional catch(e) binding at STREAM. Returns (values var-sym
+rest) — VAR-SYM is nil for a bindless `catch {}` or when STREAM has no
+parenthesized binding at all."
+  (if (eq (js-peek-type stream) :T-LPAREN)
+      (let ((current (cdr stream)) (var-sym nil))
+        (when (eq (js-peek-type current) :T-IDENT)
+          (multiple-value-bind (tok rest) (js-consume current)
+            (setf var-sym (%js-binding-sym (js-tok-value tok))
+                  current rest)))
+        (values var-sym (%js-consume-expected :T-RPAREN current)))
+      (values nil stream)))
+
+(defun %js-parse-catch-clauses (stream)
+  "Parse zero or more `catch (e) {...}` clauses starting at STREAM (JS syntax
+allows only one, but the loop mirrors the grammar rather than assuming it).
+Returns (values clauses rest), CLAUSES a list of (var-sym body-forms) in
+source order."
+  (let ((clauses nil) (current stream))
+    (loop while (and current (eq (js-peek-type current) :T-CATCH))
+          do (setf current (cdr current))
+             (multiple-value-bind (var-sym rest) (%js-parse-catch-binding current)
+               (multiple-value-bind (catch-ast rest2) (js-parse-block rest)
+                 (push (list var-sym (ast-progn-forms catch-ast)) clauses)
+                 (setf current rest2))))
+    (values (nreverse clauses) current)))
+
+(defun %js-parse-finally-clause (stream)
+  "Parse an optional `finally {...}` clause at STREAM. Returns (values
+present-p body-forms rest) — PRESENT-P is tracked separately from BODY-FORMS
+because an empty `finally {}` has a nil body but is still a valid clause."
+  (if (and stream (eq (js-peek-type stream) :T-FINALLY))
+      (multiple-value-bind (finally-ast rest) (js-parse-block (cdr stream))
+        (values t (ast-progn-forms finally-ast) rest))
+      (values nil nil stream)))
+
+(defun %js-build-catch-dispatch (clauses err-sym)
+  "The AST run when the protected try body throws: JS has at most one catch
+clause, so this dispatches to the first of CLAUSES (as produced by
+%js-parse-catch-clauses), binding ERR-SYM to the clause's catch variable
+when it declared one, or just running the body when it didn't. No clauses at
+all (a bare try/finally) yields nil — %js-try-catch-finally rethrows in that
+case."
+  (if clauses
+      (let* ((clause (first clauses)) (var (first clause)) (body (second clause)))
+        (if var
+            (make-ast-let :bindings (list (cons var (make-ast-var :name err-sym)))
+                          :body body)
+            (make-ast-progn :forms body)))
+      (make-ast-quote :value nil)))
+
 (defun js-parse-try-stmt (stream)
   "Parse try {} catch(e) {} finally {} .
   Lowers to ast-unwind-protect wrapping a %js-try-catch-finally call.
   Returns (values ast rest)."
   (multiple-value-bind (try-ast rest) (js-parse-block stream)
-    (let ((try-body (ast-progn-forms try-ast))
-          (catch-clauses nil)
-          (finally-body nil)
-          (finally-present nil)
-          (current rest))
-      ;; Parse zero or more catch clauses
-      (loop while (and current (eq (js-peek-type current) :T-CATCH))
-            do (setf current (cdr current))
-               (let ((var-sym nil))
-                 ;; Optional catch binding: catch (e)
-                 (when (eq (js-peek-type current) :T-LPAREN)
-                   (setf current (cdr current))
-                   (when (eq (js-peek-type current) :T-IDENT)
-                     (multiple-value-bind (tok rest2) (js-consume current)
-                       (setf var-sym (%js-binding-sym (js-tok-value tok))
-                             current rest2)))
-                   (setf current (%js-consume-expected :T-RPAREN current)))
-                 (multiple-value-bind (catch-ast rest2) (js-parse-block current)
-                   (push (list var-sym (ast-progn-forms catch-ast)) catch-clauses)
-                   (setf current rest2))))
-      ;; Optional finally clause. Track PRESENCE separately: an empty `finally {}`
-      ;; has a nil body but is still a valid finally clause.
-      (when (and current (eq (js-peek-type current) :T-FINALLY))
-        (setf current (cdr current)
-              finally-present t)
-        (multiple-value-bind (finally-ast rest2) (js-parse-block current)
-          (setf finally-body (ast-progn-forms finally-ast)
-                current rest2)))
-      (unless (or catch-clauses finally-present)
-        (error "JS parse error: try must have catch or finally"))
-      ;; Lower to ast-unwind-protect with catch dispatch
-      (let* ((err-sym (gensym "JS-ERR-"))
-             (clauses (nreverse catch-clauses))
-             ;; Build catch dispatch: chain of let/progn for each clause
-             (catch-dispatch
-              (if clauses
-                  ;; For simplicity, use the first catch binding (JS has one catch)
-                  (let* ((clause (first clauses))
-                         (var    (first clause))
-                         (body   (second clause)))
-                    (if var
-                        (make-ast-let :bindings (list (cons var (make-ast-var :name err-sym)))
-                                      :body body)
-                        (make-ast-progn :forms body)))
-                  (make-ast-quote :value nil)))
-             ;; Wrapped try body with catch
-             (protected
-              (make-ast-call
-               :func (make-ast-var :name '%js-try-catch-finally)
-               :args (list (make-ast-lambda :params nil :body try-body)
-                           (make-ast-lambda :params (list err-sym)
-                                            :body (list catch-dispatch))
-                           (make-ast-lambda :params nil
-                                            :body (or finally-body
-                                                      (list (make-ast-quote :value nil))))))))
-        (values protected current)))))
+    (multiple-value-bind (clauses rest2) (%js-parse-catch-clauses rest)
+      (multiple-value-bind (finally-present-p finally-body rest3)
+          (%js-parse-finally-clause rest2)
+        (unless (or clauses finally-present-p)
+          (error "JS parse error: try must have catch or finally"))
+        (let* ((err-sym (gensym "JS-ERR-"))
+               (catch-dispatch (%js-build-catch-dispatch clauses err-sym))
+               (protected
+                (make-ast-call
+                 :func (make-ast-var :name '%js-try-catch-finally)
+                 :args (list (make-ast-lambda :params nil :body (ast-progn-forms try-ast))
+                             (make-ast-lambda :params (list err-sym)
+                                              :body (list catch-dispatch))
+                             (make-ast-lambda :params nil
+                                              :body (or finally-body
+                                                        (list (make-ast-quote :value nil))))))))
+          (values protected rest3))))))
 
 ;;; ─── Debugger Statement ──────────────────────────────────────────────────────
 

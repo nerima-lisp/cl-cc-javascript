@@ -36,6 +36,20 @@
                             (%js-call '%js-make-array))
                   rest2)))))
 
+(defun %js-chain-step (ast stream handler)
+  "Take one step along a member/call chain: consume the trigger token at the
+head of STREAM (the `.', `[', or `?.' that was already matched by the
+caller's dispatch), then hand AST and the remaining stream to HANDLER, which
+parses that one link and returns the extended AST.
+
+Returns HANDLER's (values ast stream &optional continue-p) unchanged.  Both
+js-parse-member-expr and js-parse-postfix are loops over exactly this shape —
+six branches between them repeated the same consume-then-delegate block — so
+the token bookkeeping lives here and each branch supplies only its handler."
+  (multiple-value-bind (trigger-tok rest) (js-consume stream)
+    (declare (ignore trigger-tok))
+    (funcall handler ast rest)))
+
 (defun %js-parse-member-dot (ast stream)
   "obj.prop for a 'new' member expression. Unlike the postfix version, there
 is no private-field (#name) special-casing here — that only applies in
@@ -90,24 +104,18 @@ Returns (values ast rest)."
         (cond
           ;; obj.prop
           ((eq type :T-DOT)
-           (multiple-value-bind (tok rest2) (js-consume rest)
-             (declare (ignore tok))
-             (multiple-value-bind (new-ast new-rest) (%js-parse-member-dot ast rest2)
-               (setf ast new-ast rest new-rest))))
+           (multiple-value-setq (ast rest)
+             (%js-chain-step ast rest #'%js-parse-member-dot)))
           ;; obj[expr]
           ((eq type :T-LBRACKET)
-           (multiple-value-bind (tok rest2) (js-consume rest)
-             (declare (ignore tok))
-             (multiple-value-bind (new-ast new-rest) (%js-parse-postfix-computed-member ast rest2)
-               (setf ast new-ast rest new-rest))))
+           (multiple-value-setq (ast rest)
+             (%js-chain-step ast rest #'%js-parse-postfix-computed-member)))
           ;; optional chain ?.
           ((and (eq type :T-OP) (string= val "?."))
-           (multiple-value-bind (tok rest2) (js-consume rest)
-             (declare (ignore tok))
-             (multiple-value-bind (new-ast new-rest continue-p)
-                 (%js-parse-member-optional-chain ast rest2)
-               (setf ast new-ast rest new-rest)
-               (unless continue-p (return)))))
+           (multiple-value-bind (new-ast new-rest continue-p)
+               (%js-chain-step ast rest #'%js-parse-member-optional-chain)
+             (setf ast new-ast rest new-rest)
+             (unless continue-p (return))))
           (t (return)))))
     (values ast rest)))
 
@@ -156,6 +164,14 @@ expression is evaluated exactly once."
                                (bumped))
                      (if return-new-p (bumped) (make-ast-var :name old-tmp)))))))))
 
+(defun %js-incdec-setq (var-sym op-sym)
+  "The (setq VAR-SYM (OP-SYM VAR-SYM 1)) AST shared by ++/--'s plain-variable
+prefix and postfix lowering below."
+  (make-ast-setq :var var-sym
+                 :value (make-ast-binop :op op-sym
+                                        :lhs (make-ast-var :name var-sym)
+                                        :rhs (make-ast-int :value 1))))
+
 (defun %js-lower-incdec (expr op-sym prefix-p fallback-helper)
   "Lower a ++/-- application to EXPR (OP-SYM is '+ or '-), shared by prefix
 and postfix parsing. A plain variable rewrites to a direct setq (prefix:
@@ -167,16 +183,11 @@ already knows prefix vs postfix. Anything else falls back to FALLBACK-HELPER
     ((ast-var-p expr)
      (let ((var-sym (ast-var-name expr)))
        (if prefix-p
-           (make-ast-setq :var var-sym
-                          :value (make-ast-binop :op op-sym :lhs expr :rhs (make-ast-int :value 1)))
+           (%js-incdec-setq var-sym op-sym)
            (let ((tmp (gensym "JS-POSTFIX-")))
              (make-ast-let
               :bindings (list (cons tmp (make-ast-var :name var-sym)))
-              :body (list (make-ast-setq
-                           :var var-sym
-                           :value (make-ast-binop :op op-sym
-                                                  :lhs (make-ast-var :name var-sym)
-                                                  :rhs (make-ast-int :value 1)))
+              :body (list (%js-incdec-setq var-sym op-sym)
                           (make-ast-var :name tmp)))))))
     ((%js-place-get-prop-p expr)
      (%js-lower-place-incdec expr op-sym prefix-p))
@@ -272,28 +283,22 @@ Returns (values ast rest). Loops until no more postfix ops."
                  stream rest)))
         ;; Property access: obj.prop
         ((eq type :T-DOT)
-         (multiple-value-bind (tok rest) (js-consume stream)
-           (declare (ignore tok))
-           (multiple-value-bind (new-ast new-stream) (%js-parse-postfix-dot ast rest)
-             (setf ast new-ast stream new-stream))))
+         (multiple-value-setq (ast stream)
+           (%js-chain-step ast stream #'%js-parse-postfix-dot)))
         ;; Computed member: obj[expr]
         ((eq type :T-LBRACKET)
-         (multiple-value-bind (tok rest) (js-consume stream)
-           (declare (ignore tok))
-           (multiple-value-bind (new-ast new-stream) (%js-parse-postfix-computed-member ast rest)
-             (setf ast new-ast stream new-stream))))
+         (multiple-value-setq (ast stream)
+           (%js-chain-step ast stream #'%js-parse-postfix-computed-member)))
         ;; Call: fn(args)
         ((eq type :T-LPAREN)
          (multiple-value-bind (new-ast new-stream) (%js-parse-postfix-call ast stream)
            (setf ast new-ast stream new-stream)))
         ;; Optional chain ?.
         ((and (eq type :T-OP) (string= val "?."))
-         (multiple-value-bind (tok rest) (js-consume stream)
-           (declare (ignore tok))
-           (multiple-value-bind (new-ast new-stream continue-p)
-               (%js-parse-postfix-optional-chain ast rest)
-             (setf ast new-ast stream new-stream)
-             (unless continue-p (return)))))
+         (multiple-value-bind (new-ast new-stream continue-p)
+             (%js-chain-step ast stream #'%js-parse-postfix-optional-chain)
+           (setf ast new-ast stream new-stream)
+           (unless continue-p (return))))
         ;; Tagged template literal
         ((or (eq type :T-TEMPLATE-START)
              (eq type :T-TEMPLATE-PARTS))

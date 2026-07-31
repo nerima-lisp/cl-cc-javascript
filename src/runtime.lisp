@@ -9,32 +9,36 @@
 ;;;; JS Infinity => :js-infinity / :js-neg-infinity
 ;;;;
 ;;;; Private class fields  => stored in a nested HT under key "__private__"
-
 (in-package :cl-cc/javascript)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Type constants
 ;;; -----------------------------------------------------------------------
-
 (defconstant +js-undefined+ :js-undefined)
-(defconstant +js-null+      :js-null)
-(defconstant +js-nan+       :js-nan)
-(defconstant +js-infinity+  :js-infinity)
+
+(defconstant +js-null+ :js-null)
+
+(defconstant +js-nan+ :js-nan)
+
+(defconstant +js-infinity+ :js-infinity)
+
 (defconstant +js-neg-infinity+ :js-neg-infinity)
 
 ;;; Real IEEE-754 double specials, built from raw bit patterns so SBCL never
 ;;; constant-folds a literal (/ 0.0d0 0.0d0) — which would trap at compile time
 ;;; with FLOATING-POINT-INVALID-OPERATION. make-double-float does no FP math.
 (declaim (type double-float *js-nan-float* *js-inf-float* *js-neg-inf-float*))
-(defparameter *js-nan-float*     (sb-kernel:make-double-float #x7FF80000 0))   ; quiet NaN
-(defparameter *js-inf-float*     (sb-kernel:make-double-float #x7FF00000 0))   ; +Infinity
+
+(defparameter *js-nan-float* (sb-kernel:make-double-float #x7FF80000 0)) ; quiet NaN
+
+(defparameter *js-inf-float* (sb-kernel:make-double-float #x7FF00000 0)) ; +Infinity
+
 ;;; -1048576 is #xFFF00000 read as a signed 32-bit high word.
-(defparameter *js-neg-inf-float* (sb-kernel:make-double-float -1048576 0))     ; -Infinity
+(defparameter *js-neg-inf-float* (sb-kernel:make-double-float -1048576 0)) ; -Infinity
 
 ;;; -----------------------------------------------------------------------
 ;;;  Internal helpers
 ;;; -----------------------------------------------------------------------
-
 (defun %js-make-ht (&optional (size 8))
   (make-hash-table :test #'equal :size size))
 
@@ -61,22 +65,16 @@ on macOS and turns every NaN-valued test into an error on Linux CI."
 
 The magnitude comparison traps on a NaN argument for the reason given in
 %JS-FLOAT-NAN-P, and callers do reach here with NaN."
-  (and (floatp x)
-       (not (sb-ext:float-nan-p x))
-       (sb-ext:float-infinity-p x)))
+  (and (floatp x) (not (sb-ext:float-nan-p x)) (sb-ext:float-infinity-p x)))
 
 (defun %js-nan-p (x)
-  (or (eq x :js-nan)
-      (%js-float-nan-p x)))
+  (or (eq x :js-nan) (%js-float-nan-p x)))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Type system
 ;;; -----------------------------------------------------------------------
-
 ;;; ─── BigInt struct (declared early so typeof/to-string can reference it) ─────
-
-(defstruct (js-bigint (:constructor %make-js-bigint (value)))
-  (value 0 :type integer))
+(defstruct (js-bigint (:constructor %make-js-bigint (value))) (value 0 :type integer))
 
 (defun %js-vm-closure-p (x)
   "Package-safe predicate for a compiled-JS closure (a cl-cc/vm:vm-closure-object).
@@ -84,9 +82,10 @@ The VM package is NOT an ASDF compile-time dependency of the JS frontend (closur
 are invoked through the runtime *js-apply-fn* pointer), so the vm-closure-object
 type symbol cannot be named at read time — resolve it by name at runtime."
   (let ((pkg (find-package "CL-CC/VM")))
-    (and pkg
-         (let ((sym (find-symbol "VM-CLOSURE-OBJECT" pkg)))
-           (and sym (find-class sym nil) (typep x sym))))))
+    (and
+      pkg
+      (let ((sym (find-symbol "VM-CLOSURE-OBJECT" pkg)))
+        (and sym (find-class sym nil) (typep x sym))))))
 
 (defun %js-typeof (x)
   "Return JS typeof string for X."
@@ -94,7 +93,7 @@ type symbol cannot be named at read time — resolve it by name at runtime."
     ((eq x +js-undefined+)   "undefined")
     ((eq x +js-null+)        "object")       ; historic quirk
     ((eq x t)                "boolean")
-    ((eq x nil)              "boolean")
+    ((null x)              "boolean")
     ((stringp x)             "string")
     ((numberp x)             "number")
     ((eq x :js-nan)          "number")
@@ -119,7 +118,7 @@ type symbol cannot be named at read time — resolve it by name at runtime."
 
 (defun %js-truthy (x)
   "JS truthiness: false, 0, NaN, \"\", null, undefined are falsy."
-  (not (or (eq x nil)
+  (not (or (null x)
            (eq x +js-undefined+)
            (eq x +js-null+)
            ;; %js-nan-p, not (eq x :js-nan): the NaN literal is a float NaN
@@ -142,7 +141,7 @@ type symbol cannot be named at read time — resolve it by name at runtime."
     ((eq x +js-undefined+)  *js-nan-float*)
     ((eq x +js-null+)       0.0d0)
     ((eq x t)               1.0d0)
-    ((eq x nil)             0.0d0)
+    ((null x)             0.0d0)
     ((eq x :js-nan)         *js-nan-float*)
     ((eq x :js-infinity)    *js-inf-float*)
     ((eq x :js-neg-infinity)*js-neg-inf-float*)
@@ -174,9 +173,8 @@ type symbol cannot be named at read time — resolve it by name at runtime."
 undefined sentinel (an omitted optional parameter), otherwise VALUE truncated
 through JS ToNumber. Shared by every radix/digit-count-style optional integer
 parameter (parseInt's radix, toFixed's digits, toString's radix, ...)."
-  (if (eq value +js-undefined+)
-      default
-      (truncate (%js-to-number value))))
+  (if (eq value +js-undefined+) default
+    (truncate (%js-to-number value))))
 
 (defun %js-loose-eq (a b)
   "JS == with type coercion."
@@ -197,9 +195,9 @@ parameter (parseInt's radix, toFixed's digits, toString's radix, ...)."
      (%js-loose-eq (%js-to-number a) b))
     ;; boolean => number
     ((eq a t)  (%js-loose-eq 1.0d0 b))
-    ((eq a nil) (%js-loose-eq 0.0d0 b))
+    ((null a) (%js-loose-eq 0.0d0 b))
     ((eq b t)  (%js-loose-eq a 1.0d0))
-    ((eq b nil) (%js-loose-eq a 0.0d0))
+    ((null b) (%js-loose-eq a 0.0d0))
     ;; numeric comparison
     ((and (numberp a) (numberp b)) (= a b))
     (t nil)))
@@ -232,34 +230,37 @@ When both operands are strings they compare lexicographically by code unit
 except that a NaN operand makes every relational comparison false. This is why
 JS relational operators must NOT lower to the VM's CL <,>,<=,>= directly: those
 return 1/0 and mishandle strings/NaN/coercion."
-  (if (and (stringp a) (stringp b))
-      (and (funcall str-op a b) t)
-      (let ((na (%js-to-number a))
-            (nb (%js-to-number b)))
-        (if (or (%js-nan-p na) (%js-nan-p nb))
-            nil
-            (and (funcall num-op na nb) t)))))
+  (if (and (stringp a) (stringp b)) (and (funcall str-op a b) t)
+    (let ((na (%js-to-number a))
+          (nb (%js-to-number b)))
+      (unless (or (%js-nan-p na) (%js-nan-p nb))
+        (and (funcall num-op na nb) t)))))
 
 (defmacro define-js-relational-op (name num-op str-op doc)
   "Emit a JS relational comparison that delegates to %js-relational."
-  `(defun ,name (a b) ,doc (%js-relational a b #',num-op #',str-op)))
+  `(defun ,name (a b)
+    ,doc
+    (%js-relational a b #',num-op #',str-op)))
 
-(define-js-relational-op %js-lt <  string<  "JS a < b.")
-(define-js-relational-op %js-gt >  string>  "JS a > b.")
+(define-js-relational-op %js-lt < string< "JS a < b.")
+
+(define-js-relational-op %js-gt > string> "JS a > b.")
+
 (define-js-relational-op %js-le <= string<= "JS a <= b.")
+
 (define-js-relational-op %js-ge >= string>= "JS a >= b.")
 
 (defun %js-instanceof (obj constructor)
   "JS instanceof. constructor must be a hash-table with __prototype__."
   (when (%js-ht-p obj)
-    (let ((proto (and (%js-ht-p constructor)
-                      (gethash "__prototype__" constructor))))
+    (let ((proto (and (%js-ht-p constructor) (gethash "__prototype__" constructor))))
       (when proto
         (let ((obj-proto (gethash "__proto__" obj)))
           (loop while (%js-ht-p obj-proto)
-                when (eq obj-proto proto) return t
+                when (eq obj-proto proto)
+                  return t
                 do (setf obj-proto (gethash "__proto__" obj-proto))
-                finally (return nil)))))))
+                finally (return)))))))
 
 ;;; Property access and string/arithmetic ops
 ;;; -> see runtime-property.lisp

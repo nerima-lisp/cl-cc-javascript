@@ -10,6 +10,24 @@
 
 ;;; ─── Parameter / Argument Parsers ────────────────────────────────────────────
 
+(defun %js-comma-list-step (stream closer)
+  "Advance STREAM past the separator that follows one element of a
+comma-separated list terminated by CLOSER, and report whether another element
+follows.  Returns (values new-stream more-p).
+
+MORE-P is false in the two cases that end a list: no comma at all, and a
+single trailing comma immediately before CLOSER (which JS allows in parameter
+lists, argument lists and parenthesised arrow params).  CLOSER itself is never
+consumed — the caller still has to expect it.  js-parse-params,
+js-parse-arguments and %js-parse-paren-or-arrow each open-coded this same
+two-case rule, so a fix to the trailing-comma handling had to be made three
+times or not at all."
+  (if (eq (js-peek-type stream) :T-COMMA)
+      (multiple-value-bind (comma-tok rest) (js-consume stream)
+        (declare (ignore comma-tok))
+        (values rest (not (eq (js-peek-type rest) closer))))
+      (values stream nil)))
+
 (defun js-parse-params (stream)
   "Parse (a, b = default, ...rest) parameter list.
 Consumes opening LPAREN through closing RPAREN.
@@ -43,8 +61,7 @@ Returns (values param-syms optional-specs rest-sym new-stream) where
                 (push sym params)
                 (setf current rest2)
                 ;; Default value?
-                (when (and (eq (js-peek-type current) :T-OP)
-                           (string= (js-peek-value current) "="))
+                (when (js-at-op-p current "=")
                   (multiple-value-bind (eq-tok rest3) (js-consume current)
                     (declare (ignore eq-tok))
                     (multiple-value-bind (default-expr rest4)
@@ -52,14 +69,9 @@ Returns (values param-syms optional-specs rest-sym new-stream) where
                       (push (cons sym default-expr) optionals)
                       (setf current rest4))))))
             ;; Continue on comma, stop otherwise
-            (if (eq (js-peek-type current) :T-COMMA)
-                (multiple-value-bind (tok2 rest2) (js-consume current)
-                  (declare (ignore tok2))
-                  ;; Trailing comma before )
-                  (if (eq (js-peek-type rest2) :T-RPAREN)
-                      (progn (setf current rest2) (return))
-                      (setf current rest2)))
-                (return)))
+            (multiple-value-bind (next-stream more-p) (%js-comma-list-step current :T-RPAREN)
+              (setf current next-stream)
+              (unless more-p (return))))
           (multiple-value-bind (tok2 rest2) (js-expect :T-RPAREN current)
             (declare (ignore tok2))
             (values (nreverse params)
@@ -89,14 +101,9 @@ Returns (values arg-list rest)."
                 (multiple-value-bind (expr rest2) (js-parse-assignment-expr current)
                   (push expr args)
                   (setf current rest2)))
-            (if (eq (js-peek-type current) :T-COMMA)
-                (multiple-value-bind (tok2 rest2) (js-consume current)
-                  (declare (ignore tok2))
-                  ;; Trailing comma
-                  (if (eq (js-peek-type rest2) :T-RPAREN)
-                      (progn (setf current rest2) (return))
-                      (setf current rest2)))
-                (return)))
+            (multiple-value-bind (next-stream more-p) (%js-comma-list-step current :T-RPAREN)
+              (setf current next-stream)
+              (unless more-p (return))))
           (multiple-value-bind (tok2 rest2) (js-expect :T-RPAREN current)
             (declare (ignore tok2))
             (values (nreverse args) rest2))))))

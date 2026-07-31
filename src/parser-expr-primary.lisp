@@ -14,6 +14,26 @@
 
 ;;; ─── Primary Expression ──────────────────────────────────────────────────────
 
+;;; Data table: token type -> zero-arg AST builder, for primary tokens that
+;;; consume exactly one token and always build the same fixed AST node
+;;; (booleans, null, undefined, this, super). Mirrors *js-unary-kw-builders*
+;;; in parser-expr-unary.lisp — same "consume one token, apply BUILDER" shape,
+;;; just with no sub-expression to recurse into.
+(define-builder-table *js-primary-constant-builders*
+    (:test #'eq :documentation "Data table: keyword primary token type -> zero-arg AST builder.")
+  (:T-TRUE  (lambda () (make-ast-quote :value t)))
+  (:T-FALSE (lambda () (make-ast-quote :value nil)))
+  ;; null literal. The runtime null sentinel is +js-null+ (= :js-null); this
+  ;; MUST match it, not the bare :null keyword — otherwise %js-to-string
+  ;; prints "NULL" and %js-not-nullish treats `null' as non-nullish (null ??
+  ;; x broke). (+js-null+ itself can't be named here: this file compiles
+  ;; before runtime.)
+  (:T-NULL      (lambda () (make-ast-quote :value :js-null)))
+  ;; undefined — likewise the +js-undefined+ sentinel (= :js-undefined)
+  (:T-UNDEFINED (lambda () (make-ast-quote :value :js-undefined)))
+  (:T-THIS      (lambda () (make-ast-var :name '%js-this)))
+  (:T-SUPER     (lambda () (make-ast-var :name '%js-super))))
+
 (defun js-parse-primary (stream)
   "Parse a primary expression. Returns (values ast rest).
 Handles: numbers, strings, booleans, null, undefined, this, super,
@@ -23,6 +43,11 @@ generator functions, class expressions, new expr, template literals,
 yield, await, import()."
   (let ((type (js-peek-type stream))
         (val  (js-peek-value stream)))
+    ;; CPS helper: consume one token, discard it, apply zero-arg BUILDER.
+    (labels ((consume-and-build (builder)
+               (multiple-value-bind (tok rest) (js-consume stream)
+                 (declare (ignore tok))
+                 (values (funcall builder) rest))))
     (case type
       ;; Numeric literal (integer or float)
       (:T-NUMBER
@@ -51,39 +76,10 @@ yield, await, import()."
       ;; Template literal
       ((:T-TEMPLATE-START :T-TEMPLATE-PARTS)
        (%js-parse-template-literal stream))
-      ;; Boolean true
-      (:T-TRUE
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
-         (values (make-ast-quote :value t) rest)))
-      ;; Boolean false
-      (:T-FALSE
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
-         (values (make-ast-quote :value nil) rest)))
-      ;; null literal. The runtime null sentinel is +js-null+ (= :js-null); this
-      ;; MUST match it, not the bare :null keyword — otherwise %js-to-string prints
-      ;; "NULL" and %js-not-nullish treats `null' as non-nullish (null ?? x broke).
-      ;; (+js-null+ itself can't be named here: this file compiles before runtime.)
-      (:T-NULL
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
-         (values (make-ast-quote :value :js-null) rest)))
-      ;; undefined — likewise the +js-undefined+ sentinel (= :js-undefined)
-      (:T-UNDEFINED
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
-         (values (make-ast-quote :value :js-undefined) rest)))
-      ;; this
-      (:T-THIS
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
-         (values (make-ast-var :name '%js-this) rest)))
-      ;; super
-      (:T-SUPER
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
-         (values (make-ast-var :name '%js-super) rest)))
+      ;; Table-driven: booleans, null, undefined, this, super — each just
+      ;; consumes its one token and builds a fixed AST node.
+      ((:T-TRUE :T-FALSE :T-NULL :T-UNDEFINED :T-THIS :T-SUPER)
+       (consume-and-build (gethash type *js-primary-constant-builders*)))
       ;; Array literal [...]
       (:T-LBRACKET
        (js-parse-array-literal stream))
@@ -112,19 +108,7 @@ yield, await, import()."
        (%js-parse-import-expr stream))
       ;; yield as expression (when used as identifier-like)
       (:T-YIELD
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
-         (if (and (eq (js-peek-type rest) :T-OP) (string= (js-peek-value rest) "*"))
-             (multiple-value-bind (tok2 rest2) (js-consume rest)
-               (declare (ignore tok2))
-               (multiple-value-bind (expr rest3) (js-parse-assignment-expr rest2)
-                 (values (%js-call '%js-yield-from expr) rest3)))
-             (if (or (js-at-eof-p rest)
-                     (member (js-peek-type rest)
-                             '(:T-SEMI :T-COMMA :T-RBRACE :T-RPAREN :T-RBRACKET) :test #'eq))
-                 (values (%js-call '%js-yield) rest)
-                 (multiple-value-bind (expr rest2) (js-parse-assignment-expr rest)
-                   (values (%js-call '%js-yield expr) rest2))))))
+       (%js-parse-yield-expr stream))
       ;; await as expression
       (:T-AWAIT
        (multiple-value-bind (tok rest) (js-consume stream)
@@ -151,7 +135,7 @@ yield, await, import()."
            (multiple-value-bind (tok rest) (js-consume stream)
              (declare (ignore tok))
              (values (make-ast-var :name (js-ident-sym val)) rest))
-           (error "JS parse error: unexpected token ~S in expression" (js-peek stream)))))))
+           (error "JS parse error: unexpected token ~S in expression" (js-peek stream))))))))
 
 
 ;;; Arrow/paren/async/class/import expression helpers → see parser-arrow.lisp

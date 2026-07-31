@@ -1,4 +1,4 @@
-(defpackage :cl-cc/javascript
+(defpackage #:cl-cc/javascript
   (:use #:cl)
   ;; The AST constructors and accessors the lexer/parser emit and the runtime
   ;; walks. Imported one by one rather than :use'd: a future export in
@@ -67,6 +67,41 @@
                 #:register-backend-global-seeder
                 #:register-backend-parser
                 #:register-backend-vm-integration-installer)
+  ;; IANA time zone support for Temporal (runtime-temporal.lisp). Used
+  ;; directly, not through an adapter: cl-date-kit resolves a zone name to
+  ;; its UTC offset at a given instant, which is exactly the primitive
+  ;; %temporal-zone-project-epoch needs and nothing this frontend should
+  ;; reimplement.
+  (:import-from #:cl-date-kit
+                #:find-time-zone
+                #:format-zone-offset
+                #:zoned-date-time-of-epoch-second
+                #:zoned-date-time-offset
+                #:zoned-date-time-year
+                #:zoned-date-time-month
+                #:zoned-date-time-day
+                #:zoned-date-time-hour
+                #:zoned-date-time-minute
+                #:zoned-date-time-second)
+  ;; JSON.parse/JSON.stringify (runtime-json.lisp). Used directly, not
+  ;; through an adapter: json-kit's own null-value/false-value/true-value/
+  ;; number-encoder parse and write hooks are exactly the extension points
+  ;; this frontend needs to map JS's value model onto JSON's, and nothing
+  ;; here should reimplement RFC 8259 parsing by hand.
+  (:import-from #:json-kit
+                #:parse
+                #:stringify
+                #:json-parse-error
+                #:json-parse-error-position)
+  ;; Generator suspend/resume coroutine (runtime-generator.lisp). Used
+  ;; directly, not through an adapter: an unbuffered channel's SEND blocking
+  ;; until the matching RECV takes the value is exactly the two-party
+  ;; rendezvous a generator body/driver hand-off needs, so a pair of them
+  ;; replaces this frontend's own hand-rolled mutex+condvar+turn-tracking.
+  (:import-from #:cl-concurrent-kit
+                #:make-channel
+                #:send
+                #:recv)
   (:export
    ;; Entry points
    #:tokenize-js-source
@@ -174,7 +209,6 @@
 
    ;; Class / accessor helpers
    #:%js-accessor
-   #:%js-make-regex
    #:%js-assign-pattern
 
    ;; Resource management
