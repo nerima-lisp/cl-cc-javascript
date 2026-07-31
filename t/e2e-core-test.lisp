@@ -86,7 +86,7 @@ independent of top-level var/function/global binding semantics."
                     expected (rest expected)))
             (unless (and (null expected) (string= line ""))
               (push line current))))
-      (unless (and (null expected) (null current))
+      (when (or expected current)
         (error "Batched JS E2E output did not contain the expected sentinels: ~S"
                expected))
       (nreverse chunks))))
@@ -118,7 +118,12 @@ globals, so EVERY JS program failed with 'Unbound global variable: *JS-...*')."
   ("2,4,6"   "console.log([1,2,3].map(x=>x*2).join(\",\"));")
   ("2,4"     "console.log([1,2,3,4].filter(x=>x%2==0).join(\",\"));")
   ("Hi Bob"  "let n=\"Bob\"; console.log(`Hi ${n}`);")
-  ("2"       "function mk(){let c=0; return ()=>++c;} let f=mk(); f(); console.log(f());"))
+  ("2"       "function mk(){let c=0; return ()=>++c;} let f=mk(); f(); console.log(f());")
+  ;; concat flattens exactly ONE level of each array argument -- a nested
+  ;; array inside an array argument stays nested, and a non-array argument
+  ;; is appended as a single element, never recursively spread.
+  ("1,2,3,4,4,5,6" "console.log([1,[2,3]].concat([4],[[4,5],6]).flat().join(','));")
+  ("true"    "console.log(Array.isArray([1,[2,3]].concat([4,[5,6]])[3]));"))
 
 ;;; ─── Function parameters ─────────────────────────────────────────────────────
 
@@ -170,7 +175,13 @@ array rest was a one-element CL list (Array.isArray false, rest.join threw with
   ("4,6,8,10"           "const [a,...r]=[1,2,3,4,5]; console.log(r.map(n=>n*2).join(','));")
   ("0"                  "const [p,...q]=[1]; console.log(q.length);")
   ("{\"b\":2,\"c\":3}"  "const {a,...rest}={a:1,b:2,c:3}; console.log(JSON.stringify(rest));")
-  ("{}"                 "const {m,...n}={m:1}; console.log(JSON.stringify(n));"))
+  ("{}"                 "const {m,...n}={m:1}; console.log(JSON.stringify(n));")
+  ;; Hole, default, and rest combined in one array pattern -- previously only
+  ;; checked at parse time (js-parser-export-array-destructuring-names in
+  ;; parser-stmt-module-test.lisp verifies the exported *names*, not that
+  ;; running it produces the right *values*).
+  ("1 3 4,5"            "const [a,,b=99,...r]=[1,2,3,4,5]; console.log(a,b,r.join(','));")
+  ("1 99"               "const [a,,b=99]=[1,2]; console.log(a,b);"))
 
 (deftest-js-run-isolated-batch js-e2e-parameter-destructuring
   "Named-function parameters may be destructuring patterns: function f([a,b]) and
@@ -248,7 +259,9 @@ position via with-output-to-string."
   (#.(format nil "c:x~%fin")  "try { throw 'x'; } catch(e) { console.log('c:'+e); } finally { console.log('fin'); }")
   ("boom"     "try { throw new Error('boom'); } catch(e) { console.log(e.message); }")
   (#.(format nil "cleanup~%1") "function f(){ try { return 1; } finally { console.log('cleanup'); } } console.log(f());")
-  ("outer:inner" "try { try { throw 'inner'; } catch(e) { throw 'outer:'+e; } } catch(e) { console.log(e); }"))
+  ("outer:inner" "try { try { throw 'inner'; } catch(e) { throw 'outer:'+e; } } catch(e) { console.log(e); }")
+  ;; ES2019+ optional catch binding: `catch {}' with no bound variable.
+  ("caught"   "try { throw 'x'; } catch { console.log('caught'); }"))
 
 (deftest-js-run js-e2e-object-spread
   "Object spread {...a, k:v} merges own properties with later entries overriding

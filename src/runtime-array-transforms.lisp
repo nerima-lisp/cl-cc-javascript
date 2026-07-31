@@ -2,24 +2,36 @@
 ;;;; JS Array transforms and mutation helpers
 ;;;;
 ;;;; Load order: after runtime-array-core.lisp and before runtime-array-es2023.lisp.
-
 (in-package :cl-cc/javascript)
 
 ;;; Shared sort predicate builder — used by both mutating sort and toSorted.
 ;;; Handles nil (no compareFn supplied) and +js-undefined+ (passed from JS).
 (defun %js-sort-comparator (compare-fn)
   "Build a CL sort predicate from an optional JS compareFn."
-  (if (and compare-fn (not (eq compare-fn +js-undefined+)))
-      (lambda (a b) (< (%js-funcall compare-fn a b) 0))
-      (lambda (a b) (string< (%js-to-string a) (%js-to-string b)))))
+  (if (and compare-fn (not (eq compare-fn +js-undefined+))) (lambda (a b)
+      (minusp (%js-funcall compare-fn a b)))
+    (lambda (a b)
+      (string< (%js-to-string a) (%js-to-string b)))))
+
+(defun %js-array-stable-sort-undefined-last (seq compare-fn)
+  "Stable-sort SEQ with COMPARE-FN (see %JS-SORT-COMPARATOR), except every
+`undefined' element is excluded from comparison entirely and always moved to
+the end, per ECMA-262 Array.prototype.sort's SortCompare -- without this,
+%JS-SORT-COMPARATOR would either call a numeric compareFn with NaN or place
+the literal string \"undefined\" wherever it happens to fall lexicographically,
+both wrong. Returns a fresh vector of the same length as SEQ; does not
+mutate SEQ. Shared by the mutating %JS-ARRAY-SORT and the non-mutating
+%JS-ARRAY-TO-SORTED."
+  (let* ((defined (remove +js-undefined+ seq :test #'eq))
+         (sorted (stable-sort defined (%js-sort-comparator compare-fn)))
+         (undefined-count (- (length seq) (length sorted))))
+    (concatenate 'vector sorted (make-array undefined-count :initial-element +js-undefined+))))
 
 (defun %js-array-splice (arr start &optional (delete-count nil delete-count-supplied-p) &rest items)
   "Splice: remove DELETE-COUNT elements at START, insert ITEMS."
   (let* ((n (length arr))
          (s (%js-array-relative-start start n))
-         (dc (if (not delete-count-supplied-p)
-                 (- n s)
-                 (min (max 0 (%js-array-to-integer delete-count)) (- n s))))
+         (dc (if delete-count-supplied-p (min (max 0 (%js-array-to-integer delete-count)) (- n s)) (- n s)))
          (removed (%js-make-vec dc)))
     ;; collect removed
     (loop for i from s below (+ s dc)
@@ -45,12 +57,12 @@
   "Concatenate ARR with OTHERS."
   (let ((result (%js-make-vec)))
     (flet ((extend (x)
-             (if (%js-vec-p x)
-                 (loop for i below (length x)
-                       do (vector-push-extend (aref x i) result))
-                 (vector-push-extend x result))))
+             (if (%js-vec-p x) (loop for i below (length x)
+                  do (vector-push-extend (aref x i) result))
+            (vector-push-extend x result))))
       (extend arr)
-      (dolist (o others) (extend o)))
+      (dolist (o others)
+        (extend o)))
     result))
 
 (defun %js-array-reverse (arr)
@@ -62,17 +74,16 @@
 
 (defun %js-array-sort (arr &optional compare-fn)
   "Sort ARR in place; return ARR."
-  (replace arr (stable-sort (copy-seq arr) (%js-sort-comparator compare-fn)))
+  (replace arr (%js-array-stable-sort-undefined-last arr compare-fn))
   arr)
 
 (defun %js-array-flat (arr &optional (depth 1))
   "Flatten ARR up to DEPTH levels."
   (let ((result (%js-make-vec)))
     (labels ((flatten (x d)
-               (if (and (%js-vec-p x) (> d 0))
-                   (loop for i below (length x)
-                         do (flatten (aref x i) (1- d)))
-                   (vector-push-extend x result))))
+               (if (and (%js-vec-p x) (plusp d)) (loop for i below (length x)
+                  do (flatten (aref x i) (1- d)))
+            (vector-push-extend x result))))
       (loop for i below (length arr)
             do (flatten (aref arr i) depth)))
     result))
@@ -98,6 +109,10 @@
          (fin (%js-array-relative-end end n))
          (count (max 0 (min (- fin from) (- n to))))
          (tmp (make-array count)))
-    (loop for i below count do (setf (aref tmp i) (aref arr (+ from i))))
-    (loop for i below count do (setf (aref arr (+ to i)) (aref tmp i))))
+    (loop for i below
+          count
+          do (setf (aref tmp i) (aref arr (+ from i))))
+    (loop for i below
+          count
+          do (setf (aref arr (+ to i)) (aref tmp i))))
   arr)

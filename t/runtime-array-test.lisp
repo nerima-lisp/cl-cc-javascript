@@ -24,7 +24,7 @@
     (expect (= 2 (length a)) :to-be-truthy)))
 
 (it-sequential "js-rt-array-pop-empty-is-undefined"
-  (expect (cl-cc/javascript::%js-array-pop (%jr-arr)) :to-be cl-cc/javascript::+js-undefined+))
+  (expect (cl-cc/javascript::%js-array-pop (%jr-arr)) :to-be-js-undefined))
 
 (it-sequential "js-rt-array-map-filter"
   (let ((doubled (cl-cc/javascript::%js-array-map
@@ -89,7 +89,7 @@
     (expect (= 1 (cl-cc/javascript::%js-array-find-index
                    arr (lambda (x &rest _) (declare (ignore _)) (> x 3)))) :to-be-truthy)
     (expect (cl-cc/javascript::%js-array-find
-                arr (lambda (x &rest _) (declare (ignore _)) (> x 100))) :to-be cl-cc/javascript::+js-undefined+)))
+                arr (lambda (x &rest _) (declare (ignore _)) (> x 100))) :to-be-js-undefined)))
 
 (it-sequential "js-rt-array-slice"
   (let* ((a   (%jr-arr 10 20 30 40))
@@ -149,12 +149,60 @@
              a (lambda (x y &rest _) (declare (ignore _)) (- x y)))))
     (expect (%jr-list r) :to-equal '(2 10 30))))
 
+(it-sequential "js-rt-array-sort-undefined-always-last-default-comparator"
+  ;; Real JS: `[undefined, "zebra", "apple"].sort()` -> ["apple", "zebra",
+  ;; undefined] -- undefined elements are ALWAYS moved to the end,
+  ;; unconditionally, never compared at all (ECMA-262 SortCompare). Chosen
+  ;; deliberately so a "zebra" > "apple" > "undefined" (%js-to-string of
+  ;; +js-undefined+) lexicographic sort would put undefined in the MIDDLE
+  ;; instead of last, unlike a case (e.g. all-lowercase test strings after
+  ;; 'u') where it would land last anyway and mask the bug.
+  (let* ((a (%jr-arr cl-cc/javascript::+js-undefined+ "zebra" "apple"))
+         (r (cl-cc/javascript::%js-array-sort a)))
+    (expect (%jr-list r) :to-equal (list "apple" "zebra" cl-cc/javascript::+js-undefined+))))
+
+(it-sequential "js-rt-array-sort-undefined-never-reaches-custom-comparator"
+  ;; A custom compareFn must never be CALLED with undefined as either
+  ;; argument (ECMA-262 SortCompare excludes undefined from comparison
+  ;; entirely) -- a numeric comparator like (a,b)=>a-b would otherwise see
+  ;; %js-to-number(undefined) = NaN and misbehave. Assert this by using a
+  ;; comparator that ERRORS if ever called with +js-undefined+.
+  (let* ((a (%jr-arr 3 cl-cc/javascript::+js-undefined+ 1 2))
+         (r (cl-cc/javascript::%js-array-sort
+             a (lambda (x y &rest _)
+                 (declare (ignore _))
+                 (when (or (eq x cl-cc/javascript::+js-undefined+)
+                           (eq y cl-cc/javascript::+js-undefined+))
+                   (error "comparator called with undefined"))
+                 (- x y)))))
+    (expect (%jr-list r) :to-equal (list 1 2 3 cl-cc/javascript::+js-undefined+))))
+
+(it-sequential "js-rt-array-to-sorted-undefined-always-last"
+  (let* ((a (%jr-arr cl-cc/javascript::+js-undefined+ "zebra" "apple"))
+         (r (cl-cc/javascript::%js-array-to-sorted a)))
+    (expect (%jr-list r) :to-equal (list "apple" "zebra" cl-cc/javascript::+js-undefined+))
+    (expect-not r :to-be a)))          ; non-mutating: fresh array
+
 (it-sequential "js-rt-array-flat"
-  (let* ((nested (%jr-arr 1 (%jr-arr 2 3) (%jr-arr 4 (%jr-arr 5)))))
+  (let ((nested (%jr-arr 1 (%jr-arr 2 3) (%jr-arr 4 (%jr-arr 5)))))
     (expect (%jr-list (cl-cc/javascript::%js-array-flat nested 2)) :to-equal '(1 2 3 4 5))
     (let ((shallow (%jr-arr 1 (%jr-arr 2 3) (%jr-arr 4 (%jr-arr 5)))))
       ;; depth 1: [1, 2, 3, 4, [5]] — inner [5] stays nested
       (expect (= 5 (length (%jr-list (cl-cc/javascript::%js-array-flat shallow 1)))) :to-be-truthy))))
+
+(it-sequential "js-rt-array-flat-infinity-depth"
+  ;; `arr.flat(Infinity)` -- the idiomatic "flatten fully, however deep" call
+  ;; -- passes JS's real `Infinity` value straight through as DEPTH (no
+  ;; coercion at the "flat" method-table entry; see *JS-INF-FLOAT*, the real
+  ;; IEEE-754 double-float bit pattern the global `Infinity` identifier
+  ;; resolves to, NOT the separate :js-infinity keyword sentinel some other
+  ;; code paths use). Never previously tested with anything but a small
+  ;; integer depth -- confirms %JS-ARRAY-FLAT's (PLUSP D)/(1- D) countdown
+  ;; genuinely works on a real double-float infinity (stays positive and
+  ;; keeps recursing through every level, exactly "flatten fully").
+  (let ((deep (%jr-arr 1 (%jr-arr 2 (%jr-arr 3 (%jr-arr 4 (%jr-arr 5)))))))
+    (expect (%jr-list (cl-cc/javascript::%js-array-flat deep cl-cc/javascript::*js-inf-float*))
+            :to-equal '(1 2 3 4 5))))
 
 (it-sequential "js-rt-array-last-index-of"
   (let ((a (%jr-arr 1 2 3 2 1)))
@@ -170,7 +218,7 @@
 (it-sequential "js-rt-array-last-index-of-from-before-start"
   (let ((a (%jr-arr 1 2 1)))
     (expect (= -1 (cl-cc/javascript::%js-array-last-index-of a 1 -99)) :to-be-truthy)
-    (expect (= 0 (cl-cc/javascript::%js-array-last-index-of
+    (expect (zerop (cl-cc/javascript::%js-array-last-index-of
                  a 1 cl-cc/javascript::+js-undefined+)) :to-be-truthy)))
 
 (it-sequential "js-rt-array-fill"
@@ -279,7 +327,7 @@
     (cl-cc/javascript::%js-ta-set ta 0 10)
     (cl-cc/javascript::%js-ta-set ta 2 99)
     (expect (= 10 (cl-cc/javascript::%js-ta-get ta 0)) :to-be-truthy)
-    (expect (= 0 (cl-cc/javascript::%js-ta-get ta 1)) :to-be-truthy)
+    (expect (zerop (cl-cc/javascript::%js-ta-get ta 1)) :to-be-truthy)
     (expect (= 99 (cl-cc/javascript::%js-ta-get ta 2)) :to-be-truthy)))
 
 (it-sequential "js-rt-typed-array-length"
@@ -300,7 +348,7 @@
     (expect (funcall join-fn ",") :to-equal "10,20,30")))
 
 (it-sequential "js-rt-method-resolution-length"
-  (let* ((arr (%jr-arr 1 2 3)))
+  (let ((arr (%jr-arr 1 2 3)))
     (expect (= 3 (cl-cc/javascript::%js-get-prop arr "length")) :to-be-truthy)))
 
 (it-sequential "js-rt-array-values-via-get-prop"
@@ -342,7 +390,7 @@
            (e1 (gethash "value" r1))
            (r2 (funcall next)))
       (expect (gethash "done" r0) :to-be-falsy)
-      (expect (= 0 (aref e0 0)) :to-be-truthy)
+      (expect (zerop (aref e0 0)) :to-be-truthy)
       (expect (aref e0 1) :to-equal "a")
       (expect (gethash "done" r1) :to-be-falsy)
       (expect (= 1 (aref e1 0)) :to-be-truthy)
@@ -376,7 +424,7 @@
      (%jr-arr 10 20 30)
      (lambda (x i &rest _) (declare (ignore _)) (push (list i x) collected)))
     (expect collected :to-equal '((2 30) (1 20) (0 10)))
-    (expect (cl-cc/javascript::%js-array-for-each (%jr-arr 1) (constantly nil)) :to-be cl-cc/javascript::+js-undefined+)))
+    (expect (cl-cc/javascript::%js-array-for-each (%jr-arr 1) (constantly nil)) :to-be-js-undefined)))
 
 (it-sequential "js-rt-array-is-array"
   (expect (cl-cc/javascript::%js-array-is-array (%jr-arr 1 2)) :to-be-truthy)
