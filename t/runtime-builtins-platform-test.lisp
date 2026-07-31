@@ -47,7 +47,7 @@
          (sort-fn (gethash "sort" params))
          (to-string-fn (gethash "toString" params))
          (get-all-fn (gethash "getAll" params)))
-    (expect (funcall sort-fn) :to-be cl-cc/javascript::+js-undefined+)
+    (expect (funcall sort-fn) :to-be-js-undefined)
     (expect (funcall to-string-fn) :to-equal "a=1&a=0&b=2&c=3")
     (expect (gethash "search" url) :to-equal "?a=1&a=0&b=2&c=3")
     (expect (gethash "href" url) :to-equal "https://example.com/path?a=1&a=0&b=2&c=3")
@@ -55,6 +55,16 @@
       (expect (= 2 (length all-a)) :to-be-truthy)
       (expect (aref all-a 0) :to-equal "1")
       (expect (aref all-a 1) :to-equal "0"))))
+
+(it-sequential "js-rt-url-search-params-set-appends-new-key"
+  ;; .set() on a key that isn't present yet behaves like .append(), per spec
+  ;; -- the other .set() tests above only exercise overwriting an existing
+  ;; key (including the collapse-duplicates case), never this branch.
+  (let* ((params (cl-cc/javascript::%js-make-url-search-params "a=1"))
+         (set-fn (gethash "set" params))
+         (to-string-fn (gethash "toString" params)))
+    (funcall set-fn "b" "2")
+    (expect (funcall to-string-fn) :to-equal "a=1&b=2")))
 
 ;;; ─── TextEncoder / TextDecoder ──────────────────────────────────────────────
 
@@ -89,6 +99,32 @@
     (let ((view (cl-cc/javascript::%js-ta-subarray bytes 1)))
       (cl-cc/javascript::%js-ta-set view 4 172)
       (expect (funcall (gethash "decode" decoder) view) :to-equal expected))))
+
+(it-sequential "js-rt-text-decoder-decode-invalid-byte-is-replacement-char-not-empty-string"
+  ;; TextDecoder always reports "fatal" false in this runtime, so an invalid
+  ;; byte must become U+FFFD and decoding must continue — not discard the
+  ;; whole string, which is what a plain (handler-case ... (error () ""))
+  ;; used to do here.
+  (let* ((decoder (cl-cc/javascript::%js-make-text-decoder))
+         (bytes (cl-cc/javascript::%js-make-typed-array "Uint8Array" 3))
+         (expected (format nil "A~CB" (code-char #xFFFD))))
+    (loop for b in '(65 255 66)
+          for i from 0
+          do (cl-cc/javascript::%js-ta-set bytes i b))
+    (expect (funcall (gethash "decode" decoder) bytes) :to-equal expected)))
+
+;; Property: TextDecoder().decode(TextEncoder().encode(s)) = s for any string
+;; mixing ASCII (1 UTF-8 byte), é (2 bytes), and € (3 bytes) — the same three
+;; byte-widths the fixed example above exercises in one fixed order, now
+;; across many generated orderings and run lengths instead of one.
+(it-property "js-rt-text-encoder-decoder-roundtrip-property"
+    ((s (gen-string :min-length 0 :max-length 30
+                    :alphabet (format nil "abcXYZ019 ~C~C" (code-char #x00E9) (code-char #x20AC)))))
+  (let* ((encoder (cl-cc/javascript::%js-make-text-encoder))
+         (decoder (cl-cc/javascript::%js-make-text-decoder))
+         (encoded (funcall (gethash "encode" encoder) s))
+         (decoded (funcall (gethash "decode" decoder) encoded)))
+    (expect decoded :to-equal s)))
 
 (it-sequential "js-rt-text-encoder-encode-into"
   (let* ((encoder (cl-cc/javascript::%js-make-text-encoder))
@@ -144,16 +180,16 @@
   (let* ((collator (cl-cc/javascript::%js-make-intl-collator
                     "en-US" (cl-cc/javascript::%js-make-object "numeric" t)))
          (compare (gethash "compare" collator)))
-    (expect (< (funcall compare "item2" "item10") 0) :to-be-truthy)
-    (expect (> (funcall compare "item11" "item2") 0) :to-be-truthy)))
+    (expect (minusp (funcall compare "item2" "item10")) :to-be-truthy)
+    (expect (plusp (funcall compare "item11" "item2")) :to-be-truthy)))
 
 (it-sequential "js-rt-intl-collator-sensitivity-base"
   (let* ((collator (cl-cc/javascript::%js-make-intl-collator
                     "en-US" (cl-cc/javascript::%js-make-object
                              "sensitivity" "base")))
          (compare (gethash "compare" collator)))
-    (expect (= 0 (funcall compare "Résumé" "resume")) :to-be-truthy)
-    (expect (= 0 (funcall compare "Alpha" "alpha")) :to-be-truthy)))
+    (expect (zerop (funcall compare "Résumé" "resume")) :to-be-truthy)
+    (expect (zerop (funcall compare "Alpha" "alpha")) :to-be-truthy)))
 
 (it-sequential "js-rt-intl-collator-resolved-options"
   (let* ((collator (cl-cc/javascript::%js-make-intl-collator
@@ -313,8 +349,8 @@
 
 (it-sequential "js-rt-crypto-get-random-values-rejects-invalid-inputs"
   (let ((crypto (cl-cc/javascript::%js-make-crypto)))
-    (let ((%%signaled1 nil)) (handler-case (progn (funcall (gethash "getRandomValues" crypto) (make-array 4 :initial-element 0))) (error () (setf %%signaled1 t))) (expect %%signaled1 :to-be-truthy))
-    (let ((%%signaled2 nil)) (handler-case (progn (funcall (gethash "getRandomValues" crypto)
-               (cl-cc/javascript::%js-make-typed-array "Float32Array" 4))) (error () (setf %%signaled2 t))) (expect %%signaled2 :to-be-truthy))
-    (let ((%%signaled3 nil)) (handler-case (progn (funcall (gethash "getRandomValues" crypto)
-               (cl-cc/javascript::%js-make-typed-array "Uint8Array" 65537))) (error () (setf %%signaled3 t))) (expect %%signaled3 :to-be-truthy))))
+    (signals error (funcall (gethash "getRandomValues" crypto) (make-array 4 :initial-element 0)))
+    (signals error (funcall (gethash "getRandomValues" crypto)
+               (cl-cc/javascript::%js-make-typed-array "Float32Array" 4)))
+    (signals error (funcall (gethash "getRandomValues" crypto)
+               (cl-cc/javascript::%js-make-typed-array "Uint8Array" 65537)))))

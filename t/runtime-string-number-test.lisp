@@ -23,7 +23,7 @@
 (it-sequential "js-rt-string-index-of-position-coercion"
   (expect (= 2 (cl-cc/javascript::%js-string-index-of "ababa" "a" "2")) :to-be-truthy)
   (expect (= 3 (cl-cc/javascript::%js-string-index-of "abcabc" "a" 2.8d0)) :to-be-truthy)
-  (expect (= 0 (cl-cc/javascript::%js-string-index-of
+  (expect (zerop (cl-cc/javascript::%js-string-index-of
                "abc" "a" cl-cc/javascript::+js-undefined+)) :to-be-truthy)
   (expect (cl-cc/javascript::%js-string-includes "abc" "a" 1) :to-be-falsy))
 
@@ -77,8 +77,8 @@
 (it-sequential "js-rt-string-last-index-of-position-bounds"
   (expect (= 4 (cl-cc/javascript::%js-string-last-index-of "ababa" "a" cl-cc/javascript::+js-undefined+)) :to-be-truthy)
   (expect (= 2 (cl-cc/javascript::%js-string-last-index-of "ababa" "a" "2")) :to-be-truthy)
-  (expect (= 0 (cl-cc/javascript::%js-string-last-index-of "abcabc" "a" 2.8d0)) :to-be-truthy)
-  (expect (= 0 (cl-cc/javascript::%js-string-last-index-of "ababa" "a" -99)) :to-be-truthy)
+  (expect (zerop (cl-cc/javascript::%js-string-last-index-of "abcabc" "a" 2.8d0)) :to-be-truthy)
+  (expect (zerop (cl-cc/javascript::%js-string-last-index-of "ababa" "a" -99)) :to-be-truthy)
   (expect (= -1 (cl-cc/javascript::%js-string-last-index-of "ababa" "b" -99)) :to-be-truthy)
   (expect (= 5 (cl-cc/javascript::%js-string-last-index-of "ababa" "" 99)) :to-be-truthy))
 
@@ -352,7 +352,7 @@
 ;;; ─── String coverage — uncovered functions ───────────────────────────────────
 
 (it-sequential "js-rt-string-length"
-  (expect (= 0 (cl-cc/javascript::%js-string-length "")) :to-be-truthy)
+  (expect (zerop (cl-cc/javascript::%js-string-length "")) :to-be-truthy)
   (expect (= 5 (cl-cc/javascript::%js-string-length "hello")) :to-be-truthy))
 
 (it-sequential-each (("a,b,c" "," ("a" "b" "c"))
@@ -398,7 +398,7 @@
     (expect (cl-cc/javascript::%js-string-normalize composed-e "NFD") :to-equal decomposed-e)
     (expect (cl-cc/javascript::%js-string-normalize angstrom-sign "NFKC") :to-equal angstrom-letter)
     (expect (cl-cc/javascript::%js-string-normalize fi-ligature "NFKD") :to-equal "fi")
-    (let ((%%signaled1 nil)) (handler-case (progn (cl-cc/javascript::%js-string-normalize "cafe" "BAD")) (error () (setf %%signaled1 t))) (expect %%signaled1 :to-be-truthy))))
+    (signals error (cl-cc/javascript::%js-string-normalize "cafe" "BAD"))))
 
 (it-sequential-each (("a" "b" -1.0d0) ("x" "x" 0.0d0) ("b" "a" 1.0d0))
     "js-rt-string-locale-compare-order ~A ~A"

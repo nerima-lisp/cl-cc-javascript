@@ -24,6 +24,15 @@
     (dolist (v vals s)
       (cl-cc/javascript::%js-set-add s v))))
 
+(defmatcher :to-be-js-undefined (actual expected)
+  "Checks ACTUAL is EQ to +js-undefined+ -- the runtime's undefined sentinel,
+identical for every call site (unlike NIL, which JS null/false/[] all also
+coerce to at various points), so EQ is exact. Replaces the previous
+'(expect ... :to-be cl-cc/javascript::+js-undefined+)' spelling repeated
+across every runtime-*-test file."
+  (declare (ignore expected))
+  (eq actual cl-cc/javascript::+js-undefined+))
+
 ;;; ─── typeof ──────────────────────────────────────────────────────────────────
 
 (it-sequential-each ((42 "number")
@@ -150,7 +159,7 @@
 (it-sequential "js-rt-object-prop-false-value"
   (let ((obj (cl-cc/javascript::%js-make-object "flag" nil)))
     (expect (cl-cc/javascript::%js-get-prop obj "flag") :to-be-falsy)
-    (expect (cl-cc/javascript::%js-get-prop obj "absent") :to-be cl-cc/javascript::+js-undefined+)))
+    (expect (cl-cc/javascript::%js-get-prop obj "absent") :to-be-js-undefined)))
 
 ;;; ─── for-of / for-in ─────────────────────────────────────────────────────────
 
@@ -170,7 +179,14 @@
     (cl-cc/javascript::%js-for-in o (lambda (k &rest _) (declare (ignore _)) (push k keys)))
     (expect (sort keys #'string<) :to-equal '("a" "b"))))
 
-(it-sequential "js-rt-for-in-skips-accessor-keys"
+(it-sequential "js-rt-for-in-includes-accessor-keys-under-their-real-name"
+  ;; Renamed from "skips-accessor-keys" 2026-07-31 (later session) -- that
+  ;; name locked in the WRONG (pre-fix) behavior. A getter/setter accessor
+  ;; property is enumerable by default, exactly like a plain data property
+  ;; (`{get foo(){}}` in real JS enumerates "foo" via for...in) -- what
+  ;; for...in must actually skip is the internal __get_X/__set_X STORAGE
+  ;; key itself (and other internal keys like __proto__), not the logical
+  ;; property the accessor represents. See CHANGELOG.md.
   (let ((obj (cl-cc/javascript::%js-make-object "a" 1 "b" 2))
         (keys nil))
     (setf (gethash "__get_foo" obj) (lambda () 99))
@@ -178,7 +194,7 @@
     (setf (gethash "__proto__" obj) cl-cc/javascript::+js-undefined+)
     (cl-cc/javascript::%js-for-in
      obj (lambda (k &rest _) (declare (ignore _)) (push k keys)))
-    (expect (sort keys #'string<) :to-equal '("a" "b"))))
+    (expect (sort keys #'string<) :to-equal '("a" "b" "foo"))))
 
 ;;; ─── ToNumber coercions ──────────────────────────────────────────────────────
 
@@ -321,7 +337,7 @@
 (it-sequential "js-rt-delete-property"
   (let ((o (cl-cc/javascript::%js-make-object "a" 1 "b" 2)))
     (cl-cc/javascript::%js-delete o "a")
-    (expect (cl-cc/javascript::%js-get-prop o "a") :to-be cl-cc/javascript::+js-undefined+)
+    (expect (cl-cc/javascript::%js-get-prop o "a") :to-be-js-undefined)
     (expect (= 2 (cl-cc/javascript::%js-get-prop o "b")) :to-be-truthy)))
 
 (it-sequential-each (("a" t)
@@ -336,5 +352,5 @@
     (expect (= 42 (cl-cc/javascript::%js-optional-chain o "x")) :to-be-truthy)))
 
 (it-sequential "js-rt-optional-chain-null-undefined"
-  (expect (cl-cc/javascript::%js-optional-chain cl-cc/javascript::+js-null+ "x") :to-be cl-cc/javascript::+js-undefined+)
-  (expect (cl-cc/javascript::%js-optional-chain cl-cc/javascript::+js-undefined+ "x") :to-be cl-cc/javascript::+js-undefined+))
+  (expect (cl-cc/javascript::%js-optional-chain cl-cc/javascript::+js-null+ "x") :to-be-js-undefined)
+  (expect (cl-cc/javascript::%js-optional-chain cl-cc/javascript::+js-undefined+ "x") :to-be-js-undefined))

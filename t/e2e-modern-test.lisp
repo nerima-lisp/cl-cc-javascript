@@ -68,7 +68,12 @@ console.log(new C(7).get());") :to-equal "7"))
   ("1,2"   "console.log(Object.values({a:1,b:2}).join(','));")
   ("a=1,b=2" "console.log(Object.entries({a:1,b:2}).map(([k,v])=>k+'='+v).join(','));")
   ("3"     "const t={}; Object.assign(t,{x:1},{y:2}); console.log(t.x+t.y);")
-  ("10"    "const o=Object.fromEntries([['x',10]]); console.log(o.x);"))
+  ("10"    "const o=Object.fromEntries([['x',10]]); console.log(o.x);")
+  ;; Diagnostic: does key order survive more than 2 keys / a non-alphabetic
+  ;; insertion order, and does the "integer-index keys sort numerically
+  ;; first" ES2015+ [[OwnPropertyKeys]] ordering rule hold at all?
+  ("z,y,x,w,v" "console.log(Object.keys({z:1,y:2,x:3,w:4,v:5}).join(','));")
+  ("1,2,foo"   "console.log(Object.keys({2:'b',foo:'bar',1:'a'}).join(','));"))
 
 ;;; ─── ES2021 string methods ───────────────────────────────────────────────────
 
@@ -87,6 +92,12 @@ console.log(new C(7).get());") :to-equal "7"))
   ("3,2,1" "const a=[1,2,3]; console.log(a.toReversed().join(','));")
   ("1,2,3" "const a=[1,2,3]; a.toReversed(); console.log(a.join(','));")
   ("1,2,3" "console.log([3,1,2].toSorted().join(','));")
+  ;; undefined always sorts to the end, excluded from comparison entirely
+  ;; (ECMA-262 SortCompare) -- regression coverage for a real bug found and
+  ;; fixed 2026-07-31 (see CHANGELOG.md): the default/custom comparator used
+  ;; to compare `undefined` like any other element instead of excluding it.
+  ("1,2,3," "console.log([undefined,3,1,2].sort().join(','));")
+  ("1,2,3," "console.log([undefined,3,1,2].toSorted().join(','));")
   ("3"     "console.log([1,2,3].at(-1));")
   ("4"     "console.log([1,2,3,4].findLast(x=>x%2===0));")
   ("3"     "console.log([1,2,3,4].findLastIndex(x=>x%2===0));")
@@ -266,7 +277,15 @@ helpers, which spun forever on a js-regexp struct)."
   ("3"       "console.log('abcdef'.search(/de/));")
   ("-1"      "console.log('abcdef'.search(/zz/));")
   ("a-b-c"   "console.log('a1b22c'.split(/\\d+/).join('-'));")
-  ("2"       "console.log('a1b2'.matchAll(/\\d/g).length);"))
+  ("2"       "console.log('a1b2'.matchAll(/\\d/g).length);")
+  ;; A capturing group in the separator splices its captured text into the
+  ;; result array, right after the field it separates -- previously
+  ;; unimplemented (groups were never even passed to the matcher during
+  ;; split's scan). See CHANGELOG.md.
+  ("2023|-|01|-|15" "console.log('2023-01-15'.split(/(-)/).join('|'));")
+  ;; An optional group that never participates in the match splices
+  ;; `undefined` (not an empty string) into the result at its position.
+  ("4:true:b" "const r='ab'.split(/(x)?(b)/); console.log(r.length+':'+(r[1]===undefined)+':'+r[2]);"))
 
 (deftest-js-run js-e2e-regex-constructor
   "new RegExp(pattern, flags) matches like a literal."
@@ -283,7 +302,20 @@ were likewise unreachable through the function-method resolver)."
   ("0"       "console.log(Date.UTC(1970,0,1));")
   ("true"    "console.log(Date.now()>0);")
   ("1970-01-02T00:00:00.000Z" "console.log(new Date(86400000).toISOString());")
-  ("true"    "console.log(Date.parse('1970-01-02')===86400000);"))
+  ("true"    "console.log(Date.parse('1970-01-02')===86400000);")
+  ;; Invalid Date -- previously a real crash (FLOATING-POINT-INVALID-
+  ;; OPERATION), found and fixed 2026-07-31 (see CHANGELOG.md). Every
+  ;; construction path, every getter, setTime, and toString() must all
+  ;; produce/propagate NaN gracefully instead of trapping.
+  ("NaN"     "console.log(new Date(NaN).getTime());")
+  ("NaN"     "console.log(new Date('not a real date').getTime());")
+  ("NaN"     "console.log(new Date(2020,NaN,1).getTime());")
+  ("NaN NaN NaN" "const d=new Date(NaN); console.log(d.getFullYear()+' '+d.getMonth()+' '+d.getHours());")
+  ("Invalid Date" "console.log(new Date(NaN).toString());")
+  ("Invalid Date" "console.log(String(new Date('garbage')));")
+  ("NaN"     "const d=new Date(0); d.setTime(NaN); console.log(d.getTime());")
+  ("NaN"     "const d=new Date(0); d.setFullYear(NaN); console.log(d.getTime());")
+  ("true"    "console.log(new Date(0).toJSON()!==null && new Date(NaN).toJSON()===null);"))
 
 (it-sequential "js-e2e-decorator-on-class-declaration-parses-and-runs"
   ;; Decorators are currently parsed but semantically no-op

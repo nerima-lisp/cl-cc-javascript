@@ -28,7 +28,7 @@
 (it-sequential "js-rt-symbol-no-description"
   (let ((sym (cl-cc/javascript::%js-make-symbol)))
     (expect (cl-cc/javascript::%js-symbol-p sym) :to-be-truthy)
-    (expect (cl-cc/javascript::%js-symbol-description sym) :to-be cl-cc/javascript::+js-undefined+)))
+    (expect (cl-cc/javascript::%js-symbol-description sym) :to-be-js-undefined)))
 
 ;;; ─── toString / description ──────────────────────────────────────────────────
 
@@ -43,7 +43,7 @@
   (let ((with-desc (cl-cc/javascript::%js-make-symbol "label"))
         (no-desc   (cl-cc/javascript::%js-make-symbol)))
     (expect (cl-cc/javascript::%js-symbol-description with-desc) :to-equal "label")
-    (expect (cl-cc/javascript::%js-symbol-description no-desc) :to-be cl-cc/javascript::+js-undefined+)))
+    (expect (cl-cc/javascript::%js-symbol-description no-desc) :to-be-js-undefined)))
 
 ;;; ─── Global registry — Symbol.for / Symbol.keyFor ────────────────────────────
 
@@ -63,10 +63,10 @@
 
 (it-sequential "js-rt-symbol-key-for-unregistered"
   (let ((local (cl-cc/javascript::%js-make-symbol "local")))
-    (expect (cl-cc/javascript::%js-symbol-key-for local) :to-be cl-cc/javascript::+js-undefined+)))
+    (expect (cl-cc/javascript::%js-symbol-key-for local) :to-be-js-undefined)))
 
 (it-sequential "js-rt-symbol-key-for-non-symbol"
-  (expect (cl-cc/javascript::%js-symbol-key-for "not-a-symbol") :to-be cl-cc/javascript::+js-undefined+))
+  (expect (cl-cc/javascript::%js-symbol-key-for "not-a-symbol") :to-be-js-undefined))
 
 ;;; ─── Symbol as property key ──────────────────────────────────────────────────
 
@@ -79,7 +79,7 @@
     (expect (cl-cc/javascript::%js-symbol-storage-key-p key) :to-be-truthy)
     (expect (cl-cc/javascript::%js-symbol-from-storage-key key) :to-be sym)
     (expect (cl-cc/javascript::%js-symbol-storage-key-p "not-a-symbol-key") :to-be-falsy)
-    (expect (cl-cc/javascript::%js-symbol-from-storage-key "not-a-symbol-key") :to-be cl-cc/javascript::+js-undefined+)))
+    (expect (cl-cc/javascript::%js-symbol-from-storage-key "not-a-symbol-key") :to-be-js-undefined)))
 
 ;;; ─── Well-known symbols ──────────────────────────────────────────────────────
 

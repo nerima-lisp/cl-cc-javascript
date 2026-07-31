@@ -50,7 +50,7 @@
 (it-sequential "js-rt-ta-find"
   (let ((ta (%make-int32-ta 3 7 4 9)))
     (expect (= 7.0d0 (cl-cc/javascript::%js-ta-find ta (lambda (v &rest _) (declare (ignore _)) (> v 5)))) :to-be-truthy)
-    (expect (cl-cc/javascript::%js-ta-find ta (lambda (v &rest _) (declare (ignore _)) (> v 100))) :to-be cl-cc/javascript::+js-undefined+)))
+    (expect (cl-cc/javascript::%js-ta-find ta (lambda (v &rest _) (declare (ignore _)) (> v 100))) :to-be-js-undefined)))
 
 (it-sequential "js-rt-ta-find-index"
   (let ((ta (%make-int32-ta 3 7 4)))
@@ -159,7 +159,7 @@
     (expect (= -1 (cl-cc/javascript::%js-ta-get signed 0)) :to-be-truthy)
     (expect (= -9223372036854775808 (cl-cc/javascript::%js-ta-get signed 1)) :to-be-truthy)
     (expect (= 18446744073709551615 (cl-cc/javascript::%js-ta-get unsigned 0)) :to-be-truthy)
-    (expect (= 0 (cl-cc/javascript::%js-ta-get unsigned 1)) :to-be-truthy)))
+    (expect (zerop (cl-cc/javascript::%js-ta-get unsigned 1)) :to-be-truthy)))
 
 ;;; ─── lastIndexOf ─────────────────────────────────────────────────────────────
 
@@ -278,8 +278,8 @@
 
 (it-sequential "js-rt-ta-get-set-and-to-array"
   (let ((ta (%make-int32-ta 10 20)))
-    (expect (cl-cc/javascript::%js-ta-get ta 2) :to-be cl-cc/javascript::+js-undefined+)
-    (expect (cl-cc/javascript::%js-ta-get ta -1) :to-be cl-cc/javascript::+js-undefined+)
+    (expect (cl-cc/javascript::%js-ta-get ta 2) :to-be-js-undefined)
+    (expect (cl-cc/javascript::%js-ta-get ta -1) :to-be-js-undefined)
     (expect (= 99.0d0 (cl-cc/javascript::%js-ta-set ta 5 99)) :to-be-truthy)
     (expect (%ta-to-list ta) :to-equal '(10 20))
     (expect (equalp #(10.0d0 20.0d0) (cl-cc/javascript::%js-ta-to-array ta)) :to-be-truthy)))
@@ -342,7 +342,7 @@
   (let* ((ta  (cl-cc/javascript::%js-uint8-from-hex "000fff"))
          (buf (cl-cc/javascript::js-ta-buffer ta)))
     (expect (= 3 (cl-cc/javascript::js-ta-length ta)) :to-be-truthy)
-    (expect (= 0 (aref buf 0)) :to-be-truthy)
+    (expect (zerop (aref buf 0)) :to-be-truthy)
     (expect (= 15 (aref buf 1)) :to-be-truthy)
     (expect (= 255 (aref buf 2)) :to-be-truthy)))
 
