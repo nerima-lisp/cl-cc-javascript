@@ -97,8 +97,12 @@
     ("Number.isNaN"            . ,#'%js-number-is-nan)
     ("Number.isFinite"         . ,#'%js-number-is-finite)
     ("Number.isInteger"        . ,#'%js-number-is-integer)
-    ("Number.parseInt"         . ,#'%js-to-number)
-    ("Number.parseFloat"       . ,#'%js-to-number)
+    ;; Number.parseInt/parseFloat are, per spec, literally === the global
+    ;; parseInt/parseFloat (same function object) -- NOT %js-to-number,
+    ;; which doesn't tolerate trailing junk (parseInt("42x") must parse the
+    ;; leading numeric prefix and return 42, not NaN).
+    ("Number.parseInt"         . ,#'%js-parse-int)
+    ("Number.parseFloat"       . ,#'%js-parse-float)
     ("Number.MAX_SAFE_INTEGER" . ,(lambda () 9007199254740991.0d0))
     ("Number.MIN_SAFE_INTEGER" . ,(lambda () -9007199254740991.0d0))
     ("Number.EPSILON"          . ,(lambda () 2.220446049250313d-16))
@@ -273,7 +277,7 @@
     ;; Performance API extras
     ("performance"       . ,(%js-make-object
                              "now" (lambda ()
-                                     (coerce (- (get-internal-real-time) 0) 'double-float))
+                                     (coerce (get-internal-real-time) 'double-float))
                              "mark" (lambda (&rest _) (declare (ignore _)) +js-undefined+)
                              "measure" (lambda (&rest _) (declare (ignore _)) +js-undefined+)
                              "getEntries" (lambda () (%js-make-array))

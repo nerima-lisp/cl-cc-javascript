@@ -14,10 +14,6 @@
   "Return only the :type field of each token produced from SRC."
   (mapcar (lambda (tok) (getf tok :type)) (%js-lex src)))
 
-(defun %js-lex-values (src)
-  "Return only the :value field of each token produced from SRC."
-  (mapcar (lambda (tok) (getf tok :value)) (%js-lex src)))
-
 (defun %js-first-token (src)
   "Return the first token produced from SRC."
   (first (%js-lex src)))
@@ -191,15 +187,18 @@
   (let* ((tok (first (%js-lex "`hello`")))
          (parts (getf tok :value)))
     (expect (getf tok :type) :to-be :T-TEMPLATE-PARTS)
-    (expect parts :to-equal '("hello"))))
+    (expect parts :to-equal '((:text "hello" "hello")))))
 
 (it-sequential "lex-template-escaped-cook"
   (let* ((tok (first (%js-lex "`a\\n\\r\\t\\\\\\`\\$\\0z`")))
          (parts (getf tok :value))
-         (expected (coerce (list #\a #\Newline #\Return #\Tab #\\ #\` #\$ #\Null #\z)
-                           'string)))
+         (cooked (coerce (list #\a #\Newline #\Return #\Tab #\\ #\` #\$ #\Null #\z)
+                         'string))
+         ;; The raw (as-written) text is the source slice between the
+         ;; backticks, escapes untouched -- see js-lex-template-text-part.
+         (raw "a\\n\\r\\t\\\\\\`\\$\\0z"))
     (expect (getf tok :type) :to-be :T-TEMPLATE-PARTS)
-    (expect parts :to-equal (list expected))))
+    (expect parts :to-equal (list (list :text cooked raw)))))
 
 (it-sequential "lex-template-interpolated"
   (let* ((tok (first (%js-lex "`hi ${name + 1}!`")))
@@ -209,10 +208,10 @@
          (inner-types (mapcar (lambda (tk) (getf tk :type))
                               inner)))
     (expect (getf tok :type) :to-be :T-TEMPLATE-PARTS)
-    (expect (first parts) :to-equal "hi ")
+    (expect (first parts) :to-equal '(:text "hi " "hi "))
     (expect (and (consp expr-part)
                       (eq (first expr-part) :template-expr)) :to-be-truthy)
-    (expect (third parts) :to-equal "!")
+    (expect (third parts) :to-equal '(:text "!" "!"))
     (expect inner-types :to-equal '(:T-IDENT :T-OP :T-NUMBER))))
 
 (it-sequential "lex-template-nested-interpolation"
@@ -221,8 +220,8 @@
          (inner (second (second parts)))
          (inner-types (mapcar (lambda (tk) (getf tk :type)) inner)))
     (expect (getf tok :type) :to-be :T-TEMPLATE-PARTS)
-    (expect (first parts) :to-equal "a ")
-    (expect (third parts) :to-equal " b")
+    (expect (first parts) :to-equal '(:text "a " "a "))
+    (expect (third parts) :to-equal '(:text " b" " b"))
     (expect (member :T-TEMPLATE-PARTS inner-types) :to-be-truthy)))
 
 (it-sequential-each (("n" 0 #\Newline 1)

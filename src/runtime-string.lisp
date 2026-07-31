@@ -1,39 +1,38 @@
 ;;;; packages/javascript/src/runtime-string.lisp — JS String, Number, Regex, Math built-ins
 ;;;;
 ;;;; String methods, numeric helpers, regex stubs, and Math functions.
-
 (in-package :cl-cc/javascript)
 
 ;;; -----------------------------------------------------------------------
 ;;;  String methods
 ;;; -----------------------------------------------------------------------
-
 (defun %js-string-length (s)
   (length s))
 
 (defun %js-string-slice (s &optional (start 0) (end nil))
   "JS String.prototype.slice."
   (let* ((n (length s))
-         (st (if (< start 0) (max 0 (+ n start)) (min start n)))
-         (en (if (null end) n (if (< end 0) (max 0 (+ n end)) (min end n)))))
-    (if (>= st en) "" (subseq s st en))))
+         (st (%js-array-relative-start start n))
+         (en (%js-array-relative-end end n)))
+    (if (>= st en) ""
+      (subseq s st en))))
 
 (defun %js-string-index-of (s sub &optional (from 0))
   "JS String.prototype.indexOf."
   (let* ((n (length s))
          (st (max 0 (min (%js-array-to-integer from) n)))
          (found (search sub s :start2 st)))
-    (if found found -1)))
+    (or found -1)))
 
 (defun %js-string-last-index-of (s sub &optional (from nil))
   "JS String.prototype.lastIndexOf."
   (let* ((n (length s))
-         (pos (if (or (null from) (eq from +js-undefined+))
-                  n
-                  (max 0 (min (%js-array-to-integer from) n))))
+         (pos
+        (if (or (null from) (eq from +js-undefined+)) n
+          (max 0 (min (%js-array-to-integer from) n))))
          (end (min n (+ pos (length sub))))
          (found (search sub s :from-end t :end2 end)))
-    (if found found -1)))
+    (or found -1)))
 
 (defun %js-string-includes (s sub &optional (from 0))
   "JS String.prototype.includes."
@@ -42,52 +41,49 @@
 (defun %js-string-starts-with (s prefix &optional (pos 0))
   (let ((plen (length prefix))
         (slen (length s)))
-    (and (<= (+ pos plen) slen)
-         (string= s prefix :start1 pos :end1 (+ pos plen)))))
+    (and (<= (+ pos plen) slen) (string= s prefix :start1 pos :end1 (+ pos plen)))))
 
 (defun %js-string-ends-with (s suffix &optional (end-pos nil))
   (let* ((slen (length s))
-         (ep (if (null end-pos) slen (min end-pos slen)))
+         (ep slen)
          (suflen (length suffix)))
-    (and (>= ep suflen)
-         (string= s suffix :start1 (- ep suflen) :end1 ep))))
+    (and (>= ep suflen) (string= s suffix :start1 (- ep suflen) :end1 ep))))
 
 (defun %js-string-split (s &optional (sep nil) (limit nil))
   "JS String.prototype.split."
   (let ((result (make-array 0 :element-type t :adjustable t :fill-pointer 0)))
     (cond
-      ((or (eq sep +js-undefined+) (null sep))
-       (vector-push-extend s result))
+      ((or (eq sep +js-undefined+) (null sep)) (vector-push-extend s result))
       ((string= sep "")
-       (loop for ch across s
-             do (vector-push-extend (string ch) result)))
+        (loop for ch across s
+              do (vector-push-extend (string ch) result)))
       (t
-       (let ((seplen (length sep))
-             (pos 0)
-             (slen (length s)))
-         (loop
-           (let ((found (search sep s :start2 pos)))
-             (unless found (return))
-             (vector-push-extend (subseq s pos found) result)
-             (setf pos (+ found seplen))
-             (when (and limit (>= (length result) limit)) (return))))
-         (unless (and limit (>= (length result) limit))
-           (vector-push-extend (subseq s pos) result)))))
-    (if (and limit (%js-truthy limit))
-        (%js-array-slice result 0 limit)
-        result)))
+        (let ((seplen (length sep))
+              (pos 0)
+              (slen (length s)))
+          (loop (let ((found (search sep s :start2 pos)))
+              (unless found
+                (return))
+              (vector-push-extend (subseq s pos found) result)
+              (setf pos (+ found seplen))
+              (when (and limit (>= (length result) limit))
+                (return))))
+          (unless (and limit (>= (length result) limit))
+            (vector-push-extend (subseq s pos) result)))))
+    (if (and limit (%js-truthy limit)) (%js-array-slice result 0 limit)
+      result)))
 
 (defun %js-string-replace (s pattern replacement)
   "JS String.prototype.replace (string pattern only)."
   (let* ((pat (%js-to-string pattern))
          (patlen (length pat))
          (found (search pat s)))
-    (if found
-        (concatenate 'string
-                     (subseq s 0 found)
-                     (%js-to-string replacement)
-                     (subseq s (+ found patlen)))
-        s)))
+    (if found (concatenate
+        'string
+        (subseq s 0 found)
+        (%js-to-string replacement)
+        (subseq s (+ found patlen)))
+      s)))
 
 (defun %js-string-replace-all (s pattern replacement)
   "JS String.prototype.replaceAll."
@@ -96,8 +92,7 @@
          (patlen (length pat)))
     (with-output-to-string (out)
       (let ((pos 0))
-        (loop
-          (let ((found (search pat s :start2 pos)))
+        (loop (let ((found (search pat s :start2 pos)))
             (unless found
               (write-string (subseq s pos) out)
               (return))
@@ -110,60 +105,68 @@
 ;;; generates (defun %js-string-X (s) (cl-fn fixed-args... s))
 (defmacro define-js-string-passthrough (name cl-fn &rest fixed-args)
   `(defun ,name (s)
-     (,cl-fn ,@fixed-args s)))
+    (,cl-fn ,@fixed-args s)))
 
 (define-js-string-passthrough %js-string-to-lower-case string-downcase)
+
 (define-js-string-passthrough %js-string-to-upper-case string-upcase)
 
 (defparameter +js-whitespace-chars+ '(#\Space #\Tab #\Newline #\Return #\Page)
   "Characters treated as whitespace by JS String.prototype.trim methods.")
 
-(define-js-string-passthrough %js-string-trim       string-trim      +js-whitespace-chars+)
-(define-js-string-passthrough %js-string-trim-start string-left-trim +js-whitespace-chars+)
-(define-js-string-passthrough %js-string-trim-end   string-right-trim +js-whitespace-chars+)
+(define-js-string-passthrough %js-string-trim string-trim +js-whitespace-chars+)
+
+(define-js-string-passthrough
+  %js-string-trim-start
+  string-left-trim
+  +js-whitespace-chars+)
+
+(define-js-string-passthrough
+  %js-string-trim-end
+  string-right-trim
+  +js-whitespace-chars+)
 
 (defmacro define-js-string-pad (name &key pad-before-p)
   "Define a string padding function. PAD-BEFORE-P=T for padStart, NIL for padEnd."
   `(defun ,name (s len &optional (fill " "))
-     (let* ((fl   (if (eq fill +js-undefined+) " " fill))
-            (need (- len (length s))))
-       (if (<= need 0)
-           s
-           (let ((pad (make-string need :initial-element #\Space)))
-             (loop for i below need
-                   do (setf (char pad i) (char fl (mod i (max 1 (length fl))))))
-             ,(if pad-before-p
-                  '(concatenate 'string pad s)
-                  '(concatenate 'string s pad)))))))
+    (let* ((fl
+          (if (eq fill +js-undefined+) " "
+            fill))
+           (need (- len (length s))))
+      (if (<= need 0) s
+        (let ((pad (make-string need :initial-element #\Space)))
+          (loop for i below need
+                do (setf (char pad i) (char fl (mod i (max 1 (length fl))))))
+          ,(if pad-before-p '(concatenate 'string pad s)
+            '(concatenate 'string s pad)))))))
 
 (define-js-string-pad %js-string-pad-start :pad-before-p t)
-(define-js-string-pad %js-string-pad-end   :pad-before-p nil)
+
+(define-js-string-pad %js-string-pad-end :pad-before-p nil)
 
 (defun %js-string-at (s index)
   "JS String.prototype.at (negative indexing)."
   (let* ((n (length s))
-         (i (if (< index 0) (+ n index) index)))
-    (if (or (< i 0) (>= i n))
-        +js-undefined+
-        (string (char s i)))))
+         (i
+        (if (minusp index) (+ n index)
+          index)))
+    (if (or (minusp i) (>= i n)) +js-undefined+
+      (string (char s i)))))
 
 (defun %js-string-repeat (s n)
   "Repeat S n times."
-  (if (<= n 0)
-      ""
-      (with-output-to-string (out)
-        (loop repeat n do (write-string s out)))))
+  (if (<= n 0) ""
+    (with-output-to-string (out)
+      (loop repeat n
+            do (write-string s out)))))
 
 (defun %js-string-char-at (s i)
-  (if (or (< i 0) (>= i (length s)))
-      ""
-      (string (char s i))))
+  (if (or (minusp i) (>= i (length s))) ""
+    (string (char s i))))
 
 (defun %js-string-char-code-at (s i)
-  (if (or (< i 0) (>= i (length s)))
-      :js-nan
-      (char-code (char s i))))
-
+  (if (or (minusp i) (>= i (length s))) :js-nan
+    (char-code (char s i))))
 
 (defun %js-string-concat (s &rest others)
   (apply #'concatenate 'string s (mapcar #'%js-to-string others)))
@@ -171,26 +174,27 @@
 (defun %js-string-match (s pattern)
   "Simplified string match (pattern is a string)."
   (let ((found (search pattern s)))
-    (if found
-        (%js-make-array (subseq s found (+ found (length pattern))))
-        +js-null+)))
+    (if found (%js-make-array (subseq s found (+ found (length pattern))))
+      +js-null+)))
 
 (defun %js-string-match-all (s pattern)
   "Simplified matchAll — returns array of match arrays."
   (let ((result (make-array 0 :element-type t :adjustable t :fill-pointer 0))
         (pos 0)
         (patlen (max 1 (length pattern))))
-    (loop
-      (let ((found (search pattern s :start2 pos)))
-        (unless found (return))
-        (vector-push-extend (%js-make-array (subseq s found (+ found (length pattern)))) result)
+    (loop (let ((found (search pattern s :start2 pos)))
+        (unless found
+          (return))
+        (vector-push-extend
+          (%js-make-array (subseq s found (+ found (length pattern))))
+          result)
         (setf pos (+ found patlen))))
     result))
 
 (defun %js-string-search (s pattern)
   "Return index of first match or -1."
   (let ((found (search pattern s)))
-    (if found found -1)))
+    (or found -1)))
 
 (defun %js-string-from-char-code (&rest codes)
   "String.fromCharCode / String.fromCodePoint — both map code-char over their args."
@@ -201,14 +205,16 @@
 
 (defun %js-string-normalize (s &optional (form "NFC"))
   "JS String.prototype.normalize for NFC, NFD, NFKC, and NFKD."
-  (let* ((form-name (if (eq form +js-undefined+) "NFC" (%js-to-string form)))
-         (normalization-form (cond
-                               ((string= form-name "NFC") :nfc)
-                               ((string= form-name "NFD") :nfd)
-                               ((string= form-name "NFKC") :nfkc)
-                               ((string= form-name "NFKD") :nfkd)
-                               (t (error "JS RangeError: invalid normalization form ~A"
-                                         form-name)))))
+  (let* ((form-name
+        (if (eq form +js-undefined+) "NFC"
+          (%js-to-string form)))
+         (normalization-form
+        (cond
+          ((string= form-name "NFC") :nfc)
+          ((string= form-name "NFD") :nfd)
+          ((string= form-name "NFKC") :nfkc)
+          ((string= form-name "NFKD") :nfkd)
+          (t (error "JS RangeError: invalid normalization form ~A" form-name)))))
     (sb-unicode:normalize-string (%js-to-string s) normalization-form)))
 
 (defun %js-string-to-well-formed (s)
@@ -224,6 +230,7 @@ In CL strings (UCS-4), strings are always well-formed in this sense."
 
 ;;; toLocaleUpperCase/toLocaleLowerCase are locale-neutral aliases in our model.
 (define-js-string-passthrough %js-string-to-locale-lower-case string-downcase)
+
 (define-js-string-passthrough %js-string-to-locale-upper-case string-upcase)
 
 (defun %js-string-locale-compare (s other &optional locales options)
@@ -231,24 +238,27 @@ In CL strings (UCS-4), strings are always well-formed in this sense."
   (declare (ignore locales options))
   (let ((a s)
         (b (%js-to-string other)))
-    (cond ((string< a b) -1.0d0)
-          ((string> a b)  1.0d0)
-          (t              0.0d0))))
+    (cond
+      ((string< a b) -1.0d0)
+      ((string> a b) 1.0d0)
+      (t 0.0d0))))
 
 (defun %js-string-code-point-at (s pos)
   "JS String.prototype.codePointAt(pos) — returns Unicode code point at POS.
 For BMP characters (U+0000–U+FFFF) this is identical to charCodeAt."
   (let ((i (truncate pos)))
-    (if (or (< i 0) (>= i (length s)))
-        +js-undefined+
-        (char-code (char s i)))))
-
+    (if (or (minusp i) (>= i (length s))) +js-undefined+
+      (char-code (char s i)))))
 
 (defun %js-string-raw (template &rest substitutions)
-  "String.raw tag function."
-  (let ((raw (if (%js-ht-p template)
-                 (gethash "raw" template)
-                 template)))
+  "String.raw tag function: `` String.raw`a\\nb${x}c` `` -- TEMPLATE is the
+tag call's first argument (see %js-make-tagged-template-strings), whose
+`raw` property is the array of as-written (escapes-untouched) text
+segments. Falls back to treating TEMPLATE itself as the raw array when it
+has no `raw` property (e.g. a bare array passed directly, bypassing the
+tagged-template call mechanism)."
+  (let* ((raw-prop (%js-get-prop template "raw"))
+         (raw (if (eq raw-prop +js-undefined+) template raw-prop)))
     (with-output-to-string (out)
       (loop for i below (length raw)
             do (write-string (%js-to-string (aref raw i)) out)
@@ -256,13 +266,14 @@ For BMP characters (U+0000–U+FFFF) this is identical to charCodeAt."
                  (write-string (%js-to-string (nth i substitutions)) out))))))
 
 ;;; Math built-ins live in runtime-math.lisp (separated by SRP).
-
 ;;; ─── ES2015+ String extras ───────────────────────────────────────────────────
-
 (defun %js-string-substring (s start &optional end)
   "JS String.prototype.substring (clamps, swaps start>end, differs from slice)."
   (let* ((n (length s))
          (a (max 0 (min n (truncate (%js-to-number start)))))
-         (b (if (eq end +js-undefined+) n (max 0 (min n (truncate (%js-to-number end))))))
-         (lo (min a b)) (hi (max a b)))
+         (b
+        (if (eq end +js-undefined+) n
+          (max 0 (min n (truncate (%js-to-number end))))))
+         (lo (min a b))
+         (hi (max a b)))
     (subseq s lo hi)))

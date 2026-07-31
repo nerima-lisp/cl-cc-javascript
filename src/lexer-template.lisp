@@ -6,7 +6,9 @@
 ;;;;                    or (:type :T-TEMPLATE-PARTS :value parts-list)
 ;;;;
 ;;;; parts-list elements are:
-;;;;   - a string (literal text segment)
+;;;;   - (:text cooked raw) a literal text segment, escapes-processed and
+;;;;     as-written respectively (raw is what String.raw / a tag function's
+;;;;     .raw array need)
 ;;;;   - (:template-expr token-list) where token-list is the inner expression tokens
 ;;;;
 ;;;; Escape sequences handled:
@@ -20,16 +22,12 @@
 ;;;;   \u{XXXXXX} -> unicode codepoint (variable hex digits)
 ;;;;   \xXX       -> hex escape (2 hex digits)
 ;;;;   other      -> character as-is (permissive template tagged literal support)
-
 (in-package :cl-cc/javascript)
 
 ;;; ─── Character helpers ───────────────────────────────────────────────────────
-
 (defun js-hex-digit-p (ch)
   "Return true if CH is a hexadecimal digit character."
-  (and ch (or (char<= #\0 ch #\9)
-              (char<= #\a ch #\f)
-              (char<= #\A ch #\F))))
+  (and ch (or (char<= #\0 ch #\9) (char<= #\a ch #\f) (char<= #\A ch #\F))))
 
 (defun js-hex-digit-value (ch)
   "Return the numeric value of hex digit character CH."
@@ -40,7 +38,6 @@
     (t (error "JS template lex error: ~S is not a hex digit" ch))))
 
 ;;; ─── Escape sequence processor ───────────────────────────────────────────────
-
 (defun %js-lex-template-unicode-escape (source pos)
   "Process a \\u escape starting at POS (the position of 'u' itself), in
 either \\uXXXX (exactly 4 hex digits) or \\u{XXXXXX} (variable hex digits)
@@ -51,8 +48,8 @@ form. Returns (values char new-pos)."
     (cond
       ;; \u{...} form
       ((char= (char source next-pos) #\{)
-       (let ((hex-start (+ next-pos 1))
-             (hex-end   (+ next-pos 1)))
+       (let ((hex-start (1+ next-pos))
+             (hex-end   (1+ next-pos)))
          (loop while (and (< hex-end (length source))
                           (js-hex-digit-p (char source hex-end)))
                do (incf hex-end))
@@ -89,14 +86,16 @@ form. Returns (values char new-pos)."
   "Process a \\xXX escape starting at POS (the position of 'x' itself) —
 exactly 2 hex digits required. Returns (values char new-pos)."
   (let ((hex-start (1+ pos))
-        (hex-end   (+ pos 3)))
+        (hex-end (+ pos 3)))
     (when (> hex-end (length source))
       (error "JS template lex error: incomplete \\xXX escape"))
     (loop for i from hex-start below hex-end
           unless (js-hex-digit-p (char source i))
-          do (error "JS template lex error: non-hex digit in \\xXX escape at position ~D" i))
-    (let ((byte (+ (* (js-hex-digit-value (char source hex-start)) 16)
-                   (js-hex-digit-value (char source (1+ hex-start))))))
+            do (error "JS template lex error: non-hex digit in \\xXX escape at position ~D" i))
+    (let ((byte
+          (+
+            (* (js-hex-digit-value (char source hex-start)) 16)
+            (js-hex-digit-value (char source (1+ hex-start))))))
       (values (code-char byte) hex-end))))
 
 (defun js-lex-template-escape (source pos)
@@ -123,12 +122,16 @@ exactly 2 hex digits required. Returns (values char new-pos)."
        (values esc (1+ pos))))))
 
 ;;; ─── Template text segment scanner ──────────────────────────────────────────
-
 (defun js-lex-template-text-part (source pos)
   "Scan template chars from POS until backtick or dollar-brace.
-  Returns (values text-string end-pos end-reason) where end-reason is
-  :end-of-template (closing backtick found) or :start-interp (dollar-brace found)."
-  (let ((buf (make-array 64 :element-type 'character :fill-pointer 0 :adjustable t)))
+  Returns (values cooked-string raw-string end-pos end-reason) where
+  COOKED-STRING has escapes processed (\\n -> newline, etc.) and RAW-STRING
+  is the exact source slice between POS and the delimiter, escapes
+  untouched -- what String.raw and any other tag function's `.raw` array
+  need (TC39 tagged-template protocol). END-REASON is :end-of-template
+  (closing backtick found) or :start-interp (dollar-brace found)."
+  (let ((start pos)
+        (buf (make-array 64 :element-type 'character :fill-pointer 0 :adjustable t)))
     (loop
       (when (>= pos (length source))
         (error "JS template lex error: unterminated template literal"))
@@ -136,12 +139,12 @@ exactly 2 hex digits required. Returns (values char new-pos)."
         (cond
           ;; Closing backtick — end of template
           ((char= ch #\`)
-           (return (values (copy-seq buf) (1+ pos) :end-of-template)))
+           (return (values (copy-seq buf) (subseq source start pos) (1+ pos) :end-of-template)))
           ;; Start of interpolation: ${
           ((and (char= ch #\$)
                 (< (1+ pos) (length source))
                 (char= (char source (1+ pos)) #\{))
-           (return (values (copy-seq buf) (+ pos 2) :start-interp)))
+           (return (values (copy-seq buf) (subseq source start pos) (+ pos 2) :start-interp)))
           ;; Escape sequence
           ((char= ch #\\)
            (multiple-value-bind (escaped-char new-pos)
@@ -154,7 +157,6 @@ exactly 2 hex digits required. Returns (values char new-pos)."
            (incf pos)))))))
 
 ;;; ─── Inner expression tokenizer ──────────────────────────────────────────────
-
 (defun js-lex-template-interp-end (source pos)
   "Scan from POS (just after the ${ ) to the matching closing brace, tracking
 brace depth and skipping over string and nested-template literals so braces
@@ -209,23 +211,26 @@ Returns (values token-list pos-after-closing-brace)."
     (values inner (1+ end))))
 
 ;;; ─── Top-level template literal lexer ───────────────────────────────────────
-
 (defun js-lex-template (source pos)
   "Lex a complete template literal. POS is AFTER the opening backtick.
   Returns (values token new-pos).
 
   For simple (no interpolation):  (:type :T-STRING        :value string)
-  For interpolated:               (:type :T-TEMPLATE-PARTS :value (list part ...))"
+  For interpolated:               (:type :T-TEMPLATE-PARTS :value (list part ...))
+
+  Each PART is either (:text cooked raw) for a literal text segment, or
+  (:template-expr token-list) for an interpolated expression -- see
+  js-lex-template-text-part for what cooked/raw mean."
   (let ((parts '())
         (has-interp nil))
     (loop
-      (multiple-value-bind (text end-pos end-reason)
+      (multiple-value-bind (cooked raw end-pos end-reason)
           (js-lex-template-text-part source pos)
         (cond
           ;; End of template — push final text segment (even if empty when
           ;; the template ends with an interpolation: `${x}`)
           ((eq end-reason :end-of-template)
-           (push text parts)
+           (push (list :text cooked raw) parts)
            (let ((all-parts (nreverse parts)))
              (declare (ignorable has-interp))
              ;; Always emit :T-TEMPLATE-PARTS, even for a no-interpolation
@@ -242,7 +247,7 @@ Returns (values token-list pos-after-closing-brace)."
           ((eq end-reason :start-interp)
            (setf has-interp t)
            ;; Push the text segment (may be empty string between adjacent interpolations)
-           (push text parts)
+           (push (list :text cooked raw) parts)
            ;; Tokenize the inner expression
            (multiple-value-bind (inner-tokens expr-end-pos)
                (js-lex-template-inner-tokens source end-pos)
