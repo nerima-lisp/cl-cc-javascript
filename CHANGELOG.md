@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (dependencies)
+
+- `cl-concurrent-kit` `v0.1.0` → `v0.2.0`. Substantial internal rework upstream
+  (intrusive-list FIFO, bitmask-keyed channel waiters, CAS-based executor task
+  state, several new macro consolidations, a promise/stream/executor feature
+  layer) but the CHANGELOG's own "Changed" section shows no signature change to
+  the only three functions this repo calls (`make-channel`/`send`/`recv`, used
+  by `runtime-generator.lisp`'s suspend/resume coroutine).
+- `cl-log-kit` `v1.0.0` → `v2.0.0`, a deliberately-deferred bump from an
+  earlier session (its own `flake.nix` comment asked for this exact
+  evaluation before bumping, rather than doing it as a side effect of the
+  cl-date-kit/cl-concurrent-kit/cl-host-kit inputs unblocking it). Evaluated:
+  the BREAKING section (drops the zero-runtime-dependency guarantee;
+  `rotating-file-handler`'s rotation clock defaults to UTC instead of local
+  time) affects neither this repo's code nor its tests — `cl-log-kit` is a
+  transitive dependency only (pulled in via `cl-cc`'s own `cl-boundary-kit`
+  dependency), confirmed by grepping `src/*.lisp`/`t/*.lisp` for any direct
+  reference (none). Version floors it now declares for its three new
+  dependencies are already met by this repo's own pins.
+
+Both verified via `nix build .#checks.aarch64-darwin.default`: 1350 passed,
+0 failed, both times.
+
 ### Removed
 
 - 15 dead `"console.*"` entries (`console.log`/`error`/`warn`/`info`/`debug`/`table`/

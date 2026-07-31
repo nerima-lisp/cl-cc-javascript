@@ -155,18 +155,22 @@
       url = "github:nerima-lisp/cl-tty-kit/v1.0.3";
       flake = false;
     };
-    # STAYS at v1.0.0 — v2.0.0 is a real breaking release that needs three
-    # runtime dependencies (cl-date-kit, cl-concurrent-kit, cl-host-kit)
-    # declared as inputs and wired through scripts/dependency-roots.lisp
-    # before cl-log-kit itself could even load. All three are now declared
-    # below (cl-date-kit/cl-concurrent-kit adopted directly for their own
-    # genuine use in this frontend; cl-host-kit added for cl-boundary-kit's
-    # v2.0.0 bump, see its own comment above) — the input-availability
-    # blocker is gone, but bumping this pin is still its own decision
-    # requiring evaluation of cl-log-kit v2.0.0's OWN behavior changes, not
-    # done here as a side effect of unblocking the inputs.
+    # v1.0.0 -> v2.0.0, evaluated 2026-07-31 (a prior session deliberately left
+    # this bump for its own dedicated evaluation rather than doing it as a
+    # side effect of unblocking cl-date-kit/cl-concurrent-kit/cl-host-kit as
+    # inputs — that evaluation is this comment). v2.0.0's own BREAKING section
+    # covers dropping cl-log-kit's zero-runtime-dependency guarantee (now
+    # needs exactly those three packages) and rotating-file-handler's default
+    # rotation clock switching from local time to UTC — neither affects this
+    # repo: cl-log-kit is a transitive dependency only (cl-cc's umbrella pulls
+    # it in via cl-boundary-kit; grepped src/*.lisp and t/*.lisp for any
+    # direct reference — none), so no code here ever constructs a
+    # rotating-file-handler or otherwise observes the clock change. Version
+    # floors cl-log-kit.asd declares for the three new dependencies
+    # (cl-date-kit >= 0.2.0, cl-concurrent-kit >= 0.1.0, cl-host-kit >= 0.2.0)
+    # are already met by the pins below. Safe bump.
     cl-log-kit = {
-      url = "github:nerima-lisp/cl-log-kit/v1.0.0";
+      url = "github:nerima-lisp/cl-log-kit/v2.0.0";
       flake = false;
     };
     cl-date-kit = {
@@ -177,8 +181,15 @@
       url = "github:nerima-lisp/cl-json-kit/v1.0.1";
       flake = false;
     };
+    # v0.1.0 -> v0.2.0: substantial internal rework (intrusive-list FIFO,
+    # bitmask-keyed channel waiters, CAS-based executor task state, several
+    # new define-*/with-* macro consolidations, a promise/stream/executor
+    # feature layer) but zero change to the three functions this repo
+    # actually calls (make-channel/send/recv) -- checked the CHANGELOG's own
+    # "### Changed" section line by line for a signature change to any of
+    # the three before bumping; found none.
     cl-concurrent-kit = {
-      url = "github:nerima-lisp/cl-concurrent-kit/v0.1.0";
+      url = "github:nerima-lisp/cl-concurrent-kit/v0.2.0";
       flake = false;
     };
     # Not used directly by cl-cc-javascript's own code (evaluated and
