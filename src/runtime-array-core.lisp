@@ -53,20 +53,31 @@ one first if this is the key's first item."
       (vector-push-extend item (funcall get-bucket key)))))
 
 (defun %js-array-push (arr val)
-  "Append VAL to ARR; return new length."
-  (vector-push-extend val arr)
+  "Append VAL to ARR; return new length. Growing the array adds a new
+index, so a no-op while frozen or sealed/non-extensible (see
+%js-object-extensible-p) -- same guard %js-set-prop applies to a bare
+`arr[arr.length] = val'."
+  (unless (or (%js-object-frozen-p arr) (not (%js-object-extensible-p arr)))
+    (vector-push-extend val arr))
   (length arr))
 
 (defun %js-array-pop (arr)
-  "Remove and return last element, or undefined."
-  (if (zerop (length arr)) +js-undefined+
+  "Remove and return last element, or undefined. Removing an element needs
+[[Configurable]], so a no-op while frozen or sealed (see %js-delete's
+analogous guard for objects)."
+  (if (or (zerop (length arr))
+          (%js-object-frozen-p arr) (%js-object-sealed-p arr))
+      +js-undefined+
     (let ((val (aref arr (1- (length arr)))))
       (decf (fill-pointer arr))
       val)))
 
 (defun %js-array-shift (arr)
-  "Remove and return first element."
-  (if (zerop (length arr)) +js-undefined+
+  "Remove and return first element. Same frozen/sealed no-op guard as
+%js-array-pop -- shifting removes an element."
+  (if (or (zerop (length arr))
+          (%js-object-frozen-p arr) (%js-object-sealed-p arr))
+      +js-undefined+
     (let ((val (aref arr 0)))
       (loop for i from 0 below (1- (length arr))
             do (setf (aref arr i) (aref arr (1+ i))))
@@ -74,18 +85,22 @@ one first if this is the key's first item."
       val)))
 
 (defun %js-array-unshift (arr &rest items)
-  "Prepend ITEMS to ARR; return new length."
-  (let* ((n (length items))
-         (old-len (length arr))
-         (new-len (+ old-len n)))
-    (adjust-array arr new-len :fill-pointer new-len)
-    ;; shift existing elements right
-    (loop for i from (1- old-len) downto 0
-          do (setf (aref arr (+ i n)) (aref arr i)))
-    ;; insert new items
-    (loop for item in items for i from 0
-          do (setf (aref arr i) item))
-    new-len))
+  "Prepend ITEMS to ARR; return new length. Growing the array adds new
+indices, so a no-op while frozen or sealed/non-extensible, same as
+%js-array-push."
+  (if (or (%js-object-frozen-p arr) (not (%js-object-extensible-p arr)))
+      (length arr)
+    (let* ((n (length items))
+           (old-len (length arr))
+           (new-len (+ old-len n)))
+      (adjust-array arr new-len :fill-pointer new-len)
+      ;; shift existing elements right
+      (loop for i from (1- old-len) downto 0
+            do (setf (aref arr (+ i n)) (aref arr i)))
+      ;; insert new items
+      (loop for item in items for i from 0
+            do (setf (aref arr i) item))
+      new-len)))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Array index coercion

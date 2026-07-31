@@ -28,7 +28,11 @@ mutate SEQ. Shared by the mutating %JS-ARRAY-SORT and the non-mutating
     (concatenate 'vector sorted (make-array undefined-count :initial-element +js-undefined+))))
 
 (defun %js-array-splice (arr start &optional (delete-count nil delete-count-supplied-p) &rest items)
-  "Splice: remove DELETE-COUNT elements at START, insert ITEMS."
+  "Splice: remove DELETE-COUNT elements at START, insert ITEMS. Splicing
+always either removes or inserts elements (or both), so -- like push/pop --
+a no-op returning an empty removed-array while frozen or sealed."
+  (when (or (%js-object-frozen-p arr) (%js-object-sealed-p arr))
+    (return-from %js-array-splice (%js-make-vec 0)))
   (let* ((n (length arr))
          (s (%js-array-relative-start start n))
          (dc (if delete-count-supplied-p (min (max 0 (%js-array-to-integer delete-count)) (- n s)) (- n s)))
@@ -66,15 +70,19 @@ mutate SEQ. Shared by the mutating %JS-ARRAY-SORT and the non-mutating
     result))
 
 (defun %js-array-reverse (arr)
-  "Reverse ARR in place; return ARR."
-  (let ((n (length arr)))
-    (loop for i below (floor n 2)
-          do (rotatef (aref arr i) (aref arr (- n 1 i)))))
+  "Reverse ARR in place; return ARR. Only rewrites existing indices, so
+(unlike splice/push/pop) sealing alone doesn't block it -- only frozen does."
+  (unless (%js-object-frozen-p arr)
+    (let ((n (length arr)))
+      (loop for i below (floor n 2)
+            do (rotatef (aref arr i) (aref arr (- n 1 i))))))
   arr)
 
 (defun %js-array-sort (arr &optional compare-fn)
-  "Sort ARR in place; return ARR."
-  (replace arr (%js-array-stable-sort-undefined-last arr compare-fn))
+  "Sort ARR in place; return ARR. Only rewrites existing indices, so a
+no-op while frozen (see %js-array-reverse)."
+  (unless (%js-object-frozen-p arr)
+    (replace arr (%js-array-stable-sort-undefined-last arr compare-fn)))
   arr)
 
 (defun %js-array-flat (arr &optional (depth 1))
@@ -93,26 +101,30 @@ mutate SEQ. Shared by the mutating %JS-ARRAY-SORT and the non-mutating
   (%js-array-flat (%js-array-map arr fn) 1))
 
 (defun %js-array-fill (arr value &optional (start 0) (end nil))
-  "Fill ARR[start..end] with VALUE."
-  (let* ((n (length arr))
-         (s (%js-array-relative-start start n))
-         (e (%js-array-relative-end end n)))
-    (loop for i from s below e
-          do (setf (aref arr i) value)))
+  "Fill ARR[start..end] with VALUE. Only rewrites existing indices, so a
+no-op while frozen (see %js-array-reverse)."
+  (unless (%js-object-frozen-p arr)
+    (let* ((n (length arr))
+           (s (%js-array-relative-start start n))
+           (e (%js-array-relative-end end n)))
+      (loop for i from s below e
+            do (setf (aref arr i) value))))
   arr)
 
 (defun %js-array-copy-within (arr target &optional (start 0) (end nil))
-  "Copy elements within ARR."
-  (let* ((n (length arr))
-         (to (%js-array-relative-start target n))
-         (from (%js-array-relative-start start n))
-         (fin (%js-array-relative-end end n))
-         (count (max 0 (min (- fin from) (- n to))))
-         (tmp (make-array count)))
-    (loop for i below
-          count
-          do (setf (aref tmp i) (aref arr (+ from i))))
-    (loop for i below
-          count
-          do (setf (aref arr (+ to i)) (aref tmp i))))
+  "Copy elements within ARR. Only rewrites existing indices, so a no-op
+while frozen (see %js-array-reverse)."
+  (unless (%js-object-frozen-p arr)
+    (let* ((n (length arr))
+           (to (%js-array-relative-start target n))
+           (from (%js-array-relative-start start n))
+           (fin (%js-array-relative-end end n))
+           (count (max 0 (min (- fin from) (- n to))))
+           (tmp (make-array count)))
+      (loop for i below
+            count
+            do (setf (aref tmp i) (aref arr (+ from i))))
+      (loop for i below
+            count
+            do (setf (aref arr (+ to i)) (aref tmp i)))))
   arr)

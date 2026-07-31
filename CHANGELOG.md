@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `Object.freeze`/`Object.seal`/`Object.preventExtensions` (and their `is*` queries) on
+  JS arrays: previously complete no-ops, since `%js-object-frozen-p`/`-sealed-p`/
+  `-extensible-p` and their setters hard-gated on `%js-ht-p` and a JS array is a plain
+  CL vector (`%js-vec-p`), not a hash-table — `Object.freeze(arr)` followed by
+  `arr.push(1)`/`arr[0] = 99` silently succeeded either way, and `Object.isFrozen(arr)`
+  always returned `false`. Added a new `*js-array-flags*` side table
+  (`src/runtime-property.lisp`) — deliberately separate from the pre-existing
+  `*js-array-extra-properties*` table so an internal `__frozen__`/`__sealed__`/
+  `__extensible__` flag can never leak into `Object.keys`/`for...in` enumeration — and
+  widened `%js-object-internal-flag` and friends (`src/runtime-object.lisp`) to read/write
+  it for `%js-vec-p` values. `%js-set-prop`'s array branch, and the 9 mutating array
+  methods (`push`/`pop`/`shift`/`unshift`, `splice`/`reverse`/`sort`/`fill`/
+  `copyWithin`), now enforce the real ECMAScript distinction: frozen blocks *all*
+  mutation; sealed/non-extensible blocks only *adding or removing* indices/properties,
+  still permitting an existing index's value to be overwritten (matching this
+  codebase's existing silent-no-op convention for blocked writes on plain objects,
+  rather than throwing).
+
 ## [0.2.0] - 2026-07-31
 
 ### Added

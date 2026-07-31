@@ -56,6 +56,32 @@ lazily-created per-array side table (see *JS-ARRAY-EXTRA-PROPERTIES*)."
                          (make-hash-table :test #'equal)))))
     (setf (gethash key table) value)))
 
+(defvar *js-array-flags* (make-hash-table :test #'eq)
+  "Side table for internal, non-JS-visible array flags
+(__frozen__/__sealed__/__extensible__, mirroring the plain hash-table keys
+Object.freeze/seal/preventExtensions already use for ordinary objects) --
+deliberately SEPARATE from *JS-ARRAY-EXTRA-PROPERTIES* (ordinary named
+properties like `arr.foo = 1`) so an internal flag can never leak into
+Object.keys/for-in enumeration the way storing it in that other, JS-visible
+table would.")
+
+(defun %js-array-flag (arr key default)
+  "Look up internal flag KEY on array ARR (see *JS-ARRAY-FLAGS*), or DEFAULT
+if never set."
+  (let ((table (gethash arr *js-array-flags*)))
+    (if table
+        (multiple-value-bind (value present-p) (gethash key table)
+          (if present-p value default))
+        default)))
+
+(defun %js-set-array-flag (arr key value)
+  "Set internal flag KEY on array ARR to VALUE, in a lazily-created
+per-array side table (see *JS-ARRAY-FLAGS*)."
+  (let ((table (or (gethash arr *js-array-flags*)
+                   (setf (gethash arr *js-array-flags*)
+                         (make-hash-table :test #'equal)))))
+    (setf (gethash key table) value)))
+
 (defun %js-object-put-entry (ht k v)
   "Store K -> V in object HT.  A get/set accessor descriptor is routed to the
 internal __get_K / __set_K slot (so a getter and setter on the same key both
@@ -131,17 +157,34 @@ plain own property."
       ((%js-vec-p obj)
        (cond
          ((string= k "length")
-          (let ((new-len (truncate value)))
-            (adjust-array obj new-len :fill-pointer new-len)))
+          ;; Growing or shrinking .length either adds new indices (blocked
+          ;; while non-extensible, i.e. sealed or frozen) or deletes existing
+          ;; ones (also blocked while sealed or frozen -- deletion needs
+          ;; [[Configurable]], same as %js-delete's object branch above).
+          (unless (or (%js-object-sealed-p obj) (%js-object-frozen-p obj))
+            (let ((new-len (truncate value)))
+              (adjust-array obj new-len :fill-pointer new-len))))
          ((every #'digit-char-p k)
           (let ((idx (parse-integer k)))
-            (when (>= idx (length obj))
-              (adjust-array obj (1+ idx) :fill-pointer (1+ idx)
-                            :initial-element +js-undefined+))
-            (setf (aref obj idx) value)))
+            (if (< idx (length obj))
+                ;; Overwriting an existing element's value stays writable
+                ;; while merely sealed -- only frozen blocks it.
+                (unless (%js-object-frozen-p obj)
+                  (setf (aref obj idx) value))
+                ;; Growing the array by writing past its current end is
+                ;; adding a new index: blocked once non-extensible.
+                (unless (or (%js-object-frozen-p obj)
+                            (not (%js-object-extensible-p obj)))
+                  (adjust-array obj (1+ idx) :fill-pointer (1+ idx)
+                                :initial-element +js-undefined+)
+                  (setf (aref obj idx) value)))))
          ;; A non-index, non-"length" key: an ordinary named property, same
          ;; as `arr.foo = 1' in real JS. See *js-array-extra-properties*.
-         (t (%js-array-extra-prop-set obj k value))))
+         (t
+          (let ((present-p (nth-value 1 (%js-array-extra-prop-get obj k))))
+            (unless (or (%js-object-frozen-p obj)
+                        (not (or present-p (%js-object-extensible-p obj))))
+              (%js-array-extra-prop-set obj k value))))))
       ((%js-ht-p obj)
        (cond
          ((%js-proxy-object-p obj)

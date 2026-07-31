@@ -162,6 +162,75 @@
     (expect (cl-cc/javascript::%js-delete frozen "x") :to-be-falsy)
     (expect (= 10 (gethash "x" frozen)) :to-be-truthy)))
 
+;;; ─── Object.freeze/seal/preventExtensions on arrays ─────────────────────────
+;;;
+;;; A JS array is a CL vector, not a hash-table, so it needs its own flag
+;;; storage (*js-array-flags* in runtime-property.lisp) -- these mirror the
+;;; object tests above one for one to confirm arrays got the same treatment.
+
+(it-sequential "js-rt-array-frozen-blocks-all-mutation"
+  (let ((arr (cl-cc/javascript::%js-make-array 1 2 3)))
+    (expect (cl-cc/javascript::%js-object-freeze arr) :to-be arr)
+    (expect (cl-cc/javascript::%js-object-frozen-p arr) :to-be-truthy)
+    (expect (cl-cc/javascript::%js-object-sealed-p arr) :to-be-truthy)
+    (expect (cl-cc/javascript::%js-object-extensible-p arr) :to-be-falsy)
+    ;; existing-index overwrite blocked
+    (cl-cc/javascript::%js-set-prop arr "0" 99)
+    (expect (= 1 (aref arr 0)) :to-be-truthy)
+    ;; growth blocked, both via push and via a bare out-of-range index write
+    (expect (cl-cc/javascript::%js-array-push arr 4) :to-equal 3)
+    (expect (= 3 (length arr)) :to-be-truthy)
+    (cl-cc/javascript::%js-set-prop arr "5" 42)
+    (expect (= 3 (length arr)) :to-be-truthy)
+    ;; shrink/removal blocked
+    (expect (cl-cc/javascript::%js-array-pop arr) :to-be cl-cc/javascript::+js-undefined+)
+    (expect (= 3 (length arr)) :to-be-truthy)
+    (expect (cl-cc/javascript::%js-array-shift arr) :to-be cl-cc/javascript::+js-undefined+)
+    (expect (= 3 (length arr)) :to-be-truthy)
+    ;; in-place rewrites blocked too
+    (cl-cc/javascript::%js-array-fill arr 0)
+    (expect (= 1 (aref arr 0)) :to-be-truthy)
+    (cl-cc/javascript::%js-array-reverse arr)
+    (expect (= 1 (aref arr 0)) :to-be-truthy)))
+
+(it-sequential "js-rt-array-sealed-allows-existing-index-writes-blocks-growth-and-shrink"
+  (let ((arr (cl-cc/javascript::%js-make-array 1 2 3)))
+    (expect (cl-cc/javascript::%js-object-seal arr) :to-be arr)
+    (expect (cl-cc/javascript::%js-object-sealed-p arr) :to-be-truthy)
+    (expect (cl-cc/javascript::%js-object-frozen-p arr) :to-be-falsy)
+    ;; existing-index overwrite still allowed while merely sealed
+    (cl-cc/javascript::%js-set-prop arr "0" 99)
+    (expect (= 99 (aref arr 0)) :to-be-truthy)
+    ;; growth blocked
+    (expect (cl-cc/javascript::%js-array-push arr 4) :to-equal 3)
+    (expect (= 3 (length arr)) :to-be-truthy)
+    ;; shrink/removal blocked (deletion needs [[Configurable]])
+    (expect (cl-cc/javascript::%js-array-pop arr) :to-be cl-cc/javascript::+js-undefined+)
+    (expect (= 3 (length arr)) :to-be-truthy)
+    ;; in-place rewrite (no length change) still allowed
+    (cl-cc/javascript::%js-array-reverse arr)
+    (expect (= 99 (aref arr 2)) :to-be-truthy)))
+
+(it-sequential "js-rt-array-prevent-extensions-blocks-growth-only"
+  (let ((arr (cl-cc/javascript::%js-make-array 1 2 3)))
+    (cl-cc/javascript::%js-object-prevent-extensions arr)
+    (expect (cl-cc/javascript::%js-object-extensible-p arr) :to-be-falsy)
+    (expect (cl-cc/javascript::%js-object-sealed-p arr) :to-be-falsy)
+    ;; growth still blocked
+    (expect (cl-cc/javascript::%js-array-push arr 4) :to-equal 3)
+    ;; but shrink/removal is unaffected by extensibility alone
+    (expect (cl-cc/javascript::%js-array-pop arr) :to-equal 3)
+    (expect (= 2 (length arr)) :to-be-truthy)))
+
+(it-sequential "js-rt-array-extra-property-respects-frozen-and-sealed"
+  (let ((frozen (cl-cc/javascript::%js-make-array 1)))
+    (cl-cc/javascript::%js-set-prop frozen "tag" "before")
+    (cl-cc/javascript::%js-object-freeze frozen)
+    (cl-cc/javascript::%js-set-prop frozen "tag" "after")
+    (expect (cl-cc/javascript::%js-get-prop frozen "tag") :to-equal "before")
+    (cl-cc/javascript::%js-set-prop frozen "new-prop" 1)
+    (expect (cl-cc/javascript::%js-get-prop frozen "new-prop") :to-be cl-cc/javascript::+js-undefined+)))
+
 ;;; ─── Object.hasOwn ───────────────────────────────────────────────────────────
 
 (it-sequential-each (("a" t) ("z" nil))

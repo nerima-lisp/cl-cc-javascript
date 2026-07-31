@@ -230,41 +230,50 @@ follow a spread (the fold threads the object, and %js-set-prop returns the value
   obj)
 
 (defun %js-object-internal-flag (obj key default)
-  (if (%js-ht-p obj) (multiple-value-bind (value present-p) (gethash key obj)
-      (if present-p value
-        default))
-    default))
+  "Look up internal flag KEY. Arrays keep their flags in the separate
+*JS-ARRAY-FLAGS* side table (see runtime-property.lisp) rather than as a
+gethash on the object itself, since a JS array is a CL vector, not a
+hash-table, and can't hold arbitrary string keys directly."
+  (cond
+    ((%js-ht-p obj) (multiple-value-bind (value present-p) (gethash key obj)
+        (if present-p value
+          default)))
+    ((%js-vec-p obj) (%js-array-flag obj key default))
+    (t default)))
 
 (defun %js-object-extensible-p (obj)
   (and
-    (%js-ht-p obj)
+    (or (%js-ht-p obj) (%js-vec-p obj))
     (not (null (%js-object-internal-flag obj "__extensible__" t)))))
 
 (defun %js-object-sealed-p (obj)
   (and
-    (%js-ht-p obj)
+    (or (%js-ht-p obj) (%js-vec-p obj))
     (not (null (%js-object-internal-flag obj "__sealed__" nil)))))
 
 (defun %js-object-frozen-p (obj)
   (and
-    (%js-ht-p obj)
+    (or (%js-ht-p obj) (%js-vec-p obj))
     (not (null (%js-object-internal-flag obj "__frozen__" nil)))))
 
 (defun %js-object-prevent-extensions (obj)
-  (when (%js-ht-p obj)
-    (setf (gethash "__extensible__" obj) nil))
+  (cond
+    ((%js-ht-p obj) (setf (gethash "__extensible__" obj) nil))
+    ((%js-vec-p obj) (%js-set-array-flag obj "__extensible__" nil)))
   obj)
 
 (defun %js-object-seal (obj)
   (%js-object-prevent-extensions obj)
-  (when (%js-ht-p obj)
-    (setf (gethash "__sealed__" obj) t))
+  (cond
+    ((%js-ht-p obj) (setf (gethash "__sealed__" obj) t))
+    ((%js-vec-p obj) (%js-set-array-flag obj "__sealed__" t)))
   obj)
 
 (defun %js-object-freeze (obj)
   (%js-object-seal obj)
-  (when (%js-ht-p obj)
-    (setf (gethash "__frozen__" obj) t))
+  (cond
+    ((%js-ht-p obj) (setf (gethash "__frozen__" obj) t))
+    ((%js-vec-p obj) (%js-set-array-flag obj "__frozen__" t)))
   obj)
 
 (defun %js-object-has-own (obj key)
