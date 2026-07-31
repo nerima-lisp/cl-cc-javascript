@@ -6,13 +6,11 @@
 ;;;;
 ;;;; Load order: after runtime.lisp (needs type predicates, method-resolver vars,
 ;;;;             proto-lookup helpers defined there).
-
 (in-package :cl-cc/javascript)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Property access
 ;;; -----------------------------------------------------------------------
-
 (defun %js-accessor-descriptor-p (v)
   "True when V is a get/set accessor descriptor produced by %js-accessor
 (a hash-table tagged __accessor__ carrying KIND and FN)."
@@ -20,21 +18,59 @@
 
 (defun %js-to-property-key (key)
   "Coerce KEY to the runtime storage key for a JS property."
-  (if (%js-symbol-p key)
-      (%js-symbol-as-key key)
-      (%js-to-string key)))
+  (if (%js-symbol-p key) (%js-symbol-as-key key)
+    (%js-to-string key)))
+
+(defun %js-class-accessor-key (prefix raw-key)
+  "Build a __get_/__set_-prefixed prototype key for a COMPUTED class accessor
+name, e.g. `class C { get [expr]() {} }'. PREFIX is \"__get_\" or \"__set_\";
+RAW-KEY is the un-normalized runtime value of the bracketed key expression.
+Mirrors %js-class-member-key's static-name prefixing (parser-class-lower-classify.lisp)
+but the key itself is only known at runtime, so the __get_/__set_ prefix is
+applied via a runtime string-concat instead of being baked into a compile-time
+ast-quote string."
+  (concatenate 'string prefix (%js-to-property-key raw-key)))
+
+(defvar *js-array-extra-properties* (make-hash-table :test #'eq)
+  "Side table for non-index, non-\"length\" string-keyed properties set on a
+JS array. This runtime represents JS arrays as plain CL adjustable vectors
+(see %js-vec-p), which have no slot to carry arbitrary named properties the
+way a real JS Array -- a genuine object underneath its exotic index
+behavior -- can (`arr.foo = 1; arr.foo` is valid, ordinary JS). Keyed by
+vector EQ identity so arrays that never use this (the overwhelming
+majority) pay no cost; the inner table is created lazily per array on first
+extra-property write.")
+
+(defun %js-array-extra-prop-get (arr key)
+  "Look up a non-index property KEY previously set on array ARR via
+%JS-ARRAY-EXTRA-PROP-SET. Returns (values value found-p)."
+  (let ((table (gethash arr *js-array-extra-properties*)))
+    (if table (gethash key table)
+      (values nil nil))))
+
+(defun %js-array-extra-prop-set (arr key value)
+  "Set a non-index, non-\"length\" property KEY on array ARR to VALUE, in a
+lazily-created per-array side table (see *JS-ARRAY-EXTRA-PROPERTIES*)."
+  (let ((table (or (gethash arr *js-array-extra-properties*)
+                   (setf (gethash arr *js-array-extra-properties*)
+                         (make-hash-table :test #'equal)))))
+    (setf (gethash key table) value)))
 
 (defun %js-object-put-entry (ht k v)
   "Store K -> V in object HT.  A get/set accessor descriptor is routed to the
 internal __get_K / __set_K slot (so a getter and setter on the same key both
 survive and are dispatched by %js-get-prop / %js-set-prop); anything else is a
 plain own property."
-  (if (%js-accessor-descriptor-p v)
-      (let ((kind (gethash "kind" v))
-            (fn   (gethash "fn"   v)))
-        (setf (gethash (concatenate 'string (if (equal kind "set") "__set_" "__get_") k) ht)
-              fn))
-      (setf (gethash k ht) v))
+  (if (%js-accessor-descriptor-p v) (let ((kind (gethash "kind" v))
+          (fn (gethash "fn" v)))
+      (setf (gethash
+          (concatenate
+            'string
+            (if (equal kind "set") "__set_"
+              "__get_")
+            k)
+          ht) fn))
+    (setf (gethash k ht) v))
   v)
 
 (defun %js-get-prop (obj key)
@@ -49,7 +85,10 @@ plain own property."
             (if (< idx (length obj))
                 (aref obj idx)
                 +js-undefined+)))
-         (t (%js-method-ref obj k))))
+         ;; An own extra property (arr.foo = 1) shadows an inherited
+         ;; Array.prototype method of the same name, same as real JS.
+         (t (multiple-value-bind (val found) (%js-array-extra-prop-get obj k)
+              (if found val (%js-method-ref obj k))))))
       ((stringp obj)
        (cond
          ((string= k "length") (length obj))
@@ -100,7 +139,9 @@ plain own property."
               (adjust-array obj (1+ idx) :fill-pointer (1+ idx)
                             :initial-element +js-undefined+))
             (setf (aref obj idx) value)))
-         (t nil)))
+         ;; A non-index, non-"length" key: an ordinary named property, same
+         ;; as `arr.foo = 1' in real JS. See *js-array-extra-properties*.
+         (t (%js-array-extra-prop-set obj k value))))
       ((%js-ht-p obj)
        (cond
          ((%js-proxy-object-p obj)
@@ -120,8 +161,7 @@ plain own property."
                 (multiple-value-bind (_old present-p) (gethash k obj)
                   (declare (ignore _old))
                   (unless (or (%js-object-frozen-p obj)
-                              (and (not present-p)
-                                   (not (%js-object-extensible-p obj))))
+                              (not (or present-p (%js-object-extensible-p obj))))
                     (setf (gethash k obj) value))))))))
       (t nil)))
   value)
@@ -130,16 +170,13 @@ plain own property."
   "JS delete operator."
   (let ((k (%js-to-property-key key)))
     (cond
-      ((%js-proxy-object-p obj)
-       (%js-proxy-delete-property obj k))
+      ((%js-proxy-object-p obj) (%js-proxy-delete-property obj k))
       ((%js-ht-p obj)
-       (if (and (or (%js-object-sealed-p obj)
-                    (%js-object-frozen-p obj))
-                (nth-value 1 (gethash k obj)))
-           nil
-           (progn
-             (remhash k obj)
-             t)))
+        (unless (and
+            (or (%js-object-sealed-p obj) (%js-object-frozen-p obj))
+            (nth-value 1 (gethash k obj)))
+          (remhash k obj)
+          t))
       (t t))))
 
 (defun %js-in (key obj)
@@ -149,50 +186,45 @@ plain own property."
       ((%js-proxy-object-p obj) (%js-proxy-has obj k))
       ((%js-ht-p obj) (nth-value 1 (gethash k obj)))
       ((%js-vec-p obj)
-       (or (string= k "length")
-           (and (every #'digit-char-p k)
-                (< (parse-integer k) (length obj)))))
+        (or
+          (string= k "length")
+          (and (every #'digit-char-p k) (< (parse-integer k) (length obj)))
+          (nth-value 1 (%js-array-extra-prop-get obj k))))
       (t nil))))
 
 (defun %js-optional-chain (obj key)
   "Return nil if OBJ is null/undefined, else %js-get-prop."
-  (if (%js-not-nullish obj)
-      (%js-get-prop obj key)
-      +js-undefined+))
+  (if (%js-not-nullish obj) (%js-get-prop obj key)
+    +js-undefined+))
 
 (defun %js-optional-call (func &rest args)
   "Call FUNC with ARGS unless FUNC is null/undefined."
-  (if (%js-not-nullish func)
-      (apply func args)
-      +js-undefined+))
+  (if (%js-not-nullish func) (apply func args)
+    +js-undefined+))
 
 (defun %js-optional-method-call (obj key &rest args)
   "obj?.method(args) — short-circuit to undefined when OBJ is null/undefined."
-  (if (%js-not-nullish obj)
-      (let ((method (%js-get-prop obj key)))
-        (apply #'%js-funcall method args))
-      +js-undefined+))
+  (if (%js-not-nullish obj) (let ((method (%js-get-prop obj key)))
+      (apply #'%js-funcall method args))
+    +js-undefined+))
 
 ;;; -----------------------------------------------------------------------
 ;;;  String / Template
 ;;; -----------------------------------------------------------------------
-
 (defun %js-add (a b)
   "JS `+' operator: string concatenation when either operand is a string,
 otherwise numeric addition. Models the common ECMAScript number|string cases of
 ToPrimitive + — `1 + 2' => 3, `\"a\" + \"b\"' => \"ab\", `\"n=\" + 5' => \"n=5\".
 JS `+' is polymorphic, so it cannot lower to the numeric-only make-vm-add; it
 routes here via *js-binop-runtime-helpers*."
-  (if (or (stringp a) (stringp b))
-      (concatenate 'string (%js-to-string a) (%js-to-string b))
-      (+ (%js-to-number a) (%js-to-number b))))
+  (if (or (stringp a) (stringp b)) (concatenate 'string (%js-to-string a) (%js-to-string b))
+    (+ (%js-to-number a) (%js-to-number b))))
 
 (defun %js-mod (a b)
   "JS `%' remainder operator. Like CL REM, the result takes the sign of the
 dividend (5 % 3 => 2, -5 % 3 => -2), matching ECMAScript; division by zero => NaN."
-  (if (and (numberp b) (zerop b))
-      :js-nan
-      (rem a b)))
+  (if (and (numberp b) (zerop b)) :js-nan
+    (rem a b)))
 
 (defun %js-divide (a b)
   "JS `/' operator. JS numbers are IEEE doubles, so division always yields a float
@@ -201,11 +233,12 @@ rational 5/2. Division by zero gives +/-Infinity (or NaN for 0/0), per ECMAScrip
   (let ((na (%js-to-number a))
         (nb (%js-to-number b)))
     (cond
-      ((or (not (numberp na)) (not (numberp nb))) *js-nan-float*)
+      ((not (and (numberp na) (numberp nb))) *js-nan-float*)
       ((zerop nb)
-       (cond ((zerop na)  *js-nan-float*)
-             ((plusp na)  *js-inf-float*)
-             (t           *js-neg-inf-float*)))
+        (cond
+          ((zerop na) *js-nan-float*)
+          ((plusp na) *js-inf-float*)
+          (t *js-neg-inf-float*)))
       (t (/ (coerce na 'double-float) (coerce nb 'double-float))))))
 
 (defun %js-pow (a b)
@@ -219,7 +252,7 @@ rational 5/2. Division by zero gives +/-Infinity (or NaN for 0/0), per ECMAScrip
     ((eq x +js-undefined+)  "undefined")
     ((eq x +js-null+)       "null")
     ((eq x t)               "true")
-    ((eq x nil)             "false")
+    ((null x)             "false")
     ((eq x :js-nan)         "NaN")
     ((eq x :js-infinity)    "Infinity")
     ((eq x :js-neg-infinity) "-Infinity")
@@ -228,14 +261,22 @@ rational 5/2. Division by zero gives +/-Infinity (or NaN for 0/0), per ECMAScrip
      (if (%js-float-nan-p x)
          "NaN"
          (if (%js-float-infinity-p x)
-             (if (> x 0) "Infinity" "-Infinity")
+             (if (plusp x) "Infinity" "-Infinity")
              (let ((s (format nil "~F" x)))
                ;; JS prints an integer-valued float without a decimal: 7.0 -> "7".
                ;; Trim trailing zeros FIRST, then a now-trailing dot. (The reverse
                ;; order left "7." because "7.0" does not end in ".".)
                (string-right-trim "." (string-right-trim "0" s))))))
-    ((numberp x)            (format nil "~A" x))
+    ((numberp x)            (princ-to-string x))
     ((typep x 'js-symbol)   (%js-symbol-as-key x))
+    ;; Date — forward-referenced (runtime-date-methods.lisp loads later),
+    ;; not yet defined when this file loads, but never called before the
+    ;; whole system finishes loading. Without this, String(date)/`${date}`/
+    ;; string concatenation of a Date fell through to the catch-all
+    ;; PRINC-TO-STRING below, dumping the raw #S(JS-DATE :MS ...) struct
+    ;; instead of calling toString() -- found and fixed 2026-07-31 as a
+    ;; side effect of adding Invalid Date test coverage (see CHANGELOG.md).
+    ((%js-date-p x)         (%js-date-to-string x))
     ((%js-ht-p x)           "[object Object]")
     ((%js-vec-p x)
      (let ((parts (loop for i below (length x)
@@ -243,12 +284,11 @@ rational 5/2. Division by zero gives +/-Infinity (or NaN for 0/0), per ECMAScrip
        (format nil "~{~A~^,~}" parts)))
     ;; BigInt — defined in runtime-ops.lisp (loaded later)
     ((typep x 'js-bigint)   (format nil "~D" (js-bigint-value x)))
-    (t (format nil "~A" x))))
+    (t (princ-to-string x))))
 
 (defun %js-template-string (parts)
   "Concatenate template literal parts (already evaluated)."
-  (apply #'concatenate 'string
-         (mapcar #'%js-to-string parts)))
+  (apply #'concatenate 'string (mapcar #'%js-to-string parts)))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Control flow / exceptions and iteration protocol

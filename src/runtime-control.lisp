@@ -38,14 +38,17 @@
 ;;; -----------------------------------------------------------------------
 
 (defun %js-for-in (obj body-fn)
-  "Execute BODY-FN for each enumerable string key in OBJ.
-Skips internal runtime keys (__proto__, __class__, __get_X, __set_X, etc.)."
+  "Execute BODY-FN for each enumerable string key in OBJ, in the same order
+Object.keys/values/entries use: array-index keys numerically ascending
+first, per ES2015+ [[OwnPropertyKeys]] (see %JS-OBJECT-OWN-STRING-PROPERTY-
+KEYS, which this shares instead of its own unordered maphash). An
+accessor (getter/setter) property enumerates under its real property name
+(a `get foo(){}' in an object literal is enumerable by default, same as a
+plain data property) -- internal runtime keys (__proto__, __class__, the
+__get_X/__set_X storage keys themselves) are still excluded."
   (when (%js-ht-p obj)
-    (maphash (lambda (k v)
-               (declare (ignore v))
-               (unless (%js-internal-key-p k)
-                 (%js-funcall body-fn k)))
-             obj))
+    (loop for k across (%js-object-own-string-property-keys obj)
+          do (%js-funcall body-fn k)))
   +js-undefined+)
 
 (defun %js-advance-iterator (iter body-fn)

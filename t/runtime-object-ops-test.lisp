@@ -19,7 +19,7 @@
 ;;; ─── Object.keys / values / entries ─────────────────────────────────────────
 
 (it-sequential "js-rt-object-keys-excludes-internals"
-  (let* ((obj (cl-cc/javascript::%js-make-object "a" 1 "b" 2)))
+  (let ((obj (cl-cc/javascript::%js-make-object "a" 1 "b" 2)))
     (setf (gethash "__proto__" obj) cl-cc/javascript::+js-null+)
     (let ((keys (sort (coerce (cl-cc/javascript::%js-object-keys obj) 'list) #'string<)))
       (expect keys :to-equal '("a" "b")))))
@@ -327,7 +327,7 @@
 
 (it-sequential "js-rt-unary-plus"
   (expect (= 42 (cl-cc/javascript::%js-unary-plus "42")) :to-be-truthy)
-  (expect (= 0 (cl-cc/javascript::%js-unary-plus nil)) :to-be-truthy))
+  (expect (zerop (cl-cc/javascript::%js-unary-plus nil)) :to-be-truthy))
 
 (it-sequential "js-rt-inc-dec-ops prefix-inc"
   (destructuring-bind (fn val expected) (list #'cl-cc/javascript::%js-prefix-inc 5 6)
@@ -410,7 +410,7 @@
     (expect (gethash "fn" desc) :to-be fn)))
 
 (it-sequential "js-rt-new-target-returns-undefined"
-  (expect (cl-cc/javascript::%js-new-target) :to-be cl-cc/javascript::+js-undefined+))
+  (expect (cl-cc/javascript::%js-new-target) :to-be-js-undefined))
 
 (it-sequential "js-rt-using-register-identity"
   (let ((r (list 1 2)))
@@ -446,21 +446,21 @@
   (destructuring-bind (func expected) (list (lambda () 99) 99)
     (let ((result (cl-cc/javascript::%js-optional-call func)))
     (if (eq expected :undef)
-        (expect result :to-be cl-cc/javascript::+js-undefined+)
+        (expect result :to-be-js-undefined)
         (expect (= expected result) :to-be-truthy)))))
 
 (it-sequential "js-rt-optional-call undefined"
   (destructuring-bind (func expected) (list cl-cc/javascript::+js-undefined+ :undef)
     (let ((result (cl-cc/javascript::%js-optional-call func)))
     (if (eq expected :undef)
-        (expect result :to-be cl-cc/javascript::+js-undefined+)
+        (expect result :to-be-js-undefined)
         (expect (= expected result) :to-be-truthy)))))
 
 (it-sequential "js-rt-optional-call null"
   (destructuring-bind (func expected) (list cl-cc/javascript::+js-null+ :undef)
     (let ((result (cl-cc/javascript::%js-optional-call func)))
     (if (eq expected :undef)
-        (expect result :to-be cl-cc/javascript::+js-undefined+)
+        (expect result :to-be-js-undefined)
         (expect (= expected result) :to-be-truthy)))))
 
 (it-sequential "js-rt-optional-method-call-present"
@@ -469,7 +469,7 @@
     (expect (= 10 result) :to-be-truthy)))
 
 (it-sequential "js-rt-optional-method-call-null"
-  (expect (cl-cc/javascript::%js-optional-method-call cl-cc/javascript::+js-null+ "double" 5) :to-be cl-cc/javascript::+js-undefined+))
+  (expect (cl-cc/javascript::%js-optional-method-call cl-cc/javascript::+js-null+ "double" 5) :to-be-js-undefined))
 
 (it-sequential "js-rt-add-string-coercion"
   (expect (cl-cc/javascript::%js-add 4 "2") :to-equal "42")
