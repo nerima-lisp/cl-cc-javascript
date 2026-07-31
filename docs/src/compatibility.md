@@ -162,6 +162,14 @@ between the comment and the code:
   same Annex-B-style leniency real JS engines apply outside Unicode mode: `a{3}` matches
   three `a`s, but `a{,3}` (no minimum) matches the five literal characters `a`, `{`,
   `,`, `3`, `}` unchanged.
+- **`\xHH` (2 hex digits) and `\uHHHH` (4 hex digits) hex/unicode escapes, and `\f`
+  (form feed), are recognized.** These were missing until 2026-07-31: `\xHH`/`\uHHHH`
+  fell through to the generic escape handling's "self-denoting" fallback (`\x61`
+  matched the literal two-character text `x61`, not the character `a`), and `\f` was
+  missing from the same fallback's exception table (matched literal `f`, not a form
+  feed) — both broke `RegExp.escape`'s fundamental contract, since it emits exactly
+  these forms for punctuation, control characters, and a leading alphanumeric
+  character. `new RegExp(RegExp.escape(s)).test(s)` now always holds.
 
 **No strict-mode restrictions are enforced.** Octal literals, duplicate parameter names,
 assigning to `eval`/`arguments`, and the other ECMAScript strict-mode-only rejections all
