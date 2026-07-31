@@ -3,6 +3,13 @@
 ;;;; Temporal replaces the Date API with a comprehensive, immutable datetime library.
 ;;;; We implement the 8 core types as hash-table objects with the standard methods.
 ;;;; Arithmetic operations use CL's arithmetic on universal-time seconds.
+;;;;
+;;;; This file: shared helpers, IANA time-zone support, Temporal.Now,
+;;;; Temporal.Instant, Temporal.PlainDate, Temporal.PlainYearMonth,
+;;;; Temporal.PlainMonthDay — every type with no time-of-day component.
+;;;; Temporal.PlainTime/PlainDateTime/ZonedDateTime (the types that do carry
+;;;; one) live in the sibling runtime-temporal-datetime.lisp, loaded right
+;;;; after this file.
 
 (in-package :cl-cc/javascript)
 
@@ -57,6 +64,102 @@
   (flet ((field (start end) (if (>= (length s) end) (parse-integer s :start start :end end) 0)))
     (values (field 0 2) (field 3 5) (field 6 8))))
 
+(defun %temporal-shift-encoded (encoded-seconds delta-seconds rebuild-fn)
+  "Add DELTA-SECONDS to ENCODED-SECONDS, decode the result, and pass its
+\(second minute hour day month year) fields to REBUILD-FN. Shared by every
+PlainDate/PlainDateTime add/subtract pair: subtract calls this with a
+negated DELTA-SECONDS."
+  (multiple-value-bind (s mn h d m y) (%temporal-decode (+ encoded-seconds delta-seconds))
+    (funcall rebuild-fn s mn h d m y)))
+
+;;; -----------------------------------------------------------------------
+;;;  IANA time zone support (cl-date-kit)
+;;;
+;;;  cl-date-kit resolves a *supplied* IANA zone name against the host's
+;;;  copy of the tzdata database; it does not discover which zone the host
+;;;  is configured for, and every lookup depends on tzdata actually being
+;;;  present on disk (it is not bundled -- see cl-date-kit's own
+;;;  Compatibility doc). Every entry point below is therefore wrapped so
+;;;  that an unknown zone name, a missing zoneinfo tree (routine inside a
+;;;  Nix build sandbox), or any other failure degrades to the pre-existing
+;;;  UTC-only behavior rather than signaling out to JS.
+;;; -----------------------------------------------------------------------
+
+(defun %temporal-valid-iana-zone-p (name)
+  "True when NAME resolves to a real zone via cl-date-kit's tzdata lookup."
+  (and (stringp name) (plusp (length name))
+       (ignore-errors (find-time-zone name) t)))
+
+(defparameter *%temporal-host-time-zone-id* nil
+  "Cache for %TEMPORAL-HOST-TIME-ZONE-ID, computed lazily on first use.")
+
+(defun %temporal-discover-host-time-zone-id ()
+  "Best-effort discovery of the host's configured IANA time zone name.
+cl-date-kit has no lookup for this -- it resolves a name you already have,
+it does not tell you which one the host is set to -- so this reads the two
+conventional Unix sources directly and hands the candidate to cl-date-kit
+for validation:
+
+  1. TZ, when it already names a bare IANA zone (\"America/New_York\")
+     rather than a POSIX TZ rule string (\"EST5EDT,M3.2.0,M11.1.0\");
+     cl-date-kit rejects the latter as an unrecognized zone, which is
+     exactly the discriminator wanted here.
+  2. /etc/localtime, the conventional symlink into the system zoneinfo
+     tree on macOS and most Linux distributions. TRUENAME resolves it
+     (through /var/db/timezone/... on macOS, directly on most Linux) and
+     the IANA name is whatever follows the last \"zoneinfo/\" path
+     component.
+
+Returns \"UTC\" when neither source yields a name cl-date-kit recognizes --
+including inside a build sandbox, which typically has neither TZ set nor a
+readable /etc/localtime."
+  (or (let ((tz (uiop:getenv "TZ")))
+        (and (%temporal-valid-iana-zone-p tz) tz))
+      (let ((resolved (ignore-errors (namestring (truename "/etc/localtime")))))
+        (when resolved
+          (let ((pos (search "zoneinfo/" resolved :from-end t)))
+            (when pos
+              (let ((name (string-right-trim "/" (subseq resolved (+ pos (length "zoneinfo/"))))))
+                (and (%temporal-valid-iana-zone-p name) name))))))
+      "UTC"))
+
+(defun %temporal-host-time-zone-id ()
+  "The host's IANA time zone name, discovered once and cached."
+  (or *%temporal-host-time-zone-id*
+      (setf *%temporal-host-time-zone-id* (%temporal-discover-host-time-zone-id))))
+
+(defun %temporal-zone-project-epoch (epoch-seconds tz)
+  "Project the absolute EPOCH-SECONDS instant into IANA zone TZ, returning a
+\(YEAR MONTH DAY HOUR MINUTE SECOND OFFSET-STRING\) list, or NIL when TZ is
+not a zone cl-date-kit can resolve right now.
+
+This is an instant -> local-zone projection (via ZONED-DATE-TIME-OF-EPOCH-
+SECOND), never the reverse: it always has exactly one answer; unlike
+resolving a wall-clock reading against a zone, it can never land in a
+daylight-saving gap or overlap, so there is no disambiguation policy to get
+wrong here."
+  (when (%temporal-valid-iana-zone-p tz)
+    (ignore-errors
+     (let* ((zone (find-time-zone tz))
+            (zdt (zoned-date-time-of-epoch-second (truncate epoch-seconds) 0 zone))
+            (offset (format-zone-offset (zoned-date-time-offset zdt))))
+       (list (zoned-date-time-year zdt) (zoned-date-time-month zdt) (zoned-date-time-day zdt)
+             (zoned-date-time-hour zdt) (zoned-date-time-minute zdt) (zoned-date-time-second zdt)
+             ;; Temporal.ZonedDateTime#toString always shows an explicit
+             ;; offset, unlike Instant#toString; cl-date-kit's formatter
+             ;; writes bare "Z" for a zero offset, so normalize it.
+             (if (string= offset "Z") "+00:00" offset))))))
+
+(defun %temporal-offset-string-to-minutes (offset)
+  "Parse a cl-date-kit \"+HH:MM\"/\"-HH:MM\" offset string (as returned by
+%TEMPORAL-ZONE-PROJECT-EPOCH) into signed minutes east of UTC -- the same
+sign as the string itself. Callers needing JS's getTimezoneOffset()
+convention (positive west, negative east) must negate this."
+  (let ((sign (if (char= (char offset 0) #\-) -1 1))
+        (hours (parse-integer offset :start 1 :end 3))
+        (minutes (parse-integer offset :start 4 :end 6)))
+    (* sign (+ (* hours 60) minutes))))
+
 ;;; -----------------------------------------------------------------------
 ;;;  Temporal.Now
 ;;; -----------------------------------------------------------------------
@@ -80,12 +183,12 @@
                         (multiple-value-bind (s mn h)
                             (%temporal-decode (%temporal-now-unix-seconds))
                           (%js-temporal-plain-time h mn s)))
-   "zonedDateTimeISO" (lambda (&optional _tz)
-                        (declare (ignore _tz))
+   "zonedDateTimeISO" (lambda (&optional tz)
                         (multiple-value-bind (s mn h d m y)
                             (%temporal-decode (%temporal-now-unix-seconds))
-                          (%js-temporal-zoned-datetime y m d h mn s "UTC")))
-   "timeZoneId"      (lambda () "UTC")))
+                          (%js-temporal-zoned-datetime
+                           y m d h mn s (or tz (%temporal-host-time-zone-id)))))
+   "timeZoneId"      (lambda () (%temporal-host-time-zone-id))))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Temporal.Instant
@@ -104,9 +207,10 @@
                              (format nil "~A-~A-~AT~A:~A:~AZ"
                                      (%temporal-pad y 4) (%temporal-pad m 2) (%temporal-pad d 2)
                                      (%temporal-pad h 2) (%temporal-pad mn 2) (%temporal-pad s 2))))
-     "toZonedDateTimeISO" (lambda (&optional _tz) (declare (ignore _tz))
+     "toZonedDateTimeISO" (lambda (&optional tz)
                             (multiple-value-bind (s mn h d m y) (%temporal-decode ts)
-                              (%js-temporal-zoned-datetime y m d h mn s "UTC")))
+                              (%js-temporal-zoned-datetime
+                               y m d h mn s (or tz (%temporal-host-time-zone-id)))))
      "add"               (lambda (duration)
                            (%js-temporal-instant (+ ts (%temporal-duration-to-seconds duration))))
      "subtract"          (lambda (duration)
@@ -140,17 +244,17 @@
                                                           (gethash "second" plain-time))
                              (%js-temporal-plain-datetime y m d 0 0 0)))
      "add"        (lambda (duration)
-                    (let* ((ts (%temporal-encode y m d))
-                           (ts2 (+ ts (%temporal-duration-to-seconds duration))))
-                      (multiple-value-bind (s mn h nd nm ny) (%temporal-decode ts2)
-                        (declare (ignore s mn h))
-                        (%js-temporal-plain-date ny nm nd))))
+                    (%temporal-shift-encoded
+                     (%temporal-encode y m d) (%temporal-duration-to-seconds duration)
+                     (lambda (s mn h nd nm ny)
+                       (declare (ignore s mn h))
+                       (%js-temporal-plain-date ny nm nd))))
      "subtract"   (lambda (duration)
-                    (let* ((ts (%temporal-encode y m d))
-                           (ts2 (- ts (%temporal-duration-to-seconds duration))))
-                      (multiple-value-bind (s mn h nd nm ny) (%temporal-decode ts2)
-                        (declare (ignore s mn h))
-                        (%js-temporal-plain-date ny nm nd))))
+                    (%temporal-shift-encoded
+                     (%temporal-encode y m d) (- (%temporal-duration-to-seconds duration))
+                     (lambda (s mn h nd nm ny)
+                       (declare (ignore s mn h))
+                       (%js-temporal-plain-date ny nm nd))))
      "equals"     (lambda (other)
                     (and (= y (gethash "year" other))
                          (= m (gethash "month" other))
@@ -162,111 +266,10 @@
                                        (gethash "month" other)
                                        (gethash "day" other)))))))
 
-;;; -----------------------------------------------------------------------
-;;;  Temporal.PlainTime
-;;; -----------------------------------------------------------------------
-
-(defun %js-temporal-plain-time (hour minute second &optional (ms 0) (us 0) (ns 0))
-  (let ((h hour) (mn minute) (s second))
-    (declare (ignore ms us ns))
-    (%js-make-object
-     "__type__"   "Temporal.PlainTime"
-     "hour"       (coerce h 'double-float)
-     "minute"     (coerce mn 'double-float)
-     "second"     (coerce s 'double-float)
-     "millisecond" 0.0d0
-     "microsecond" 0.0d0
-     "nanosecond"  0.0d0
-     "toString"   (lambda () (format nil "~A:~A:~A"
-                                     (%temporal-pad h 2) (%temporal-pad mn 2) (%temporal-pad s 2)))
-     "add"        (lambda (duration)
-                    (let* ((total (+ (* h 3600) (* mn 60) s
-                                     (%temporal-duration-to-seconds duration)))
-                           (new-h (mod (floor total 3600) 24))
-                           (new-mn (mod (floor (mod total 3600) 60) 60))
-                           (new-s (mod total 60)))
-                      (%js-temporal-plain-time new-h new-mn (floor new-s))))
-     "equals"     (lambda (other)
-                    (and (= h (gethash "hour" other))
-                         (= mn (gethash "minute" other))
-                         (= s (gethash "second" other)))))))
-
-;;; -----------------------------------------------------------------------
-;;;  Temporal.PlainDateTime
-;;; -----------------------------------------------------------------------
-
-(defun %js-temporal-plain-datetime (year month day hour minute second)
-  (let ((y year) (m month) (d day) (h hour) (mn minute) (s second))
-    (%js-make-object
-     "__type__"   "Temporal.PlainDateTime"
-     "year"       (coerce y 'double-float)
-     "month"      (coerce m 'double-float)
-     "day"        (coerce d 'double-float)
-     "hour"       (coerce h 'double-float)
-     "minute"     (coerce mn 'double-float)
-     "second"     (coerce s 'double-float)
-     "millisecond" 0.0d0
-     "microsecond" 0.0d0
-     "nanosecond"  0.0d0
-     "calendarId" "iso8601"
-     "toString"   (lambda (&optional _opts) (declare (ignore _opts))
-                   (format nil "~A-~A-~AT~A:~A:~A"
-                           (%temporal-pad y 4) (%temporal-pad m 2) (%temporal-pad d 2)
-                           (%temporal-pad h 2) (%temporal-pad mn 2) (%temporal-pad s 2)))
-     "toPlainDate" (lambda () (%js-temporal-plain-date y m d))
-     "toPlainTime" (lambda () (%js-temporal-plain-time h mn s))
-     "toInstant"   (lambda (&optional _tz) (declare (ignore _tz))
-                    (%js-temporal-instant (%temporal-encode y m d h mn s)))
-     "add"         (lambda (duration)
-                     (let* ((ts (%temporal-encode y m d h mn s))
-                            (ts2 (+ ts (%temporal-duration-to-seconds duration))))
-                       (multiple-value-bind (ns nmn nh nd nm ny) (%temporal-decode ts2)
-                         (%js-temporal-plain-datetime ny nm nd nh nmn ns))))
-     "subtract"    (lambda (duration)
-                     (let* ((ts (%temporal-encode y m d h mn s))
-                            (ts2 (- ts (%temporal-duration-to-seconds duration))))
-                       (multiple-value-bind (ns nmn nh nd nm ny) (%temporal-decode ts2)
-                         (%js-temporal-plain-datetime ny nm nd nh nmn ns))))
-     "equals"      (lambda (other)
-                     (= (%temporal-encode y m d h mn s)
-                        (%temporal-encode (gethash "year" other)
-                                          (gethash "month" other)
-                                          (gethash "day" other)
-                                          (gethash "hour" other)
-                                          (gethash "minute" other)
-                                          (gethash "second" other)))))))
-
-;;; -----------------------------------------------------------------------
-;;;  Temporal.ZonedDateTime
-;;; -----------------------------------------------------------------------
-
-(defun %js-temporal-zoned-datetime (year month day hour minute second tz)
-  (let ((y year) (m month) (d day) (h hour) (mn minute) (s second))
-    (%js-make-object
-     "__type__"     "Temporal.ZonedDateTime"
-     "year"         (coerce y 'double-float)
-     "month"        (coerce m 'double-float)
-     "day"          (coerce d 'double-float)
-     "hour"         (coerce h 'double-float)
-     "minute"       (coerce mn 'double-float)
-     "second"       (coerce s 'double-float)
-     "millisecond"  0.0d0
-     "microsecond"  0.0d0
-     "nanosecond"   0.0d0
-     "timeZoneId"   tz
-     "calendarId"   "iso8601"
-     "epochSeconds" (coerce (%temporal-encode y m d h mn s) 'double-float)
-     "toString"     (lambda (&optional _opts) (declare (ignore _opts))
-                     (format nil "~A-~A-~AT~A:~A:~A+00:00[~A]"
-                             (%temporal-pad y 4) (%temporal-pad m 2) (%temporal-pad d 2)
-                             (%temporal-pad h 2) (%temporal-pad mn 2) (%temporal-pad s 2) tz))
-     "toPlainDate"  (lambda () (%js-temporal-plain-date y m d))
-     "toPlainTime"  (lambda () (%js-temporal-plain-time h mn s))
-     "toPlainDateTime" (lambda () (%js-temporal-plain-datetime y m d h mn s))
-     "toInstant"    (lambda () (%js-temporal-instant (%temporal-encode y m d h mn s))))))
-;;; Temporal.Duration, Temporal.PlainYearMonth / Temporal.PlainMonthDay, and
-;;; parse helpers live in runtime-temporal-duration.lisp and
-;;; runtime-temporal-parse.lisp.
+;;; Temporal.PlainTime, Temporal.PlainDateTime, and Temporal.ZonedDateTime —
+;;; the three types carrying a time-of-day component — live in
+;;; runtime-temporal-datetime.lisp. Temporal.Duration and parse helpers live
+;;; in runtime-temporal-duration.lisp and runtime-temporal-parse.lisp.
 
 (defun %js-temporal-plain-year-month (year month)
   (%js-make-object
