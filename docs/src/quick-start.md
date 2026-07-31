@@ -76,12 +76,12 @@ tree. `const x = 42` becomes an `ast-let`:
 ;; => (T 1 T)
 ```
 
-Two keyword arguments change how source is read:
+`import`/`export` syntax parses unconditionally regardless of which entry point you
+call — `parse-js-module` is `parse-js-source` under a name that says what the source
+is, not a different parser:
 
 ```lisp
-(cl-cc/javascript:parse-js-source source :strict-mode t)  ; strict mode semantics
-(cl-cc/javascript:parse-js-source source :module-p t)     ; ES module: import/export
-(cl-cc/javascript:parse-js-module source)                 ; the same, spelled directly
+(cl-cc/javascript:parse-js-module source)
 ```
 
 ## 5. Parse with the prelude attached

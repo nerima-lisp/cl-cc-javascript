@@ -6,7 +6,7 @@
 nix flake check --print-build-logs
 ```
 
-This is what CI runs, and it is the whole gate. It evaluates four checks in parallel,
+This is what CI runs, and it is the whole gate. It evaluates five checks in parallel,
 each as its own derivation:
 
 | Check | What it does |
@@ -15,6 +15,7 @@ each as its own derivation:
 | `checks.default` | runs the test suite (`run-tests.lisp`) |
 | `checks.formatting` | fails if any Nix file is unformatted |
 | `checks.docs` | builds this site with `mkdocs --strict` |
+| `checks.coverage` | asserts `packages.coverage-report` built and produced a report — not a percentage gate yet, see [Coverage](#coverage) |
 
 Granularity lives here rather than in extra GitHub Actions jobs, because `nix flake
 check` already parallelises and caches. Add a check to `flake.nix`; do not add a job to
@@ -52,12 +53,16 @@ those catches a suite that silently stopped being loaded at all.
 ## Coverage
 
 ```sh
-scripts/with-timeout.pl 900 sbcl --script scripts/run-coverage.lisp
+nix build .#coverage-report                                  # preferred: sandboxed, no sibling-checkout setup needed
+scripts/with-timeout.pl 900 sbcl --script scripts/run-coverage.lisp   # outside Nix
 ```
 
-Writes an HTML report to `coverage-report/`, which is gitignored. Coverage
-instrumentation has to be declaimed before the instrumented systems are compiled, so the
-script force-reloads the test system after enabling `sb-cover`.
+Both write an HTML report — the Nix build's is `result/`; the bare-SBCL script's is
+`coverage-report/` at the repository root, which is gitignored. Coverage instrumentation
+has to be declaimed before the instrumented systems are compiled, so
+`scripts/run-coverage.lisp` force-reloads the test system after enabling `sb-cover`.
+`checks.coverage` only asserts the report was produced; it does not yet gate on a
+percentage (no `check-coverage.pl`-equivalent exists in this repository).
 
 ## Layout
 
@@ -75,10 +80,12 @@ Tests run under [cl-weave](https://github.com/nerima-lisp/cl-weave), the org's t
 framework. Do not introduce FiveAM, parachute, rove or prove.
 
 A test file is named after the source file it covers: `src/lexer.lisp` is tested by
-`t/lexer-test.lisp`. Where one source file has several concerns the concern goes in
-the middle — `t/parser-decl-test.lisp` and `t/parser-stmt-test.lisp` both cover the
-parser. The `t/e2e-*-test.lisp` files have no single source counterpart: they compile
-and run whole JavaScript programs through the frontend and the VM.
+`t/lexer-test.lisp`. Where one source file (or one broad area, like statement parsing)
+has several concerns, the concern goes in the middle — `t/parser-decl-test.lisp`,
+`t/parser-stmt-control-flow-test.lisp`, `t/parser-stmt-module-test.lisp` and
+`t/parser-stmt-misc-test.lisp` all cover parser statement handling. The
+`t/e2e-*-test.lisp` files have no single source counterpart: they compile and run whole
+JavaScript programs through the frontend and the VM.
 
 ## Adding a builtin
 

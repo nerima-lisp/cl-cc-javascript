@@ -41,7 +41,7 @@ Defined in `src/lexer-operator.lisp`.
 ### `parse-js-source`
 
 ```lisp
-(cl-cc/javascript:parse-js-source source &key strict-mode module-p)
+(cl-cc/javascript:parse-js-source source)
 ```
 
 Parse a JavaScript SOURCE string and return a list of top-level AST nodes.
@@ -54,14 +54,17 @@ Defined in `src/parser.lisp`.
 (cl-cc/javascript:parse-js-module source)
 ```
 
-Parse a JavaScript ES module SOURCE string.
+Parse a JavaScript ES module SOURCE string. Identical to `parse-js-source` today
+(import/export syntax already parses unconditionally); kept as its own named entry
+point for callers who mean "this is a module", ahead of any future module-only
+validation.
 
 Defined in `src/parser.lisp`.
 
 ### `js-program-forms`
 
 ```lisp
-(cl-cc/javascript:js-program-forms source &key strict-mode module-p)
+(cl-cc/javascript:js-program-forms source)
 ```
 
 Parse JS SOURCE prepending the standard-globals prelude.
@@ -482,7 +485,7 @@ Defined in `src/runtime-temporal.lisp`.
 
 minute.
 
-Defined in `src/runtime-temporal.lisp`.
+Defined in `src/runtime-temporal-datetime.lisp`.
 
 ### `%js-temporal-plain-datetime`
 
@@ -492,7 +495,7 @@ Defined in `src/runtime-temporal.lisp`.
 
 month.
 
-Defined in `src/runtime-temporal.lisp`.
+Defined in `src/runtime-temporal-datetime.lisp`.
 
 ### `%js-temporal-zoned-datetime`
 
@@ -502,7 +505,7 @@ Defined in `src/runtime-temporal.lisp`.
 
 month.
 
-Defined in `src/runtime-temporal.lisp`.
+Defined in `src/runtime-temporal-datetime.lisp`.
 
 ### `%js-temporal-duration`
 
@@ -2770,7 +2773,7 @@ Defined in `src/runtime-typed-arrays-methods-es2023.lisp`.
 
 True when X is a JS `RegExp`.
 
-Defined in `src/runtime-regex.lisp`.
+Defined in `src/runtime-regex-combinators.lisp`.
 
 See [`%js-make-regex`](#js-make-regex) under "Class / accessor helpers"; the same
 function serves both groups.

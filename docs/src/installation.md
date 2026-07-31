@@ -48,8 +48,11 @@ on. There is no separate initialisation call.
 
 Unlike the dependency-free leaf packages in this org, cl-cc-javascript depends on
 systems that still live inside the cl-cc checkout (`cl-cc-ast`, `cl-cc-bootstrap`,
-`cl-cc-parse`, `cl-cc-vm`), plus everything cl-cc's umbrella system pulls in
-transitively. `scripts/dependency-roots.lisp` locates each of them, in this order:
+`cl-cc-parse`, `cl-cc-vm`), everything cl-cc's umbrella system pulls in transitively, and
+a handful of `nerima-lisp` sibling packages this frontend depends on directly
+(`cl-date-kit` for Temporal, `cl-json-kit` for JSON, `cl-concurrent-kit` for the
+generator runtime — see [Architecture](architecture.md)). `scripts/dependency-
+roots.lisp` locates each of them, in this order:
 
 1. an explicit environment variable, one per dependency;
 2. otherwise a sibling checkout next to this repository, which is the layout `ghq`
@@ -66,8 +69,11 @@ transitively. `scripts/dependency-roots.lisp` locates each of them, in this orde
 | `CL_CC_JAVASCRIPT_CL_CLI_ROOT` | `cl-cli` |
 | `CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT` | `cl-tty-kit` |
 | `CL_CC_JAVASCRIPT_CL_LOG_KIT_ROOT` | `cl-log-kit` |
+| `CL_CC_JAVASCRIPT_CL_DATE_KIT_ROOT` | `cl-date-kit` |
+| `CL_CC_JAVASCRIPT_CL_JSON_KIT_ROOT` | `cl-json-kit` |
+| `CL_CC_JAVASCRIPT_CL_CONCURRENT_KIT_ROOT` | `cl-concurrent-kit` |
 
-`nix develop` sets all nine for you from the pinned flake inputs, so inside the dev
+`nix develop` sets all twelve for you from the pinned flake inputs, so inside the dev
 shell no further configuration is needed.
 
 ## Verify
