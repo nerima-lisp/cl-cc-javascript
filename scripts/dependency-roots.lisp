@@ -5,9 +5,15 @@
 ;;;; (cl-cc-ast/-bootstrap/-parse/-vm, plus everything cl-cc's own umbrella
 ;;;; system pulls in transitively — optimize needs cl-prolog/cl-parser-kit,
 ;;;; cli/repl need cl-boundary-kit/cl-cli/cl-tty-kit, boundary-kit needs
-;;;; cl-log-kit) and on cl-weave for tests. Each is located via an environment
-;;;; variable, falling back to a sibling checkout beside this repo (the ghq
-;;;; layout every nerima-lisp repo already assumes).
+;;;; cl-log-kit and, as of its v2.0.0, cl-host-kit too), on cl-date-kit for
+;;;; the Temporal runtime's IANA time zone support, on cl-json-kit for
+;;;; JSON.parse/JSON.stringify, on cl-concurrent-kit for the generator
+;;;; runtime's suspend/resume coroutine channel, and on cl-weave for tests.
+;;;; cl-host-kit itself is transitive-only here (cl-cc-javascript's own code
+;;;; does not import it) -- see flake.nix's comment on that input for why.
+;;;; Each is located via an environment variable, falling back to a sibling
+;;;; checkout beside this repo (the ghq layout every nerima-lisp repo
+;;;; already assumes).
 
 (require :asdf)
 
@@ -20,7 +26,11 @@
     ("CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT" "cl-boundary-kit")
     ("CL_CC_JAVASCRIPT_CL_CLI_ROOT" "cl-cli")
     ("CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT" "cl-tty-kit")
-    ("CL_CC_JAVASCRIPT_CL_LOG_KIT_ROOT" "cl-log-kit"))
+    ("CL_CC_JAVASCRIPT_CL_LOG_KIT_ROOT" "cl-log-kit")
+    ("CL_CC_JAVASCRIPT_CL_DATE_KIT_ROOT" "cl-date-kit")
+    ("CL_CC_JAVASCRIPT_CL_JSON_KIT_ROOT" "cl-json-kit")
+    ("CL_CC_JAVASCRIPT_CL_CONCURRENT_KIT_ROOT" "cl-concurrent-kit")
+    ("CL_CC_JAVASCRIPT_CL_HOST_KIT_ROOT" "cl-host-kit"))
   "(ENV-VAR SIBLING-DIRECTORY-NAME) pairs for every source-tree dependency.")
 
 (defparameter *project-root*

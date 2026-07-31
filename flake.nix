@@ -6,12 +6,59 @@
     # release tests pass, so it is less likely to land a broken build.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
+    # cl-nix-forge is the org's Nix flake-library for building/testing Common
+    # Lisp packages -- "crane for Common Lisp". Used below for exactly two
+    # pure, dependency-graph-agnostic pieces: `fromAsdSystem` (the version
+    # single source of truth) and `mkDocsSite` (the MkDocs Material site,
+    # byte-for-byte the same `mkdocs build --strict` derivation this file
+    # used to hand-roll).
+    #
+    # Its flagship preset, `mkPackageFlake`, and the `lispDerivation`
+    # dependency-graph model it is built on (`lispDependencies`/
+    # `lispCheckDependencies` resolved into CL_SOURCE_REGISTRY) are
+    # deliberately NOT adopted for packages.cl-cc-javascript / checks.default
+    # / devShells.default below, and this is not an oversight: `lispDerivation`
+    # (lib/core/asdf-derivation.nix, read directly at this pin) builds a
+    # system with exactly `(require "asdf") (asdf:load-system "<name>")`,
+    # with no hook to run arbitrary Lisp first. cl-cc-javascript's production
+    # system `:depends-on (:cl-cc-ast :cl-cc-bootstrap :cl-cc-parse
+    # :cl-cc-vm)` -- four systems with no discoverable .asd of their own;
+    # they exist only because cl-cc.asd registers them (as an eval-when side
+    # effect) when IT is loaded. scripts/dependency-roots.lisp's
+    # `initialize-dependency-source-registry` does exactly that extra
+    # `(load ".../cl-cc.asd")` step before anything else runs -- a step
+    # `lispDerivation` has no argument to express. Forcing the main package
+    # through it would build a derivation whose own build phase cannot
+    # resolve its dependencies, so the hand-rolled buildPhase below (which
+    # runs the same dependency-roots.lisp bootstrap CI and a contributor's
+    # shell both already rely on) stays. Re-check this reasoning against
+    # lib/core/asdf-derivation.nix before revisiting it on a future
+    # cl-nix-forge upgrade.
+    #
+    # Pinned to a release tag, `inputs.nixpkgs.follows`'d like every real
+    # flake input below.
+    cl-nix-forge = {
+      url = "github:nerima-lisp/cl-nix-forge/v0.4.0";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     # cl-cc-javascript is a plugin frontend: its production system depends on
     # cl-cc-ast/-bootstrap/-parse/-vm, which still live inside the cl-cc
     # monorepo checkout, and cl-cc's own umbrella system transitively pulls in
     # cl-prolog/cl-parser-kit (optimize's e-graph rules), cl-boundary-kit/
-    # cl-cli/cl-tty-kit (cli/repl), and cl-log-kit (boundary-kit). cl-weave is
-    # the test framework.
+    # cl-cli/cl-tty-kit (cli/repl), and cl-log-kit (boundary-kit). cl-date-kit
+    # gives the Temporal runtime real IANA time zone support (host zone
+    # discovery and instant -> local-zone projection; see
+    # docs/src/compatibility.md for what that does and does not cover).
+    # cl-json-kit replaces the JSON.parse/JSON.stringify runtime's own ad hoc
+    # parser/writer with an RFC-8259-conformant one (95/95 JSONTestSuite
+    # must-accept, 188/188 must-reject) — adopted directly through its own
+    # null-value/false-value/true-value/number-encoder hooks, not an adapter;
+    # see runtime-json.lisp for what those hooks are used for. cl-concurrent-
+    # kit's unbuffered CSP channel (SEND blocks until the matching RECV takes
+    # the value — a two-party rendezvous) replaces the generator runtime's own
+    # hand-rolled mutex+condvar+turn-tracking for its suspend/resume coroutine
+    # hand-off; see runtime-generator.lisp. cl-weave is the test framework.
     #
     # Every one of these is consumed as a plain source tree (`flake = false`)
     # rather than as a flake, because scripts/dependency-roots.lisp locates
@@ -45,36 +92,102 @@
       url = "github:nerima-lisp/cl-cc/594456c6671356508a9393a97761be41e4ef8f1f";
       flake = false;
     };
+    # v1.0.0 -> v1.1.0: internal reorg (org package-standard adoption, file
+    # splits) plus one additive feature (defmatcher/expect-extend multi-part
+    # descriptions). No behavior change to how a raw-source-tree consumer
+    # like this repo sees it — checked against cl-weave's own CHANGELOG.md
+    # before bumping.
     cl-weave = {
-      url = "github:nerima-lisp/cl-weave/v1.0.0";
+      url = "github:nerima-lisp/cl-weave/v1.1.0";
       flake = false;
     };
+    # v1.0.1 -> v1.1.0: internal performance work (indexed substitution,
+    # tabled-answer replay, hash-table dispatch) plus a coverage report
+    # target. No public API change — checked against cl-prolog's CHANGELOG.md.
     cl-prolog = {
-      url = "github:nerima-lisp/cl-prolog/v1.0.1";
+      url = "github:nerima-lisp/cl-prolog/v1.1.0";
       flake = false;
     };
+    # v1.0.0 -> v1.0.1: org package-standard conformance only (file renames,
+    # `defpackage` designator style, test-system name). v1.0.1 -> v1.0.2: two
+    # bug fixes (a dropped :position on parse-pratt's token-limit failure
+    # path, and a decimal-literal tokenizer overflow on very long integer
+    # parts) — no public API change either way. Checked against
+    # cl-parser-kit's CHANGELOG.md both times.
     cl-parser-kit = {
-      url = "github:nerima-lisp/cl-parser-kit/v1.0.0";
+      url = "github:nerima-lisp/cl-parser-kit/v1.0.2";
       flake = false;
     };
+    # v1.0.0 -> v1.1.0: additive-only `:parallel` keyword on run-pipeline/
+    # map-pipeline (default nil, backward compatible); CHANGELOG.md states
+    # "No public API changed or removed" explicitly.
     cl-dataflow = {
-      url = "github:nerima-lisp/cl-dataflow/v1.0.0";
+      url = "github:nerima-lisp/cl-dataflow/v1.1.0";
       flake = false;
     };
+    # v0.6.0 -> v1.0.0: CHANGELOG.md states "No exported symbol, protocol, or
+    # documented behavior changes from 0.6.0" — this release only adds the
+    # 1.x semver stability commitment and fixes internal build/test-harness
+    # bugs (none of which this repo's raw-source-tree consumption touches).
+    # v1.0.0 -> v2.0.0: real breaking changes (default set-fn/unset-fn/
+    # hostname-fn/username-fn/exit-fn/args-source implementations moved onto
+    # a new required `cl-host-kit` dependency; the optional process-kit/json
+    # subsystems were removed) — none of which cl-cc-javascript's own code is
+    # exposed to, since this package only needs cl-boundary-kit resolvable
+    # for cl-cc's build (see CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT below),
+    # never imports it directly. Bumped after adding cl-host-kit as a new
+    # input below to satisfy the new transitive requirement.
     cl-boundary-kit = {
-      url = "github:nerima-lisp/cl-boundary-kit/v0.6.0";
+      url = "github:nerima-lisp/cl-boundary-kit/v2.0.0";
       flake = false;
     };
+    # v1.0.1 -> v1.1.0: CHANGELOG.md states "No behavior of the cl-cli system
+    # itself changed" — org package-standard conformance only.
     cl-cli = {
-      url = "github:nerima-lisp/cl-cli/v1.0.1";
+      url = "github:nerima-lisp/cl-cli/v1.1.0";
       flake = false;
     };
+    # v1.0.0 -> v1.0.3: three bug fixes (a FORMAT directive-parsing bug in a
+    # sixel test, a read-count validation bug, a wide-glyph alignment test)
+    # plus an internal cl-weave test-migration and macro consolidation — no
+    # public API change, checked against cl-tty-kit's CHANGELOG.md.
     cl-tty-kit = {
-      url = "github:nerima-lisp/cl-tty-kit/v1.0.0";
+      url = "github:nerima-lisp/cl-tty-kit/v1.0.3";
       flake = false;
     };
+    # STAYS at v1.0.0 — v2.0.0 is a real breaking release that needs three
+    # runtime dependencies (cl-date-kit, cl-concurrent-kit, cl-host-kit)
+    # declared as inputs and wired through scripts/dependency-roots.lisp
+    # before cl-log-kit itself could even load. All three are now declared
+    # below (cl-date-kit/cl-concurrent-kit adopted directly for their own
+    # genuine use in this frontend; cl-host-kit added for cl-boundary-kit's
+    # v2.0.0 bump, see its own comment above) — the input-availability
+    # blocker is gone, but bumping this pin is still its own decision
+    # requiring evaluation of cl-log-kit v2.0.0's OWN behavior changes, not
+    # done here as a side effect of unblocking the inputs.
     cl-log-kit = {
       url = "github:nerima-lisp/cl-log-kit/v1.0.0";
+      flake = false;
+    };
+    cl-date-kit = {
+      url = "github:nerima-lisp/cl-date-kit/v0.2.0";
+      flake = false;
+    };
+    cl-json-kit = {
+      url = "github:nerima-lisp/cl-json-kit/v1.0.1";
+      flake = false;
+    };
+    cl-concurrent-kit = {
+      url = "github:nerima-lisp/cl-concurrent-kit/v0.1.0";
+      flake = false;
+    };
+    # Not used directly by cl-cc-javascript's own code (evaluated and
+    # rejected on its own merits earlier this session: this repo's
+    # host/filesystem surface is too small to justify it as a direct
+    # dependency) — declared purely so cl-boundary-kit v2.0.0, which now
+    # requires it, is resolvable. See cl-boundary-kit's comment above.
+    cl-host-kit = {
+      url = "github:nerima-lisp/cl-host-kit/v0.2.1";
       flake = false;
     };
 
@@ -88,6 +201,7 @@
     {
       self,
       nixpkgs,
+      cl-nix-forge,
       cl-cc,
       cl-weave,
       cl-prolog,
@@ -97,6 +211,10 @@
       cl-cli,
       cl-tty-kit,
       cl-log-kit,
+      cl-date-kit,
+      cl-json-kit,
+      cl-concurrent-kit,
+      cl-host-kit,
       treefmt-nix,
     }:
     let
@@ -113,17 +231,16 @@
 
       # Single source of truth for the package version: the `:version` form in
       # cl-cc-javascript.asd. A release only ever edits the .asd file and every
-      # Nix package follows automatically. Nix regexes are whole-string anchored
-      # and `.` never spans newlines, so the version is extracted line-by-line
-      # rather than with one multi-line match.
-      version =
-        let
-          lines = nixpkgs.lib.splitString "\n" (builtins.readFile ./cl-cc-javascript.asd);
-          versionLine = builtins.head (
-            builtins.filter (line: builtins.match "[[:space:]]*:version \"[^\"]*\"" line != null) lines
-          );
-        in
-        builtins.head (builtins.match "[[:space:]]*:version \"([^\"]*)\"" versionLine);
+      # Nix package follows automatically. `fromAsdSystem` replaces this file's
+      # former hand-rolled `builtins.match` extraction with cl-nix-forge's own
+      # (lib/batteries/version.nix): unlike the regex this used to run, it
+      # requires the file's two `defsystem` forms (the production system and
+      # cl-cc-javascript/test) to unanimously agree on `:version`, and refuses
+      # to silently pick whichever one happened to match first if they ever
+      # drift. Pure function of the .asd's text, so any one system's
+      # instantiation of cl-nix-forge answers it identically -- the same
+      # pattern `mkPackageFlake` itself uses for its own systems-spanning call.
+      version = cl-nix-forge.lib.${builtins.head systems}.fromAsdSystem ./cl-cc-javascript.asd;
 
       # scripts/dependency-roots.lisp reads one environment variable per source
       # tree dependency; these are the values it expects.
@@ -137,6 +254,10 @@
         CL_CC_JAVASCRIPT_CL_CLI_ROOT = toString cl-cli;
         CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT = toString cl-tty-kit;
         CL_CC_JAVASCRIPT_CL_LOG_KIT_ROOT = toString cl-log-kit;
+        CL_CC_JAVASCRIPT_CL_DATE_KIT_ROOT = toString cl-date-kit;
+        CL_CC_JAVASCRIPT_CL_JSON_KIT_ROOT = toString cl-json-kit;
+        CL_CC_JAVASCRIPT_CL_CONCURRENT_KIT_ROOT = toString cl-concurrent-kit;
+        CL_CC_JAVASCRIPT_CL_HOST_KIT_ROOT = toString cl-host-kit;
       };
       exportDependencyEnv = nixpkgs.lib.concatStrings (
         nixpkgs.lib.mapAttrsToList (
@@ -161,6 +282,7 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          cl = cl-nix-forge.lib.${system};
         in
         rec {
           # Compile-and-load gate: proves every component in the .asd actually
@@ -183,7 +305,14 @@
               # silently and with status 0. That is what the pre-CI flake ran here, so
               # this gate passed without compiling anything. --script already implies
               # --disable-debugger --no-sysinit --no-userinit.
-              timeout 600 sbcl --script scripts/run-compile-check.lisp
+              #
+              # `--kill-after=30`: SBCL defers signals to safepoints, so a tight
+              # compiled loop outlives a bare SIGTERM; escalating to SIGKILL after
+              # a grace period is cl-nix-forge's own documented default for its
+              # check helpers (docs/src/reference/checks.md), adopted here by hand
+              # since this buildPhase isn't one of those helpers (see the
+              # cl-nix-forge input comment for why).
+              timeout --kill-after=30 600 sbcl --script scripts/run-compile-check.lisp
               runHook postBuild
             '';
             installPhase = ''
@@ -202,35 +331,77 @@
 
           default = cl-cc-javascript;
 
-          # Rendered documentation site (Material for MkDocs). Builds fully
-          # offline: Material bundles all of its assets, so no network access is
-          # required inside the Nix sandbox. --strict promotes broken links and
-          # unlisted pages to build failures.
-          docs = pkgs.stdenvNoCC.mkDerivation {
+          # Rendered documentation site (Material for MkDocs), via
+          # cl-nix-forge's `mkDocsSite` (lib/batteries/docs.nix) -- a pure,
+          # dependency-graph-agnostic builder that produces byte-for-byte the
+          # same derivation this file used to hand-roll: `mkdocs build
+          # --strict`, fully offline (Material bundles its own assets), --
+          # promoting a broken link or an unlisted page to a build failure.
+          # The source root is the repository, not ./docs, because
+          # docs/src/changelog.md pulls in the root CHANGELOG.md through a
+          # pymdownx snippet rather than duplicating it. mkdocs therefore runs
+          # from the repository root with `-f docs/mkdocs.yml`, which is what
+          # makes the snippet `base_path` of "." resolve.
+          docs = cl.mkDocsSite {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./docs/mkdocs.yml
+              ./docs/src
+              ./CHANGELOG.md
+            ];
+            mkdocsYmlName = "docs/mkdocs.yml";
             pname = "cl-cc-javascript-docs";
             inherit version;
-            # The source root is the repository, not ./docs, because
-            # docs/src/changelog.md pulls in the root CHANGELOG.md through a
-            # pymdownx snippet rather than duplicating it. mkdocs therefore runs
-            # from the repository root with `-f docs/mkdocs.yml`, which is what
-            # makes the snippet `base_path` of "." resolve.
-            src = pkgs.lib.fileset.toSource {
-              root = ./.;
-              fileset = pkgs.lib.fileset.unions [
-                ./docs/mkdocs.yml
-                ./docs/src
-                ./CHANGELOG.md
-              ];
-            };
-            nativeBuildInputs = [ pkgs.python3Packages.mkdocs-material ];
-            buildPhase = ''
-              runHook preBuild
-              mkdocs build --strict --config-file docs/mkdocs.yml --site-dir "$out"
-              runHook postBuild
-            '';
-            dontInstall = true;
             meta = {
               description = "Rendered MkDocs (Material) documentation for cl-cc-javascript";
+              homepage = "https://github.com/nerima-lisp/cl-cc-javascript";
+              license = pkgs.lib.licenses.mit;
+            };
+          };
+
+          # `nix build .#coverage-report`: runs the regression suite under
+          # SB-COVER via scripts/run-coverage.lisp (pre-existing, previously
+          # unwired into flake.nix — CI and `nix flake check` never ran it) and
+          # publishes the HTML report as $out, matching the shape cl-prolog's
+          # v1.1.0 established. `checks.coverage` below only asserts the
+          # report exists, the same restraint cl-prolog's docs give for the
+          # same reason: SB-COVER's HTML output isn't a numeric gate without
+          # its own parser, which this repository does not have yet.
+          coverage-report = pkgs.stdenvNoCC.mkDerivation {
+            pname = "cl-cc-javascript-coverage-report";
+            inherit version;
+            src = self;
+            nativeBuildInputs = [
+              pkgs.sbcl
+              pkgs.coreutils
+            ];
+            buildPhase = ''
+              runHook preBuild
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              ${exportDependencyEnv}
+              export TZDIR="${pkgs.tzdata}/share/zoneinfo"
+              timeout --kill-after=30 900 sbcl --script scripts/run-coverage.lisp
+              # Prints the this-repo-only percentage to the build log (and
+              # to summary.txt in $out below) from the LCOV report
+              # run-coverage.lisp just wrote -- unambiguous by absolute
+              # path, unlike the HTML report's basename-keyed links.
+              # Best-effort: run-coverage.lisp's LCOV export itself is
+              # best-effort (see its comment on a known SB-COVER bug), so
+              # coverage.lcov may not exist this run; do not fail the whole
+              # coverage-report build over that secondary output.
+              timeout --kill-after=30 60 sbcl --script scripts/coverage-summary.lisp | tee coverage-summary.txt || true
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              cp -R coverage-report "$out"
+              cp coverage-summary.txt "$out/"
+              if [ -f coverage.lcov ]; then cp coverage.lcov "$out/"; fi
+              runHook postInstall
+            '';
+            meta = {
+              description = "SB-COVER HTML coverage report for cl-cc-javascript";
               homepage = "https://github.com/nerima-lisp/cl-cc-javascript";
               license = pkgs.lib.licenses.mit;
             };
@@ -248,6 +419,13 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          # The Temporal time-zone tests read real IANA data through
+          # cl-date-kit's TZDIR/zoneinfo lookup (see docs/src/compatibility.md),
+          # so the Nix sandbox needs its own zoneinfo tree: nixpkgs' `tzdata`
+          # package, not whatever the host happens to have at
+          # /usr/share/zoneinfo, which the sandbox does not expose anyway.
+          # Matches cl-date-kit's own flake.nix.
+          tzdir = "${pkgs.tzdata}/share/zoneinfo";
         in
         {
           default =
@@ -262,9 +440,11 @@
                 export HOME="$TMPDIR/home"
                 mkdir -p "$HOME" "$out"
                 ${exportDependencyEnv}
+                export TZDIR="${tzdir}"
                 # See the note in packages.cl-cc-javascript: --non-interactive would
-                # make SBCL exit before running the script at all.
-                timeout 900 sbcl --script ${self}/run-tests.lisp
+                # make SBCL exit before running the script at all. --kill-after=30
+                # matches cl-nix-forge's own check helpers' default grace period.
+                timeout --kill-after=30 900 sbcl --script ${self}/run-tests.lisp
                 touch "$out/passed"
               '';
 
@@ -280,6 +460,15 @@
           # page missing from the nav fails here rather than after the merge to
           # main, in the publish workflow.
           docs = self.packages.${system}.docs;
+
+          # Fails if the coverage run itself fails (compile error, a test
+          # signaling instead of failing cleanly, SB-COVER erroring) or
+          # produces no report; does not gate on a percentage. See the
+          # comment on packages.coverage-report for why.
+          coverage = pkgs.runCommand "cl-cc-javascript-coverage-report-check" { } ''
+            test -f ${self.packages.${system}.coverage-report}/cover-index.html
+            touch "$out"
+          '';
         }
       );
 
@@ -295,7 +484,8 @@
             ];
             text = ''
               ${exportDependencyEnv}
-              exec timeout 900 sbcl --script ${self}/run-tests.lisp
+              export TZDIR="${pkgs.tzdata}/share/zoneinfo"
+              exec timeout --kill-after=30 900 sbcl --script ${self}/run-tests.lisp
             '';
           };
         in
@@ -303,10 +493,12 @@
           default = {
             type = "app";
             program = "${test}/bin/cl-cc-javascript-test";
+            meta.description = "Run the cl-cc-javascript test suite (alias for apps.test)";
           };
           test = {
             type = "app";
             program = "${test}/bin/cl-cc-javascript-test";
+            meta.description = "Run the cl-cc-javascript test suite under a 900s timeout";
           };
         }
       );
@@ -322,7 +514,10 @@
               pkgs.sbcl
               pkgs.perl # scripts/with-timeout.pl, for running the suite by hand
             ];
-            shellHook = exportDependencyEnv;
+            shellHook = ''
+              ${exportDependencyEnv}
+              export TZDIR="${pkgs.tzdata}/share/zoneinfo"
+            '';
           };
         }
       );

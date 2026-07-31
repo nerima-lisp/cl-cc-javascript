@@ -22,11 +22,24 @@
   :homepage "https://github.com/nerima-lisp/cl-cc-javascript"
   :bug-tracker "https://github.com/nerima-lisp/cl-cc-javascript/issues"
   :source-control (:git "https://github.com/nerima-lisp/cl-cc-javascript.git")
-  :depends-on (:cl-cc-ast :cl-cc-bootstrap :cl-cc-parse :cl-cc-vm)
+  ;; cl-date-kit/cl-json-kit/cl-concurrent-kit are strings, not keywords: they
+  ;; are plain nerima-lisp sibling systems consumed directly (no adapter), not
+  ;; one of cl-cc's own packages/*/ components, so they do not need the
+  ;; eval-when trick that :cl-cc-ast and friends rely on -- ASDF finds them on
+  ;; the source registry like any other dependency.
+  :depends-on
+  (:cl-cc-ast
+   :cl-cc-bootstrap
+   :cl-cc-parse
+   :cl-cc-vm
+   "cl-date-kit"
+   "cl-json-kit"
+   "cl-concurrent-kit")
   :pathname "src"
   :serial t
   :components
   ((:file "package")
+   (:file "macros")
    (:file "lexer")
    (:file "lexer-operator")
    (:file "lexer-number")
@@ -48,11 +61,10 @@
    (:file "parser-stmt-flow")
    (:file "parser-stmt-dispatch")
    (:file "parser-class")
+   (:file "parser-class-lower-classify")
    (:file "parser-class-lower")
    (:file "parser-module")
    (:file "parser-module-export")
-   (:file "parser-pattern")
-   (:file "parser-pattern-lower")
    ;; NOTE: there is intentionally no separate ast-lower pass. The parser lowers
    ;; JS-specific forms inline (e.g. %js-lower-assignment for &&=/||=/??=, %js-this
    ;; emitted directly), matching the PHP frontend's inline-lowering model. The
@@ -84,6 +96,7 @@
    (:file "runtime-weak-collections")
    (:file "runtime-date")
    (:file "runtime-date-methods")
+   (:file "runtime-regex-combinators")
    (:file "runtime-regex")
    (:file "runtime-regex-api")
    (:file "runtime-typed-arrays")
@@ -95,6 +108,7 @@
    (:file "runtime-ops")
    (:file "runtime-ops-encoding")
    (:file "runtime-temporal")
+   (:file "runtime-temporal-datetime")
    (:file "runtime-temporal-duration")
    (:file "runtime-temporal-parse")
    (:file "runtime-temporal-global")
@@ -150,21 +164,34 @@
   ((:file "package")
    (:file "lexer-test")
    (:file "parser-decl-test")
-   (:file "parser-stmt-test")
+   (:file "parser-stmt-control-flow-test")
+   (:file "parser-stmt-module-test")
+   (:file "parser-stmt-misc-test")
    (:file "e2e-core-test")
    (:file "e2e-ast-test")
    (:file "e2e-advanced-test")
+   (:file "e2e-advanced-builtins-test")
    (:file "e2e-modern-test")
    (:file "runtime-core-test")
    (:file "runtime-array-test")
    (:file "runtime-string-number-test")
-   (:file "runtime-collections-test")
-   (:file "runtime-method-resolver-test")
-   (:file "runtime-date-json-test")
+   (:file "runtime-collections-set-test")
+   (:file "runtime-collections-iterators-test")
+   (:file "runtime-collections-values-test")
+   (:file "runtime-collections-weak-test")
+   (:file "runtime-regex-test")
+   (:file "runtime-method-resolver-dispatch-test")
+   (:file "runtime-misc-test")
+   (:file "runtime-temporal-test")
+   (:file "runtime-date-test")
+   (:file "runtime-json-test")
    (:file "runtime-object-ops-test")
    (:file "runtime-symbol-test")
    (:file "runtime-typed-arrays-methods-test")
-   (:file "runtime-builtins-test")
+   (:file "runtime-builtins-promises-test")
+   (:file "runtime-builtins-iterator-proxy-test")
+   (:file "runtime-builtins-platform-object-test")
+   (:file "runtime-console-test")
    (:file "runtime-builtins-platform-test"))
   :perform (asdf:test-op (op system)
              (declare (ignore op system))
