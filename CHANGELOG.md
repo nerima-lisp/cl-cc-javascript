@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `src/runtime-symbol.lisp`'s 15 well-known-Symbol `defparameter`s (`Symbol.iterator`,
+  `Symbol.toPrimitive`, ...) were 15 hand-written, identically-shaped forms differing
+  only in name/string/docstring — genuinely "data" masquerading as "logic". Consolidated
+  into a new `define-js-well-known-symbols` `defmacro` plus a plain data table, found via
+  a `paredit inspect clone-classes` scan of the runtime files (scoped, since the whole
+  `src/` tree exceeds the tool's own similarity budget).
+- Replaced 14 hand-written `(lambda (...) (declare (ignore ...)) +js-undefined+)` no-op
+  closures — `console.time`/`timeEnd`/`timeLog`/`count`/`countReset`/`group`/`groupEnd`,
+  `performance.mark`/`measure`/`clearMarks`, `Atomics.pause`, `Intl.NumberFormat`'s
+  `__call__`, all across `runtime-builtins-table-specs.lisp`/
+  `runtime-builtins-platform-atomics.lisp`/`runtime-builtins-intl-number-format.lisp` —
+  with plain `(constantly +js-undefined+)`, the same clone-classes scan's other top
+  finding. The tool had grouped 28 structurally-similar `(lambda (...) (declare (ignore
+  ...)) BODY)` forms into one class by AST shape, but only these 14 were actually the
+  *same value* (ignore everything, return the constant `+js-undefined+`); the other 14
+  do genuinely different work per call site (`%js-make-abort-controller`, `%js-bigint-
+  to-string`, etc.) and were correctly left as distinct closures — a clone-class grouped
+  by shape is not automatically a duplication bug, only a lead worth checking by hand.
+  Verified via `nix build .#checks.aarch64-darwin.default`: 1350 passed both before and
+  after, 0 failed — purely mechanical, zero behavior change.
 - Consolidated the parser's most-repeated boilerplate into a new `defmacro`,
   `%js-consume-then` (`src/parser.lisp`, next to `js-consume`/`js-expect`): 71 call
   sites across 9 files (`parser-arrow.lisp`, `parser-class.lisp`, `parser-expr-args.lisp`,

@@ -71,65 +71,49 @@
 ;;; Stored as CL defparameters so every reference uses the same object.
 ;;; The parser stores them under "@@name" keys in objects.
 
-(defparameter %js-symbol-iterator
-  (%js-symbol-for "Symbol.iterator")
-  "Symbol.iterator — used by for...of and spread.")
+(defmacro define-js-well-known-symbols (&body specs)
+  "Define each (VAR \"Symbol.Name\" DOC) in SPECS as a DEFPARAMETER holding
+the shared well-known symbol object (%JS-SYMBOL-FOR \"Symbol.Name\") -- the
+data (name/doc) and the logic (one uniform defparameter shape) were
+previously interleaved as 15 hand-written, identically-shaped forms."
+  `(progn
+     ,@(mapcar
+        (lambda (spec)
+          (destructuring-bind (var name doc) spec
+            `(defparameter ,var (%js-symbol-for ,name) ,doc)))
+        specs)))
 
-(defparameter %js-symbol-to-primitive
-  (%js-symbol-for "Symbol.toPrimitive")
-  "Symbol.toPrimitive — type coercion hook.")
-
-(defparameter %js-symbol-to-string-tag
-  (%js-symbol-for "Symbol.toStringTag")
-  "Symbol.toStringTag — Object.prototype.toString tag.")
-
-(defparameter %js-symbol-has-instance
-  (%js-symbol-for "Symbol.hasInstance")
-  "Symbol.hasInstance — instanceof hook.")
-
-(defparameter %js-symbol-species
-  (%js-symbol-for "Symbol.species")
-  "Symbol.species — constructor for derived objects.")
-
-(defparameter %js-symbol-async-iterator
-  (%js-symbol-for "Symbol.asyncIterator")
-  "Symbol.asyncIterator — async iteration protocol.")
-
-(defparameter %js-symbol-match
-  (%js-symbol-for "Symbol.match")
-  "Symbol.match — String.prototype.match hook.")
-
-(defparameter %js-symbol-replace
-  (%js-symbol-for "Symbol.replace")
-  "Symbol.replace — String.prototype.replace hook.")
-
-(defparameter %js-symbol-search
-  (%js-symbol-for "Symbol.search")
-  "Symbol.search — String.prototype.search hook.")
-
-(defparameter %js-symbol-split
-  (%js-symbol-for "Symbol.split")
-  "Symbol.split — String.prototype.split hook.")
-
-(defparameter %js-symbol-dispose
-  (%js-symbol-for "Symbol.dispose")
-  "Symbol.dispose — ES2025 explicit resource management (using statement).")
-
-(defparameter %js-symbol-async-dispose
-  (%js-symbol-for "Symbol.asyncDispose")
-  "Symbol.asyncDispose — ES2025 async resource management.")
-
-(defparameter %js-symbol-metadata
-  (%js-symbol-for "Symbol.metadata")
-  "Symbol.metadata — ES2025 decorator metadata.")
-
-(defparameter %js-symbol-is-concat-spreadable
-  (%js-symbol-for "Symbol.isConcatSpreadable")
-  "Symbol.isConcatSpreadable — Array.prototype.concat hook.")
-
-(defparameter %js-symbol-unscopables
-  (%js-symbol-for "Symbol.unscopables")
-  "Symbol.unscopables — with statement exclusions.")
+(define-js-well-known-symbols
+  (%js-symbol-iterator "Symbol.iterator"
+    "Symbol.iterator — used by for...of and spread.")
+  (%js-symbol-to-primitive "Symbol.toPrimitive"
+    "Symbol.toPrimitive — type coercion hook.")
+  (%js-symbol-to-string-tag "Symbol.toStringTag"
+    "Symbol.toStringTag — Object.prototype.toString tag.")
+  (%js-symbol-has-instance "Symbol.hasInstance"
+    "Symbol.hasInstance — instanceof hook.")
+  (%js-symbol-species "Symbol.species"
+    "Symbol.species — constructor for derived objects.")
+  (%js-symbol-async-iterator "Symbol.asyncIterator"
+    "Symbol.asyncIterator — async iteration protocol.")
+  (%js-symbol-match "Symbol.match"
+    "Symbol.match — String.prototype.match hook.")
+  (%js-symbol-replace "Symbol.replace"
+    "Symbol.replace — String.prototype.replace hook.")
+  (%js-symbol-search "Symbol.search"
+    "Symbol.search — String.prototype.search hook.")
+  (%js-symbol-split "Symbol.split"
+    "Symbol.split — String.prototype.split hook.")
+  (%js-symbol-dispose "Symbol.dispose"
+    "Symbol.dispose — ES2025 explicit resource management (using statement).")
+  (%js-symbol-async-dispose "Symbol.asyncDispose"
+    "Symbol.asyncDispose — ES2025 async resource management.")
+  (%js-symbol-metadata "Symbol.metadata"
+    "Symbol.metadata — ES2025 decorator metadata.")
+  (%js-symbol-is-concat-spreadable "Symbol.isConcatSpreadable"
+    "Symbol.isConcatSpreadable — Array.prototype.concat hook.")
+  (%js-symbol-unscopables "Symbol.unscopables"
+    "Symbol.unscopables — with statement exclusions."))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Symbol as property key — ht uses the js-symbol struct as key (eq lookup)

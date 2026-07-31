@@ -71,9 +71,7 @@
   (declare (ignore _locale))
   (%js-make-object
     "__call__"
-    (lambda (&rest _)
-      (declare (ignore _))
-      +js-undefined+)
+    (constantly +js-undefined+)
     "format"
     (lambda (n)
       (let ((formatted (%js-number-format-compose n options)))

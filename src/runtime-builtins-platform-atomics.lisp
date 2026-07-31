@@ -5,4 +5,4 @@
 (defun %js-make-atomics ()
   "Atomics global object (pause)."
   (%js-make-object
-   "pause" (lambda (&rest _) (declare (ignore _)) +js-undefined+)))
+   "pause" (constantly +js-undefined+)))
