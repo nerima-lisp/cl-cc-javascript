@@ -187,8 +187,9 @@ parameter list have the same gap. Regular function declarations and arrow
 functions apply defaults correctly; only class methods/getters/setters/
 constructors go through a separate, simpler parameter parser
 (`%js-parse-method-params-body`) that was never extended to match. The
-syntax itself always parses without error (as of this fix — see
-`CHANGELOG.md`, a nested-call or bracketed-literal default like
+syntax itself always parses without error (as of this fix — see the
+[release notes](https://github.com/nerima-lisp/cl-cc-javascript/releases); a
+nested-call or bracketed-literal default like
 `m(a, b = foo(1,2))` previously corrupted the parser entirely instead of
 merely ignoring the default's value).
 

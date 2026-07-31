@@ -56,15 +56,6 @@ markdown_extensions:
       line_spans: __span
       pygments_lang_class: true
   - pymdownx.inlinehilite
-  - pymdownx.snippets:
-      # base_path is relative to mkdocs' working directory, and the docs build
-      # runs from the repository root via `-f docs/mkdocs.yml`, so "." is the
-      # repository root. This is what lets docs/src/changelog.md include the
-      # root CHANGELOG.md instead of duplicating it.
-      base_path:
-        - "."
-      # Fail the build on a missing snippet, matching --strict.
-      check_paths: true
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
@@ -102,7 +93,6 @@ nav:
       - Architecture: architecture.md
   - Project:
       - Development: development.md
-      - Changelog: changelog.md
 
 not_in_nav: |
   notes/

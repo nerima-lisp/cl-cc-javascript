@@ -205,7 +205,7 @@ this session."
   ;; junk, unlike ToNumber coercion (which requires the whole string to be
   ;; numeric). The "NaN" expectations here were WRONG, locking in a real
   ;; bug (Number.parseInt/parseFloat were wired to %js-to-number instead
-  ;; of %js-parse-int/%js-parse-float) -- see CHANGELOG.md.
+  ;; of %js-parse-int/%js-parse-float) -- see the release notes.
   ("3.14"    "console.log(Number.parseFloat('3.14x'));")
   ("42"      "console.log(Number.parseInt('42x'));")
   ("true"    "console.log(Number.EPSILON > 0);")
@@ -232,7 +232,7 @@ this session."
 (deftest-js-run-isolated-batch js-e2e-string-static-methods
   "String.fromCharCode/fromCodePoint build strings from numeric code points.
 String.raw returns the RAW (as-written, escapes untouched) template text --
-fixed 2026-07-31, see CHANGELOG.md; previously returned cooked output
+fixed 2026-07-31, see the release notes; previously returned cooked output
 because the template lexer only tracked the escapes-processed string."
   ("AB"      "console.log(String.fromCharCode(65,66));")
   ("1"       "console.log(String.fromCodePoint(0x1F600).length);")

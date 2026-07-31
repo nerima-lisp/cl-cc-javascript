@@ -318,7 +318,7 @@ rational 5/2. Division by zero gives +/-Infinity (or NaN for 0/0), per ECMAScrip
     ;; string concatenation of a Date fell through to the catch-all
     ;; PRINC-TO-STRING below, dumping the raw #S(JS-DATE :MS ...) struct
     ;; instead of calling toString() -- found and fixed 2026-07-31 as a
-    ;; side effect of adding Invalid Date test coverage (see CHANGELOG.md).
+    ;; side effect of adding Invalid Date test coverage (see the release notes).
     ((%js-date-p x)         (%js-date-to-string x))
     ((%js-ht-p x)           "[object Object]")
     ((%js-vec-p x)

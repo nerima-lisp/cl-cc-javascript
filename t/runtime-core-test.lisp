@@ -186,7 +186,7 @@ across every runtime-*-test file."
   ;; (`{get foo(){}}` in real JS enumerates "foo" via for...in) -- what
   ;; for...in must actually skip is the internal __get_X/__set_X STORAGE
   ;; key itself (and other internal keys like __proto__), not the logical
-  ;; property the accessor represents. See CHANGELOG.md.
+  ;; property the accessor represents. See the release notes.
   (let ((obj (cl-cc/javascript::%js-make-object "a" 1 "b" 2))
         (keys nil))
     (setf (gethash "__get_foo" obj) (lambda () 99))

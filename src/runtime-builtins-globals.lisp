@@ -7,7 +7,7 @@
 ;;;; BigInt helpers, Iterator.from, and Map.groupBy.
 ;;;; (String.raw itself lives in runtime-string.lisp -- this file used to
 ;;;; also define it, a duplicate defun that silently shadowed the real one
-;;;; since this file loads later; removed 2026-07-31, see CHANGELOG.md.)
+;;;; since this file loads later; removed 2026-07-31, see the release notes.)
 ;;;;
 ;;;; Load order: after runtime-builtins.lisp (needs %js-to-number, %js-funcall,
 ;;;; %js-nan-p, %js-float-nan-p, %js-float-infinity-p, %js-to-string, etc.)

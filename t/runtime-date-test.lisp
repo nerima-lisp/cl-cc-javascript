@@ -56,7 +56,7 @@
   ;; An unparseable string is an Invalid Date (NaN), per ECMA-262 -- NOT an
   ;; integer "now" fallback, which this test used to assert (a real bug,
   ;; fixed 2026-07-31: new Date("garbage") used to silently become the
-  ;; current time instead of a detectably-invalid Date; see CHANGELOG.md).
+  ;; current time instead of a detectably-invalid Date; see the release notes).
   (let ((result (cl-cc/javascript::%js-date-parse-string "not-a-date")))
     (expect (cl-cc/javascript::%js-float-nan-p result) :to-be-truthy)))
 

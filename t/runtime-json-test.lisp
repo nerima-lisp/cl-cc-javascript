@@ -166,7 +166,7 @@ b"))
 (it-sequential "js-rt-json-parse-invalid"
   ;; Real JSON.parse throws a SyntaxError on malformed input rather than
   ;; returning undefined -- the hand-rolled parser this runtime used to have
-  ;; got this wrong (see CHANGELOG.md).
+  ;; got this wrong (see the release notes).
   (expect-rejects (lambda () (cl-cc/javascript::%js-json-parse "NOT_JSON"))
     :to-be-instance-of 'cl-cc/javascript:js-exception))
 

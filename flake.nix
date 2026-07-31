@@ -245,14 +245,19 @@
       paredit-cli,
     }:
     let
-      # Only platforms that something actually verifies are declared (ADR-0078).
-      # x86_64-linux is exercised by the CI runner; aarch64-darwin is the
-      # development machine, so it is exercised by every local `nix flake
-      # check`. aarch64-linux and x86_64-darwin have no such runner and are
-      # therefore not advertised.
+      # CI builds and tests only x86_64-linux, so that is the sole declared
+      # system: the flake never advertises a platform it does not verify
+      # (ADR-0078). aarch64-darwin was dropped on 2026-08-01. Its only
+      # verification was a local `nix flake check` on a development machine, and
+      # a run nobody can tell was skipped is not a gate. aarch64-linux and
+      # x86_64-darwin were already undeclared for the same reason.
+      #
+      # Consequence, accepted deliberately: every per-system output -- packages,
+      # checks, apps AND devShells -- is generated from this one list, so
+      # `nix develop` and `nix build` no longer work on macOS. Development
+      # happens on Linux. See PACKAGE_STANDARD.md, section "systems".
       systems = [
         "x86_64-linux"
-        "aarch64-darwin"
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
 
@@ -364,17 +369,13 @@
           # same derivation this file used to hand-roll: `mkdocs build
           # --strict`, fully offline (Material bundles its own assets), --
           # promoting a broken link or an unlisted page to a build failure.
-          # The source root is the repository, not ./docs, because
-          # docs/src/changelog.md pulls in the root CHANGELOG.md through a
-          # pymdownx snippet rather than duplicating it. mkdocs therefore runs
-          # from the repository root with `-f docs/mkdocs.yml`, which is what
-          # makes the snippet `base_path` of "." resolve.
+          # The source root is the repository, not ./docs, because mkdocs runs
+          # from the repository root with `-f docs/mkdocs.yml`.
           docs = cl.mkDocsSite {
             root = ./.;
             fileset = pkgs.lib.fileset.unions [
               ./docs/mkdocs.yml
               ./docs/src
-              ./CHANGELOG.md
             ];
             mkdocsYmlName = "docs/mkdocs.yml";
             pname = "cl-cc-javascript-docs";

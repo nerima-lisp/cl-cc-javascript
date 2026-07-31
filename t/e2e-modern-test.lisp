@@ -105,7 +105,7 @@ console.log(C.check({}));") :to-equal "false"))
   ("1,2,3" "console.log([3,1,2].toSorted().join(','));")
   ;; undefined always sorts to the end, excluded from comparison entirely
   ;; (ECMA-262 SortCompare) -- regression coverage for a real bug found and
-  ;; fixed 2026-07-31 (see CHANGELOG.md): the default/custom comparator used
+  ;; fixed 2026-07-31 (see the release notes): the default/custom comparator used
   ;; to compare `undefined` like any other element instead of excluding it.
   ("1,2,3," "console.log([undefined,3,1,2].sort().join(','));")
   ("1,2,3," "console.log([undefined,3,1,2].toSorted().join(','));")
@@ -292,7 +292,7 @@ helpers, which spun forever on a js-regexp struct)."
   ;; A capturing group in the separator splices its captured text into the
   ;; result array, right after the field it separates -- previously
   ;; unimplemented (groups were never even passed to the matcher during
-  ;; split's scan). See CHANGELOG.md.
+  ;; split's scan). See the release notes.
   ("2023|-|01|-|15" "console.log('2023-01-15'.split(/(-)/).join('|'));")
   ;; An optional group that never participates in the match splices
   ;; `undefined` (not an empty string) into the result at its position.
@@ -315,7 +315,7 @@ were likewise unreachable through the function-method resolver)."
   ("1970-01-02T00:00:00.000Z" "console.log(new Date(86400000).toISOString());")
   ("true"    "console.log(Date.parse('1970-01-02')===86400000);")
   ;; Invalid Date -- previously a real crash (FLOATING-POINT-INVALID-
-  ;; OPERATION), found and fixed 2026-07-31 (see CHANGELOG.md). Every
+  ;; OPERATION), found and fixed 2026-07-31 (see the release notes). Every
   ;; construction path, every getter, setTime, and toString() must all
   ;; produce/propagate NaN gracefully instead of trapping.
   ("NaN"     "console.log(new Date(NaN).getTime());")
