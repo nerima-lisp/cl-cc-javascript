@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (test layout)
+
+- Two test files that had grown past this project's ~500-line-per-file convention
+  were split, matching the pattern already used elsewhere (e.g.
+  `e2e-advanced-test.lisp`/`e2e-advanced-builtins-test.lisp`):
+  `t/runtime-object-ops-test.lisp` (546 lines) → kept Object static
+  methods/prototype ops/freeze-seal/destructuring (350 lines), moved bitwise/
+  shift/BigInt/URI-encoding/accessor-misc coverage to a new
+  `t/runtime-ops-test.lisp` (208 lines); `t/runtime-array-test.lisp` (525
+  lines) → kept core mutating array methods and ES2023 non-mutating variants
+  (323 lines), moved TypedArray basics, array iteration/`Array.from(Async)`,
+  and ES2024 `group`/`groupToMap` coverage to a new
+  `t/runtime-array-coverage-test.lisp` (214 lines). Both new files registered
+  in `cl-cc-javascript.asd`. No test content changed, only file boundaries —
+  verified via `nix build .#checks.aarch64-darwin.default`: identical pass
+  count before and after.
+
 ### Fixed (regex)
 
 - The regex engine did not recognize `\xHH`/`\uHHHH` hex/unicode escapes or `\f`
