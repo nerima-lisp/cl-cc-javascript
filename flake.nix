@@ -195,6 +195,21 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # paredit-cli: the org's structure-editing CLI for safe S-expression
+    # refactoring, meant to be reached for aggressively while touching this
+    # repository's Lisp sources (2026 refactor goal). Unlike every CL sibling
+    # above, this is a REAL flake input, not `flake = false`: those are raw
+    # source trees ASDF loads directly, whereas what this repo actually wants
+    # is paredit-cli's own already-built binary (`packages.${system}.default`,
+    # a Rust/crane derivation) — there is no ASDF system to load here at all.
+    # Exposed only in devShells.default below (a local/interactive refactoring
+    # tool), not packages/checks: nothing in this repo's own build or test
+    # suite depends on it.
+    paredit-cli = {
+      url = "github:nerima-lisp/paredit-cli/v1.3.0";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -216,6 +231,7 @@
       cl-concurrent-kit,
       cl-host-kit,
       treefmt-nix,
+      paredit-cli,
     }:
     let
       # Only platforms that something actually verifies are declared (ADR-0078).
@@ -513,6 +529,7 @@
             packages = [
               pkgs.sbcl
               pkgs.perl # scripts/with-timeout.pl, for running the suite by hand
+              paredit-cli.packages.${system}.default # `paredit` binary; see the input's own comment
             ];
             shellHook = ''
               ${exportDependencyEnv}

@@ -30,6 +30,24 @@ nix build .#docs     # just this site
 nix fmt              # format Nix sources (treefmt / nixfmt)
 ```
 
+## Refactoring with paredit-cli
+
+[paredit-cli](https://github.com/nerima-lisp/paredit-cli) — the org's structure-editing
+CLI for safe S-expression refactoring — is on `PATH` inside `nix develop` as `paredit`.
+Prefer it over hand-editing for anything structural:
+
+```sh
+paredit inspect check -f src/runtime-object.lisp     # balanced-S-expression sanity check
+paredit inspect lint src/*.lisp                      # every within-file logic-bug rule at once
+paredit inspect unused-definitions src/*.lisp         # definitions with no external reference
+paredit inspect clone-classes src/*.lisp              # near-duplicate forms, ranked by lines an extraction would save
+```
+
+Always pass the complete file set a rule needs to see cross-file usage — `unused-definitions`
+and `clone-classes` scoped to a narrow subset will misreport symbols that are only "unused"
+because the files that call them were left out. Set `--timeout-ms` on any scan over the
+whole tree, consistent with this project's "every command execution needs a timeout" rule.
+
 ## Running tests without Nix
 
 The suite needs the sibling checkouts. Inside `nix develop` they are already pointed at

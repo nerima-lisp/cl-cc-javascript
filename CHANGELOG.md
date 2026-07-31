@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `paredit-cli` (the org's structure-editing CLI for S-expression refactoring) wired into
+  `flake.nix` as a real flake input — pinned to `v1.3.0`, `inputs.nixpkgs.follows =
+  "nixpkgs"` — and exposed as `paredit` in `devShells.default`. It was previously absent
+  from this repository entirely despite being an org tool this project's own refactor
+  conventions call for using; every attempt to run it in a plain `nix develop` shell
+  failed with "command not found" until now. Unlike the CL sibling dependencies above,
+  it is a real flake input (not `flake = false`) because what's needed is its built
+  binary (a Rust/crane `packages.${system}.default`), not a source tree for ASDF to
+  load. Documented in `docs/src/development.md`'s new "Refactoring with paredit-cli"
+  section.
+
 ### Fixed
 
 - `Object.freeze`/`Object.seal`/`Object.preventExtensions` (and their `is*` queries) on
