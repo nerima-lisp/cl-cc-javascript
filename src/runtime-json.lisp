@@ -1,46 +1,33 @@
 ;;;; packages/javascript/src/runtime-json.lisp — JSON.stringify / JSON.parse
 ;;;;
-;;;; Depends on runtime-object.lisp (%js-internal-key-p) and runtime.lisp
-;;;; (JS value constants, %js-make-ht, %js-vec-p, %js-ht-p).
-
+;;;; JSON parsing and serialization delegate to json-kit (nerima-lisp/cl-
+;;;; json-kit), an RFC-8259-conformant engine (95/95 JSONTestSuite must-
+;;;; accept, 188/188 must-reject) used directly through its own parse/write
+;;;; hooks — :null-value/:false-value/:true-value map JS's null/false/true
+;;;; straight onto its own value model, and :number-encoder reproduces this
+;;;; runtime's existing "integer when whole, ~F otherwise" number formatting
+;;;; (json-kit's own default always keeps a float's decimal point, for
+;;;; round-trip fidelity between CL's integer and float types — a
+;;;; distinction JS numbers don't make). This file supplies only what JSON
+;;;; itself has no concept of: JS `undefined`/function/Symbol values (dropped
+;;;; from JSON.stringify output — omitted from an object property, become
+;;;; `null` in an array, make a top-level call return `undefined` itself
+;;;; rather than any string), NaN/Infinity (also `null`), and JSON.rawJSON
+;;;; fragment splicing.
+;;;;
+;;;; Depends on runtime.lisp (%js-typeof, %js-float-nan-p, %js-float-
+;;;; infinity-p, JS value constants), runtime-object.lisp
+;;;; (%js-internal-key-p), runtime-class.lisp (*js-syntax-error-class*,
+;;;; %js-make-error-instance) and runtime-string.lisp
+;;;; (%js-string-replace-all) — both referenced here before those files load;
+;;;; resolved at call time, the same forward-reference pattern
+;;;; runtime-array-es2023.lisp already uses for *js-range-error-class*.
 (in-package :cl-cc/javascript)
 
 ;;; -----------------------------------------------------------------------
-;;;  Data tables
+;;;  Raw JSON wrapper (JSON.rawJSON / JSON.isRawJSON, ES2024)
 ;;; -----------------------------------------------------------------------
-
-(defparameter *%json-string-escape-pairs*
-  '((#\" . "\\\"") (#\\ . "\\\\")
-    (#\Newline . "\\n") (#\Return . "\\r") (#\Tab . "\\t"))
-  "JSON string character escapes: char → escape sequence.")
-
-(defparameter *%json-whitespace-chars*
-  '(#\Space #\Tab #\Newline #\Return)
-  "Characters skipped by the JSON parser between tokens.")
-
-;;; -----------------------------------------------------------------------
-;;;  Raw JSON wrapper
-;;; -----------------------------------------------------------------------
-
-(defstruct (js-raw-json
-            (:constructor %js-make-raw-json (text))
-            (:conc-name js-raw-json-))
-  text)
-
-;;; -----------------------------------------------------------------------
-;;;  Helpers
-;;; -----------------------------------------------------------------------
-
-(defun %js-json-escape-char (ch buf)
-  "Write CH to BUF, applying JSON escaping if needed."
-  (let ((esc (cdr (assoc ch *%json-string-escape-pairs* :test #'char=))))
-    (if esc (write-string esc buf) (write-char ch buf))))
-
-(defun %js-json-at-literal-p (str pos literal)
-  "Return true if LITERAL appears verbatim at POS in STR."
-  (let ((end (+ pos (length literal))))
-    (and (<= end (length str))
-         (string= str literal :start1 pos :end1 end))))
+(defstruct (js-raw-json (:constructor %js-make-raw-json (text)) (:conc-name js-raw-json-)) text)
 
 (defun %js-json-raw-json-p (val)
   "True when VAL is a JSON.rawJSON wrapper."
@@ -50,15 +37,16 @@
   (js-raw-json-text val))
 
 (defun %js-json-parse-full-p (str)
-  "True when STR is valid JSON text with no trailing non-whitespace data."
-  (let ((trimmed (string-trim *%json-whitespace-chars* str)))
-    (multiple-value-bind (val pos) (%js-json-parse-value trimmed 0)
-      (and (not (eq val +js-undefined+))
-           (= pos (length trimmed))))))
+  "True when STR is valid JSON text with no trailing non-whitespace data
+(json-kit:parse itself rejects trailing data, so no separate check is
+needed)."
+  (and (stringp str)
+       (handler-case (progn (parse str) t)
+         (json-parse-error () nil))))
 
 (defun %js-json-raw-json (str)
   "Wrap STR as a raw JSON fragment after validating it."
-  (unless (and (stringp str) (%js-json-parse-full-p str))
+  (unless (%js-json-parse-full-p str)
     (error "JS SyntaxError: invalid JSON.rawJSON text"))
   (%js-make-raw-json str))
 
@@ -66,139 +54,103 @@
   (%js-json-raw-json-p val))
 
 ;;; -----------------------------------------------------------------------
-;;;  JSON serialization
+;;;  JSON.stringify
 ;;; -----------------------------------------------------------------------
+(defun %js-json-number-encoder (n)
+  "json-kit's :number-encoder hook: N formatted the way this runtime always
+has — bare digits when N has no fractional part, ~F otherwise — rather than
+json-kit's own default of always keeping a float's decimal point."
+  (if (= n (floor n))
+      (write-to-string (floor n) :base 10 :radix nil)
+      (format nil "~F" n)))
 
-(defun %js-json-stringify-value (val depth)
-  "Recursively convert JS value VAL to a JSON string (depth limited to 50)."
-  (when (> depth 50) (return-from %js-json-stringify-value "null"))
+(defun %js-json-unrepresentable-p (val)
+  "True when VAL has no JSON representation at all — JS `undefined`,
+functions, and Symbols are all dropped from JSON.stringify output, never
+encoded as any JSON token (JSON.rawJSON wrappers ARE representable — they
+splice their own raw text in, handled separately by
+%JS-JSON-STRINGIFY-NORMALIZE)."
+  (member (%js-typeof val) '("undefined" "function" "symbol") :test #'string=))
+
+(defun %js-json-stringify-normalize (val fragments)
+  "Rebuild VAL (a JS value tree) into an equivalent tree JSON-KIT:STRINGIFY
+can serialize directly. Each JSON.rawJSON wrapper found is registered as a
+(marker . raw-text) pair pushed onto FRAGMENTS (an adjustable vector) and
+replaced with a unique marker string — json-kit has no concept of a raw
+passthrough leaf, so the marker is swapped back for the real text after
+stringification, see %JS-JSON-SPLICE-RAW-FRAGMENTS. NaN/Infinity become
++JS-NULL+ here (JSON has no numeric token for either), same as an
+unrepresentable array element; an unrepresentable object property is omitted
+entirely, by simply never adding it to the rebuilt hash table below."
   (cond
     ((%js-json-raw-json-p val)
-     (%js-json-raw-json-text val))
-    ((or (eq val +js-null+) (eq val +js-undefined+)) "null")
-    ((eq val nil) "false")
-    ((eq val t)   "true")
-    ((%js-float-nan-p val) "null")
-    ((%js-float-infinity-p val) "null")
-    ((numberp val)
-     (let ((n (coerce val 'double-float)))
-       (if (= n (floor n))
-           (format nil "~D" (floor n))
-           (format nil "~F" n))))
-    ((stringp val)
-     (with-output-to-string (s)
-       (write-char #\" s)
-       (loop for ch across val do (%js-json-escape-char ch s))
-       (write-char #\" s)))
+     (let ((marker (symbol-name (gensym "JSON-RAW-FRAGMENT-"))))
+       (vector-push-extend (cons marker (%js-json-raw-json-text val)) fragments)
+       marker))
+    ((or (%js-float-nan-p val) (%js-float-infinity-p val)) +js-null+)
     ((%js-vec-p val)
-     (format nil "[~{~A~^,~}]"
-             (loop for i below (length val)
-                   collect (%js-json-stringify-value (aref val i) (1+ depth)))))
+     (let ((result (make-array (length val))))
+       (dotimes (i (length val) result)
+         (let ((item (aref val i)))
+           (setf (aref result i)
+                 (if (%js-json-unrepresentable-p item)
+                     +js-null+
+                     (%js-json-stringify-normalize item fragments)))))))
     ((%js-ht-p val)
-     (let ((pairs nil))
-       (maphash (lambda (k v)
-                  (unless (%js-internal-key-p k)
-                    (let ((vs (%js-json-stringify-value v (1+ depth))))
-                      (unless (string= vs "undefined")
-                        (push (format nil "~A:~A" (%js-json-stringify-value k 0) vs) pairs)))))
-                val)
-       (format nil "{~{~A~^,~}}" (nreverse pairs))))
-    (t "null")))
+     ;; %JS-OBJECT-OWN-STRING-PROPERTY-KEYS, not a raw MAPHASH: gives the
+     ;; correct ES2015+ [[OwnPropertyKeys]] order (array-index keys
+     ;; numerically ascending first) and already excludes internal runtime
+     ;; keys while translating an accessor's __get_X/__set_X storage key to
+     ;; its real property name. %JS-GET-PROP (not a raw GETHASH) then reads
+     ;; each value through any getter, exactly like real JSON.stringify's
+     ;; own [[Get]] on each own enumerable key -- a plain MAPHASH+GETHASH
+     ;; here would both scramble key order and silently omit every
+     ;; getter/setter property entirely (its raw stored value is the
+     ;; accessor FUNCTION, and its key was `__get_X`, already filtered out
+     ;; as an "internal" key rather than recognized as a property).
+     (let ((result (%js-make-ht)))
+       (loop for k across (%js-object-own-string-property-keys val)
+             for v = (%js-get-prop val k)
+             unless (%js-json-unrepresentable-p v)
+               do (setf (gethash k result) (%js-json-stringify-normalize v fragments)))
+       result))
+    (t val)))
+
+(defun %js-json-splice-raw-fragments (text fragments)
+  "Undo %JS-JSON-STRINGIFY-NORMALIZE's marker substitution: each marker
+appears in TEXT as an ordinary JSON-quoted string (JSON-KIT:STRINGIFY had no
+idea it meant anything special) — replace that quoted form with the raw
+fragment text verbatim."
+  (loop for (marker . raw) across fragments
+        do (setf text (%js-string-replace-all text (stringify marker) raw)))
+  text)
 
 (defun %js-json-stringify (val)
-  (%js-json-stringify-value val 0))
+  "JSON.stringify(value). Replacer/space are accepted but ignored by the
+caller (JSON.stringify's own binding in runtime-builtins-table-specs.lisp) —
+see docs/src/compatibility.md."
+  (if (%js-json-unrepresentable-p val)
+      +js-undefined+
+      (let ((fragments (make-array 0 :adjustable t :fill-pointer 0)))
+        (%js-json-splice-raw-fragments
+          (stringify (%js-json-stringify-normalize val fragments)
+                     :null-value +js-null+ :false-value nil
+                     :number-encoder #'%js-json-number-encoder)
+          fragments))))
 
 ;;; -----------------------------------------------------------------------
-;;;  JSON deserialization
+;;;  JSON.parse
 ;;; -----------------------------------------------------------------------
-
 (defun %js-json-parse (str)
-  "Minimal JSON parser: handles null, true, false, numbers, strings, arrays, objects."
+  "JSON.parse(text) — full RFC 8259 parsing via json-kit, with JS's own
+null/false/true value mapping applied directly through its own parser hooks.
+Invalid JSON raises a real JS SyntaxError (the hand-rolled parser this
+replaced silently returned `undefined` instead, which is not what JSON.parse
+does)."
   (handler-case
-      (%js-json-parse-value (string-trim '(#\Space #\Tab #\Newline #\Return) str) 0)
-    (error () +js-undefined+)))
-
-(defun %js-json-skip-ws (str pos)
-  (or (position-if-not (lambda (c)
-                         (member c *%json-whitespace-chars* :test #'char=))
-                       str :start pos)
-      (length str)))
-
-(defun %js-json-parse-value (str pos)
-  "Parse JSON value at POS in STR, returning (values parsed-value new-pos)."
-  (let ((c (and (< pos (length str)) (char str pos))))
-    (cond
-      ((null c) (values +js-undefined+ pos))
-      ((char= c #\") (%js-json-parse-string str (1+ pos)))
-      ((char= c #\{) (%js-json-parse-object str (1+ pos)))
-      ((char= c #\[) (%js-json-parse-array str (1+ pos)))
-      ((%js-json-at-literal-p str pos "null")  (values +js-null+ (+ pos 4)))
-      ((%js-json-at-literal-p str pos "true")  (values t         (+ pos 4)))
-      ((%js-json-at-literal-p str pos "false") (values nil        (+ pos 5)))
-      ((or (digit-char-p c) (char= c #\-))
-       (%js-json-parse-number str pos))
-      (t (values +js-undefined+ pos)))))
-
-(defun %js-json-parse-string (str pos)
-  ;; Use an explicit stream — WITH-OUTPUT-TO-STRING returns the string and
-  ;; discards the body's (values …), losing the new position.
-  (let ((buf (make-string-output-stream)))
-    (loop
-      (when (>= pos (length str)) (return))
-      (let ((c (char str pos)))
-        (when (char= c #\") (return))
-        (incf pos)
-        (if (char= c #\\)
-            (let ((esc (char str pos)))
-              (incf pos)
-              (write-char (case esc (#\" #\") (#\\ #\\) (#\/ #\/) (#\n #\Newline)
-                                    (#\r #\Return) (#\t #\Tab) (t esc)) buf))
-            (write-char c buf))))
-    (values (get-output-stream-string buf) (1+ pos))))
-
-(defun %js-json-parse-number (str pos)
-  (let ((end pos))
-    (when (char= (char str end) #\-) (incf end))
-    (loop while (and (< end (length str))
-                     (or (digit-char-p (char str end))
-                         (char= (char str end) #\.)
-                         (member (char str end) '(#\e #\E #\+ #\-))))
-          do (incf end))
-    (values (handler-case
-                 (let ((*read-default-float-format* 'double-float))
-                   (read-from-string (subseq str pos end)))
-               (error () *js-nan-float*))
-            end)))
-
-(defun %js-json-parse-array (str pos)
-  (let ((result (make-array 0 :element-type t :adjustable t :fill-pointer 0)))
-    (setf pos (%js-json-skip-ws str pos))
-    (when (and (< pos (length str)) (char= (char str pos) #\]))
-      (return-from %js-json-parse-array (values result (1+ pos))))
-    (loop
-      (multiple-value-bind (val new-pos) (%js-json-parse-value str (%js-json-skip-ws str pos))
-        (vector-push-extend val result)
-        (setf pos (%js-json-skip-ws str new-pos))
-        (cond ((and (< pos (length str)) (char= (char str pos) #\,)) (incf pos))
-              ((and (< pos (length str)) (char= (char str pos) #\]))
-               (return (values result (1+ pos))))
-              (t (return (values result pos))))))))
-
-(defun %js-json-parse-object (str pos)
-  (let ((ht (%js-make-ht)))
-    (setf pos (%js-json-skip-ws str pos))
-    (when (and (< pos (length str)) (char= (char str pos) #\}))
-      (return-from %js-json-parse-object (values ht (1+ pos))))
-    (loop
-      (setf pos (%js-json-skip-ws str pos))
-      (unless (and (< pos (length str)) (char= (char str pos) #\")) (return (values ht pos)))
-      (multiple-value-bind (key new-pos) (%js-json-parse-string str (1+ pos))
-        (setf pos (%js-json-skip-ws str new-pos))
-        (when (and (< pos (length str)) (char= (char str pos) #\:)) (incf pos))
-        (multiple-value-bind (val new-pos2) (%js-json-parse-value str (%js-json-skip-ws str pos))
-          (setf (gethash key ht) val
-                pos (%js-json-skip-ws str new-pos2))
-          (cond ((and (< pos (length str)) (char= (char str pos) #\,)) (incf pos))
-                ((and (< pos (length str)) (char= (char str pos) #\}))
-                 (return (values ht (1+ pos))))
-                (t (return (values ht pos)))))))))
+      (parse (%js-to-string str) :null-value +js-null+ :false-value nil :true-value t)
+    (json-parse-error (e)
+      (%js-throw
+        (%js-make-error-instance *js-syntax-error-class*
+                                  (format nil "Unexpected token in JSON at position ~D"
+                                          (json-parse-error-position e)))))))
