@@ -39,6 +39,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still permitting an existing index's value to be overwritten (matching this
   codebase's existing silent-no-op convention for blocked writes on plain objects,
   rather than throwing).
+- `#field in obj` (the ES2022 ergonomic private-field brand check) previously lowered
+  to a plain variable lookup on a nonexistent variable literally named `#field` —
+  `js-parse-primary`'s `:T-PRIVATE-IDENT` case builds a synthetic `(ast-var #field)`
+  for a standalone private identifier, and the generic `"in"` operator dispatch had no
+  special case for it, so it tried to evaluate `#field` as a real variable and failed
+  with an undefined-variable error instead of calling the already-correct, previously
+  unwired `%js-has-private-field`. Fixed in `%js-lower-binary` (`src/parser-expr.lisp`)
+  with a new `%js-private-field-in-check-name` helper that recognizes this synthetic
+  AST shape and lowers to `%js-has-private-field` directly, checked before every other
+  `"in"` handling.
+- `for await (x of asyncIter)` silently discarded the `await`, iterating identically to
+  a plain `for...of` — each yielded item was never unwrapped through `%js-await`, so an
+  async iterator yielding promises handed the raw (unawaited) `Promise` object to the
+  loop body instead of its resolved value. `%js-lower-for-of-in`/`%js-parse-for-of-stmt`/
+  `%js-parse-for-in-of-stmt` (`src/parser-stmt-control.lisp`) now thread an `await-p`
+  flag through to wrap each element access in `%js-await`. The dead, wrong-shaped
+  `%js-for-await-of` helper (`src/runtime-promise.lisp`) — never callable from this
+  AST-lowering architecture in the first place — was deleted rather than wired up.
+
+### Removed
+
+- Four dead duplicate implementations, found via a `paredit inspect unused-definitions`
+  sweep (see the paredit-cli wiring above) and confirmed by tracing that each JS feature
+  is actually implemented and tested through a completely different code path:
+  `%js-nullish-coalesce` (`??` is real-lowered via `%js-lower-nullish-coalesce`, already
+  covered by `t/e2e-advanced-test.lisp`'s `js-e2e-optional-chaining-execution`),
+  `%js-void` (`void` lowers inline to an `ast-progn` in `parser-expr-unary.lisp`, already
+  covered by e2e tests), and thin dead wrappers `%js-typed-array-p`/`%js-regexp-p` around
+  the real, pervasively-used unprefixed struct predicates `js-typed-array-p`/`js-regexp-p`.
+  `%js-promise-finally` was the same pattern (`.finally()` is really implemented by a
+  dispatch-table lambda in `runtime-method-resolver-dispatch.lisp`) — but tracing it
+  surfaced that the real, active `.finally()` implementation had **zero** end-to-end test
+  coverage (only the dead standalone function was unit-tested directly); added
+  `js-e2e-promise-finally` to `t/e2e-modern-test.lisp` before deleting it, so removing the
+  dead code does not regress coverage of the real feature.
 
 ## [0.2.0] - 2026-07-31
 

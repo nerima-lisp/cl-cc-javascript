@@ -260,17 +260,6 @@ across every runtime-*-test file."
     (expect (cl-cc/javascript::%js-le nan 1) :to-be-falsy)
     (expect (cl-cc/javascript::%js-ge nan 1) :to-be-falsy)))
 
-;;; ─── Nullish coalescing ──────────────────────────────────────────────────────
-
-(it-sequential-each ((:js-null "default" "default")
-                     (:js-undefined "default" "default")
-                     (nil "default" nil)
-                     (0 "default" 0)
-                     ("x" "default" "x"))
-    "js-rt-nullish-coalesce ~S"
-    (lhs rhs expected)
-  (expect (cl-cc/javascript::%js-nullish-coalesce lhs rhs) :to-equal expected))
-
 ;;; ─── instanceof ──────────────────────────────────────────────────────────────
 
 (it-sequential "js-rt-instanceof-true"

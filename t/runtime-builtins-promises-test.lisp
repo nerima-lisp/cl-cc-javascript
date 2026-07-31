@@ -79,16 +79,6 @@ one test can't leak into another."
     (expect (gethash "status" r2) :to-equal "rejected")
     (expect (gethash "reason" r2) :to-equal "err")))
 
-;;; ─── Promise.finally ─────────────────────────────────────────────────────────
-
-(it-sequential "js-rt-promise-finally-calls-cleanup"
-  (let* ((called (list nil))
-         (p      (cl-cc/javascript::%js-promise-resolve 42))
-         (result (cl-cc/javascript::%js-promise-finally
-                  p (lambda () (setf (car called) t)))))
-    (expect (car called) :to-be-truthy)
-    (expect result :to-be p)))
-
 ;;; ─── Promise.withResolvers ───────────────────────────────────────────────────
 
 (it-sequential "js-rt-promise-with-resolvers"

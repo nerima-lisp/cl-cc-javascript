@@ -25,9 +25,6 @@
   sticky-p
   last-index) ; for stateful matching with /g
 
-(defun %js-regexp-p (x)
-  (js-regexp-p x))
-
 (defparameter *js-regex-max-compile-depth* 1000
   "Maximum group nesting depth %js-compile-pattern's mutually recursive
 compile-atom/compile-seq/compile-alt will descend before signalling a

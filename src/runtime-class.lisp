@@ -268,21 +268,8 @@ Example: (define-js-error-subclasses (\"TypeError\" type-error)  ...)
   (%js-new class (list msg)))
 
 ;;; -----------------------------------------------------------------------
-;;;  Nullish coalesce
-;;; -----------------------------------------------------------------------
-(defun %js-nullish-coalesce (a b)
-  "JS ?? operator."
-  (if (%js-not-nullish a) a
-    b))
-
-;;; -----------------------------------------------------------------------
 ;;;  Misc
 ;;; -----------------------------------------------------------------------
-(defun %js-void (x)
-  "JS void operator."
-  (declare (ignore x))
-  +js-undefined+)
-
 (defun %js-debugger ()
   "JS debugger statement — no-op."
   +js-undefined+)

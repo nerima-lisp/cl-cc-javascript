@@ -25,7 +25,13 @@ console.log(new C(5).double());") :to-equal "10")
   (expect (%js-run-capture
      "class P{#n; constructor(n){this.#n=n;} get(){return this.#n;}}
 class C extends P{constructor(n){super(n);} doubled(){return this.get()*2;}}
-console.log(new C(7).get());") :to-equal "7"))
+console.log(new C(7).get());") :to-equal "7")
+  (expect (%js-run-capture
+     "class C{#x=1; static check(o){return #x in o;}}
+console.log(C.check(new C()));") :to-equal "true")
+  (expect (%js-run-capture
+     "class C{#x=1; static check(o){return #x in o;}}
+console.log(C.check({}));") :to-equal "false"))
 
 ;;; ─── Promise chaining ────────────────────────────────────────────────────────
 
@@ -36,6 +42,11 @@ console.log(new C(7).get());") :to-equal "7"))
   ("1,2,3"      "Promise.all([Promise.resolve(1),Promise.resolve(2),Promise.resolve(3)]).then(vs=>console.log(vs.join(',')));")
   ("done"       "async function f(){return 'done';} f().then(v=>console.log(v));")
   ("10,21"      "Array.fromAsync([Promise.resolve(10),Promise.resolve(20)],(x,i)=>Promise.resolve(x+i)).then(vs=>console.log(vs.join(',')));"))
+
+(deftest-js-run-isolated-batch js-e2e-promise-finally
+  ".finally runs regardless of outcome and does not change the settled value/reason."
+  ("cleanup,42" "let log=''; Promise.resolve(42).finally(()=>{log+='cleanup';}).then(v=>console.log(log+','+v));")
+  ("cleanup,oops" "let log=''; Promise.reject('oops').finally(()=>{log+='cleanup';}).catch(e=>console.log(log+','+e));"))
 
 (deftest-js-run js-e2e-promise-static-builtins
   "Promise.try and Promise.withResolvers compile through static built-in dispatch."

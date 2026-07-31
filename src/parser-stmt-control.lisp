@@ -44,12 +44,16 @@ Returns (values ast rest)."
               loop-ast)
             rest5))))))
 
-(defun %js-lower-for-of-in (binding iter-expr body-fn-name loop-tag end-tag)
+(defun %js-lower-for-of-in (binding iter-expr body-fn-name loop-tag end-tag &optional await-p)
   "Shared lowering for for-in and for-of loops.
 ITER-EXPR is the call that produces the iteration list.
 BINDING is either a plain symbol (simple) or an (:array-pattern/:object-pattern …)
 destructuring pattern — in the latter case we emit full destructuring bindings inside
 the loop so `for (let [a,b] of pairs)' correctly unpacks each element.
+AWAIT-P (for-await-of only) wraps each element access in a %js-await call, so a
+per-iteration promise (what a real async iterator yields) is unwrapped before the
+loop body sees it — this runtime's promises are already simplified to always-settled
+synchronously (see runtime-promise.lisp's header), so unwrapping is itself synchronous.
 Returns a closure that accepts the parsed body-ast."
   (declare (ignore body-fn-name))
   (let ((var-sym  (%js-binding-to-sym binding))
@@ -58,9 +62,13 @@ Returns a closure that accepts the parsed body-ast."
       (let* ((body-stmts (if (ast-progn-p body-ast)
                              (ast-progn-forms body-ast)
                              (list body-ast)))
-             (elem-access (make-ast-call
+             (raw-elem-access (make-ast-call
                            :func (make-ast-var :name 'car)
                            :args (list (make-ast-var :name iter-sym))))
+             (elem-access (if await-p
+                              (make-ast-call :func (make-ast-var :name '%js-await)
+                                             :args (list raw-elem-access))
+                              raw-elem-access))
              ;; For destructuring patterns emit all inner bindings inside the loop.
              ;; %js-emit-destructure-bindings returns ((gensym . source) name1 name2 …).
              ;; The first binding is (gensym . (var gensym)) — a self-reference placeholder;
@@ -95,12 +103,12 @@ Returns a closure that accepts the parsed body-ast."
                         (list inner-form)
                         loop-tag end-tag))))))))
 
-(defun %js-parse-for-in-of-stmt (binding kind rest2 tag-prefix wrap-fn-name)
+(defun %js-parse-for-in-of-stmt (binding kind rest2 tag-prefix wrap-fn-name &optional await-p)
   "Shared parse+lower for 'for (KIND BINDING in/of EXPR) body'. REST2 points at
 'in'/'of'. TAG-PREFIX (\"FOR-IN\"/\"FOR-OF\") is passed straight through to
 WITH-JS-LOOP-TAGS. WRAP-FN-NAME is %js-iter-keys (for-in) or %js-iter-values
-(for-of/for-await-of, iterated synchronously), wrapping the iterated
-expression. Returns (values ast rest)."
+(for-of/for-await-of). AWAIT-P is passed straight through to
+%js-lower-for-of-in — see its docstring. Returns (values ast rest)."
   (multiple-value-bind (expr rest3) (js-parse-expr (cdr rest2))
     (setf rest3 (%js-consume-expected :T-RPAREN rest3))
     (with-js-loop-tags
@@ -113,7 +121,8 @@ expression. Returns (values ast rest)."
                   (make-ast-call :func (make-ast-var :name wrap-fn-name) :args (list expr))
                   nil
                   loop-tag
-                  end-tag)
+                  end-tag
+                  await-p)
                 body-ast)))
           (setf (ast-let-declarations lower) (list kind))
           (values lower rest4))))))
@@ -123,10 +132,11 @@ expression. Returns (values ast rest)."
 Returns (values ast rest)."
   (%js-parse-for-in-of-stmt binding kind rest2 "FOR-IN" '%js-iter-keys))
 
-(defun %js-parse-for-of-stmt (binding kind rest2)
-  "Parse and lower 'for (KIND BINDING of iter) body' / for-await-of (iterated
-synchronously). REST2 points at 'of'. Returns (values ast rest)."
-  (%js-parse-for-in-of-stmt binding kind rest2 "FOR-OF" '%js-iter-values))
+(defun %js-parse-for-of-stmt (binding kind rest2 &optional await-p)
+  "Parse and lower 'for (KIND BINDING of iter) body' / for-await-of (AWAIT-P
+unwraps each element through %js-await — see %js-lower-for-of-in). REST2
+points at 'of'. Returns (values ast rest)."
+  (%js-parse-for-in-of-stmt binding kind rest2 "FOR-OF" '%js-iter-values await-p))
 
 (defun %js-parse-for-c-style-declared-stmt (binding kind rest2)
   "Parse and lower 'for (KIND BINDING [= init] ; cond ; update) body'.
@@ -155,7 +165,6 @@ for(var x of iter){}, for await(var x of asyncIter){}.
 Returns (values ast rest)."
   (let ((await-p nil)
         (current stream))
-    (declare (ignorable await-p)) ; for-await-of currently iterates synchronously
     (when (eq (js-peek-type current) :T-AWAIT)
       (setf await-p t
             current (cdr current)))
@@ -169,7 +178,7 @@ Returns (values ast rest)."
            (multiple-value-bind (binding rest2) (%js-parse-binding-pattern rest)
              (case (js-peek-type rest2)
                (:T-IN (%js-parse-for-in-stmt binding kind rest2))
-               (:T-OF (%js-parse-for-of-stmt binding kind rest2))
+               (:T-OF (%js-parse-for-of-stmt binding kind rest2 await-p))
                (t     (%js-parse-for-c-style-declared-stmt binding kind rest2))))))
         ;; for (; cond ; update) { } — empty init
         ((eq init-type :T-SEMI)

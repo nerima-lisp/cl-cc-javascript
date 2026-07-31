@@ -184,10 +184,29 @@ spread in array literals and call arguments via apply."
                        (make-ast-call :func (make-ast-var :name 'list) :args (list it))))
                  items)))
 
+(defun %js-private-field-in-check-name (op-str lhs)
+  "If OP-STR is \"in\" and LHS is the synthetic (ast-var #FIELD) that
+js-parse-primary's :T-PRIVATE-IDENT case builds for a standalone private
+identifier (see parser-expr-primary.lisp), return its bare field name
+(without the #); else NIL. `#field in obj' is the ES2022 ergonomic
+brand-check — LHS here is never a real variable, so the ordinary %js-in
+dispatch below would try to evaluate \"#field\" as a variable lookup and
+fail with an undefined-variable error."
+  (and (string= op-str "in")
+       (ast-var-p lhs)
+       (let ((name (symbol-name (ast-var-name lhs))))
+         (and (plusp (length name)) (char= (char name 0) #\#)
+              (subseq name 1)))))
+
 (defun %js-lower-binary (op-str lhs rhs)
   "Lower a binary operator string + lhs + rhs to the appropriate AST.
    Dispatch is data-driven via *js-direct-binop-keywords* and *js-binop-runtime-helpers*."
   (cond
+    ;; #field in obj — see %js-private-field-in-check-name. Checked before
+    ;; every other "in" handling below, all of which assume a real LHS value.
+    ((%js-private-field-in-check-name op-str lhs)
+     (%js-call '%js-has-private-field rhs
+               (make-ast-quote :value (%js-private-field-in-check-name op-str lhs))))
     ;; Direct AST binop (arithmetic, comparison) — O(1) table lookup
     ((gethash op-str *js-direct-binop-keywords*)
      (make-ast-binop :op (gethash op-str *js-direct-binop-keywords*) :lhs lhs :rhs rhs))

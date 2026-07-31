@@ -19,9 +19,6 @@
   byte-offset      ; offset into buffer (usually 0)
   length) ; number of elements
 
-(defun %js-typed-array-p (x)
-  (js-typed-array-p x))
-
 ;;; -----------------------------------------------------------------------
 ;;;  Constructor helpers
 ;;; -----------------------------------------------------------------------

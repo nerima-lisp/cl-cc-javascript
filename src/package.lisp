@@ -113,12 +113,10 @@
    ;; JS-specific unary / binary operators
    #:%js-typeof
    #:%js-instanceof
-   #:%js-void
    #:%js-delete
    #:%js-in
    #:%js-loose-eq
    #:%js-strict-eq
-   #:%js-nullish-coalesce
    #:%js-optional-chain
    #:%js-optional-call
    #:%js-optional-method-call
@@ -183,7 +181,6 @@
    ;; Iteration protocols
    #:%js-for-in
    #:%js-for-of
-   #:%js-for-await-of
 
    ;; Module system
    #:%js-new
@@ -355,7 +352,6 @@
    #:%js-promise-race
    #:%js-promise-with-resolvers
    #:%js-promise-then
-   #:%js-promise-finally
 
    ;; Set built-ins
    #:js-set-p
@@ -423,7 +419,6 @@
    #:*js-symbol-registry*
    #:*js-symbol-global*
    ;; TypedArray (ES2015+)
-   #:%js-typed-array-p
    #:%js-make-typed-array
    #:%js-ta-get
    #:%js-ta-set
@@ -431,7 +426,6 @@
    #:*js-typed-array-method-table*
 
    ;; RegExp (ES2015+ native engine)
-   #:%js-regexp-p
    #:%js-make-regex
    #:%js-regex-exec
    #:%js-regex-test

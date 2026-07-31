@@ -32,11 +32,6 @@ rejected promise propagates the rejection through the chain."
          (js-promise-value promise)))
     (t promise)))
 
-(defun %js-for-await-of (iterable body-fn)
-  "Synchronous for-await-of: resolves each element through %js-await eagerly."
-  (%js-for-of iterable (lambda (item)
-                         (%js-funcall body-fn (%js-await item)))))
-
 (defun %js-async (thunk)
   "Execute THUNK, wrapping result/exception in a promise.
 THUNK is a VM closure so use %js-funcall (not CL:FUNCALL) to re-enter the VM."
@@ -60,11 +55,6 @@ THUNK is a VM closure so use %js-funcall (not CL:FUNCALL) to re-enter the VM."
       (if on-fulfilled
           (%js-promise-apply-handler (js-promise-value promise) on-fulfilled)
           promise)))
-
-(defun %js-promise-finally (promise on-finally)
-  "Run ON-FINALLY regardless of outcome."
-  (%js-funcall on-finally)
-  promise)
 
 ;;; Shared helpers for Promise aggregator functions.
 
