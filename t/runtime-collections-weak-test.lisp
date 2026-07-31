@@ -83,6 +83,33 @@
   (expect (cl-cc/javascript::%js-regexp-escape "foo-bar") :to-equal "\\x66oo\\x2Dbar")
   (expect (cl-cc/javascript::%js-regexp-escape (format nil " ~%~C" #\Tab)) :to-equal "\\x20\\n\\t"))
 
+;; Property: for any string S, compiling (%js-regexp-escape S) as a REAL pattern
+;; through this codebase's own regex engine and testing it against S itself
+;; always matches. The fixed examples above only check the escaped STRING
+;; shape; this instead round-trips the escaper's output back through
+;; %js-make-regex/%js-regex-test, the actual consumer `new RegExp(RegExp.escape(s))`
+;; would use — every branch of %js-regexp-escape's cond is exercised by
+;; including one character from each: backslash-escaped regex metacharacters,
+;; hex2-escaped "look like a class/quantifier in some engines" punctuation,
+;; the named whitespace escapes (\n \r \t \f), space, a plain low control
+;; character (generic \xNN fallback), the two line/paragraph separators (the
+;; only characters that reach the \uNNNN fallback), and one ordinary
+;; non-ASCII character (the final catch-all branch).
+(it-property "js-rt-regexp-escape-roundtrips-through-real-regex-property"
+    ((s (gen-string
+         :min-length 0 :max-length 20
+         :alphabet (concatenate
+                    'string
+                    "aB3^$\\.*+?()[]{}|/,-=<>#&!%:;@~'`\" "
+                    (string #\Newline) (string #\Return) (string #\Tab) (string #\Page)
+                    (string (code-char 1))
+                    (string (code-char #x2028)) (string (code-char #x2029))
+                    (string (code-char #x00E9))))))
+  (expect (cl-cc/javascript::%js-regex-test
+           (cl-cc/javascript::%js-make-regex (cl-cc/javascript::%js-regexp-escape s))
+           s)
+          :to-be-truthy))
+
 ;;; ─── Map iterators — keys / values / entries ─────────────────────────────────
 
 (it-sequential "js-rt-map-keys-iterator"

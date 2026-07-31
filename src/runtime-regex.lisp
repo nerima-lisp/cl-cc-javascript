@@ -5,7 +5,8 @@
 ;;;; greedily to as many repetitions as it can get and never retries with
 ;;;; fewer, so a handful of pattern shapes that need real backtracking to
 ;;;; match correctly (e.g. `a*ab` against "aab") won't. Supported features:
-;;;;   Literals: any char, . (any), escape sequences \d \D \w \W \s \S \n \t \r
+;;;;   Literals: any char, . (any), escape sequences \d \D \w \W \s \S \n \t \r \f,
+;;;;     \xHH (2 hex digits), \uHHHH (4 hex digits)
 ;;;;   Quantifiers: * + ? {n} {n,} {n,m} (greedy; lazy `?` stops after the
 ;;;;     minimum required repetitions rather than truly backtracking — see
 ;;;;     %JS-REGEX-BOUNDED-REPEAT-MATCHER)
@@ -162,6 +163,31 @@ capturing) needs exactly this same adjustment on its own END."
                                 (when (eq (not negate) (%js-regex-word-boundary-p str i))
                                   i))
                               (+ pos 2))))
+                   ;; \xHH / \uHHHH hex/unicode escapes — match the single
+                   ;; character at that code point. Checked before the
+                   ;; generic escape-sequences branch below, which would
+                   ;; otherwise treat \x/\u as self-denoting (matching the
+                   ;; literal letter x/u) per %js-regex-escape-literal.
+                   ((and (char= ch #\\) (char= (char pat (1+ pos)) #\x)
+                         (%js-regex-hex-escape-char pat (+ pos 2) 2))
+                    (let ((lit (%js-regex-hex-escape-char pat (+ pos 2) 2)))
+                      (when ic (setf lit (char-downcase lit)))
+                      (values (lambda (str i groups)
+                                (declare (ignore groups))
+                                (when (and (< i (length str))
+                                           (char= (%js-regex-char-at str i ic) lit))
+                                  (1+ i)))
+                              (+ pos 4))))
+                   ((and (char= ch #\\) (char= (char pat (1+ pos)) #\u)
+                         (%js-regex-hex-escape-char pat (+ pos 2) 4))
+                    (let ((lit (%js-regex-hex-escape-char pat (+ pos 2) 4)))
+                      (when ic (setf lit (char-downcase lit)))
+                      (values (lambda (str i groups)
+                                (declare (ignore groups))
+                                (when (and (< i (length str))
+                                           (char= (%js-regex-char-at str i ic) lit))
+                                  (1+ i)))
+                              (+ pos 6))))
                    ;; Escape sequences
                    ((char= ch #\\)
                     (let* ((esc  (char pat (1+ pos)))

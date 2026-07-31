@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (regex)
+
+- The regex engine did not recognize `\xHH`/`\uHHHH` hex/unicode escapes or `\f`
+  (form feed) as anything other than self-denoting literal characters (`\x61`
+  matched the two-character literal text "x61", not the character 'a'; `\f`
+  matched the literal letter "f", not a form-feed). This broke `RegExp.escape`'s
+  fundamental contract — `new RegExp(RegExp.escape(s)).test(s)` must always be
+  true, since escaping exists specifically so its output can always be safely
+  recompiled and reused as a literal pattern, but `%js-regexp-escape` emits
+  exactly these forms for punctuation, control characters, and a leading
+  alphanumeric character. Found via a new `it-property` test (see below) that
+  round-trips `%js-regexp-escape`'s output back through this codebase's own
+  `%js-make-regex`/`%js-regex-test` — the existing fixed-example unit tests only
+  ever checked the escaped *string* shape, never fed it back through the real
+  regex engine. Fixed by adding two new `compile-atom` cases for `\xHH`/`\uHHHH`
+  (`src/runtime-regex.lisp`, backed by a new `%js-regex-hex-escape-char` helper
+  in `src/runtime-regex-combinators.lisp`) and adding a missing `\f` → `#\Page`
+  entry to `*%js-regex-escape-literals*` (`\n`/`\t`/`\r` were already present;
+  `\f` alone was missing). Verified via `nix build .#checks.aarch64-darwin.default`:
+  1351 passed, 0 failed (up from 1350 — the new property test itself).
+
 ### Changed (dependencies)
 
 - `cl-concurrent-kit` `v0.1.0` → `v0.2.0`. Substantial internal rework upstream

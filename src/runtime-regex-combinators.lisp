@@ -67,16 +67,31 @@ codebase that recurses on untrusted, attacker-controlled nesting depth.")
   "Return the character predicate for escape \\ESC, or nil for non-class escapes."
   (cdr (assoc esc *%js-regex-escape-predicates* :test #'char=)))
 
-(defparameter *%js-regex-escape-literals* (list (cons #\n #\Newline) (cons #\t #\Tab) (cons #\r #\Return))
+(defparameter *%js-regex-escape-literals*
+  (list (cons #\n #\Newline) (cons #\t #\Tab) (cons #\r #\Return) (cons #\f #\Page))
   "Control-character escapes that stand for a single literal character, the
 counterpart of *%js-regex-escape-predicates* for escapes that match exactly
-one char.  Every other escape denotes itself.")
+one char.  Every other escape denotes itself. \\f (form feed) must be here,
+not just self-denoting, since %js-regexp-escape emits it for U+000C -- a
+missing entry silently matched the literal letter `f' instead.")
 
 (defun %js-regex-escape-literal (esc)
   "Return the literal character escape \\ESC stands for.  Escapes with no
 entry in *%js-regex-escape-literals* are self-denoting (\\. is `.'), which is
 what makes this total."
   (or (cdr (assoc esc *%js-regex-escape-literals* :test #'char=)) esc))
+
+(defun %js-regex-hex-escape-char (pattern start count)
+  "If PATTERN has COUNT valid hex digits starting at START without running
+past its end, return the character at that code point; else NIL. Backs
+\\xHH (COUNT 2) and \\uHHHH (COUNT 4) escapes -- standard regex syntax, and
+the exact two forms %JS-REGEXP-ESCAPE emits for punctuation/control/leading-
+alnum characters, so a RegExp.escape'd string can always be recompiled as a
+real pattern that matches its own source, RegExp.escape's whole contract."
+  (when (<= (+ start count) (length pattern))
+    (let ((digits (subseq pattern start (+ start count))))
+      (when (every (lambda (c) (digit-char-p c 16)) digits)
+        (code-char (parse-integer digits :radix 16))))))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Matcher-closure combinators — shared by every atom/quantifier %JS-COMPILE-
