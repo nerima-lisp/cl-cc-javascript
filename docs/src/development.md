@@ -122,6 +122,14 @@ JavaScript programs through the frontend and the VM.
 Steps 3 and 6 are not optional: the API reference is required to cover every exported
 symbol.
 
+## Removing a builtin (or any exported symbol)
+
+`docs/src/api-reference.md` is hand-maintained, not generated from `src/package.lisp`'s
+export list — deleting a `defun`/`defparameter` and its export does not remove its doc
+entry for free. When deleting dead code, grep `docs/` for the exact symbol name and
+remove its entry (and any cross-reference note pointing at it from a sibling entry)
+before considering the deletion done.
+
 ## Conventions
 
 Commit messages follow

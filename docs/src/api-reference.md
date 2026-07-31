@@ -103,16 +103,6 @@ JS instanceof.
 
 Defined in `src/runtime.lisp`.
 
-### `%js-void`
-
-```lisp
-(cl-cc/javascript:%js-void x)
-```
-
-JS void operator.
-
-Defined in `src/runtime-class.lisp`.
-
 ### `%js-delete`
 
 ```lisp
@@ -152,16 +142,6 @@ Defined in `src/runtime.lisp`.
 JS === strict equality, no coercion.
 
 Defined in `src/runtime.lisp`.
-
-### `%js-nullish-coalesce`
-
-```lisp
-(cl-cc/javascript:%js-nullish-coalesce a b)
-```
-
-JS ?? operator.
-
-Defined in `src/runtime-class.lisp`.
 
 ### `%js-optional-chain`
 
@@ -642,16 +622,6 @@ Defined in `src/runtime-control.lisp`.
 Execute BODY-FN for each element of ITERABLE.
 
 Defined in `src/runtime-control.lisp`.
-
-### `%js-for-await-of`
-
-```lisp
-(cl-cc/javascript:%js-for-await-of iterable body-fn)
-```
-
-Synchronous for-await-of: resolves each element through %js-await eagerly.
-
-Defined in `src/runtime-promise.lisp`.
 
 ## Module system
 
@@ -2139,16 +2109,6 @@ Chain a promise through on-fulfilled / on-rejected callbacks.
 
 Defined in `src/runtime-promise.lisp`.
 
-### `%js-promise-finally`
-
-```lisp
-(cl-cc/javascript:%js-promise-finally promise on-finally)
-```
-
-Run ON-FINALLY regardless of outcome.
-
-Defined in `src/runtime-promise.lisp`.
-
 ## Set built-ins
 
 ### `js-set-p`
@@ -2703,16 +2663,6 @@ Defined in `src/runtime-symbol.lisp`.
 
 ## TypedArray (ES2015+)
 
-### `%js-typed-array-p`
-
-```lisp
-(cl-cc/javascript:%js-typed-array-p x)
-```
-
-True when X is a JS TypedArray.
-
-Defined in `src/runtime-typed-arrays.lisp`.
-
 ### `%js-make-typed-array`
 
 ```lisp
@@ -2764,19 +2714,6 @@ TypedArray.prototype method dispatch.
 Defined in `src/runtime-typed-arrays-methods-es2023.lisp`.
 
 ## RegExp (ES2015+ native engine)
-
-### `%js-regexp-p`
-
-```lisp
-(cl-cc/javascript:%js-regexp-p x)
-```
-
-True when X is a JS `RegExp`.
-
-Defined in `src/runtime-regex-combinators.lisp`.
-
-See [`%js-make-regex`](#js-make-regex) under "Class / accessor helpers"; the same
-function serves both groups.
 
 ### `%js-regex-exec`
 

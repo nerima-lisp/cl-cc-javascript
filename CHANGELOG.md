@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (docs)
+
+- `docs/src/api-reference.md` still documented 6 symbols this session's own earlier
+  dead-code deletions removed (`%js-void`, `%js-nullish-coalesce`,
+  `%js-promise-finally`, `%js-typed-array-p`, `%js-regexp-p`, `%js-for-await-of`) —
+  found by grepping the docs for every symbol name deleted this session, rather than
+  assuming the removal commits had already handled it. Removed all 6 entries
+  (including a now-orphaned cross-reference note under the deleted `%js-regexp-p`
+  pointing at `%js-make-regex`). Verified via `nix build .#checks.aarch64-darwin.docs`
+  (`mkdocs --strict`, which would fail on a broken internal link).
+
 ### Changed (test layout)
 
 - Two test files that had grown past this project's ~500-line-per-file convention
