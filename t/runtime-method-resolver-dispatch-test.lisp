@@ -1,196 +1,14 @@
-;;;; t/runtime-method-resolver-test.lisp
+;;;; t/runtime-method-resolver-dispatch-test.lisp
 ;;;;
-;;;; Method dispatch, type resolver coverage (define-js-type-resolver),
-;;;; RegExp, Reflect helpers, bound-method, Object property descriptor,
-;;;; string char-iter, and Object fallback method table.
+;;;; Split from runtime-method-resolver-test.lisp: Reflect helpers, Object
+;;;; property descriptors, bound-method, the define-js-type-resolver method
+;;;; dispatch coverage (RegExp/Promise/Function/Symbol/TypedArray/BigInt
+;;;; property and method resolution), the string resolver, string char-iter
+;;;; via get-prop, and the Object fallback method table.
 ;;;;
 ;;;; Depends on: runtime-core-test.lisp (%jr-arr)
 
 (in-package :cl-cc-javascript/test)
-
-;;; ─── RegExp public API ───────────────────────────────────────────────────────
-
-(it-sequential "js-rt-regex-test-match"
-  (let ((re (cl-cc/javascript::%js-make-regex "hello")))
-    (expect (cl-cc/javascript::%js-regex-test re "say hello world") :to-be-truthy)
-    (expect (cl-cc/javascript::%js-regex-test re "goodbye") :to-be-falsy)))
-
-(it-sequential "js-rt-regex-exec-returns-match"
-  (let* ((re (cl-cc/javascript::%js-make-regex "lo"))
-         (m  (cl-cc/javascript::%js-regex-exec re "hello" 0)))
-    (expect (eq m cl-cc/javascript::+js-null+) :to-be-falsy)
-    (expect (gethash "0" m) :to-equal "lo")
-    (expect (= 3 (truncate (gethash "index" m))) :to-be-truthy)))
-
-(it-sequential "js-rt-regex-exec-no-match"
-  (let* ((re (cl-cc/javascript::%js-make-regex "xyz"))
-         (m  (cl-cc/javascript::%js-regex-exec re "hello" 0)))
-    (expect m :to-be cl-cc/javascript::+js-null+)))
-
-(it-sequential "js-rt-regex-flags-and-last-index"
-  (let ((re (cl-cc/javascript::%js-make-regex "l" "gimy")))
-    (expect (cl-cc/javascript::js-regexp-ignore-case-p re) :to-be-truthy)
-    (expect (cl-cc/javascript::js-regexp-multiline-p re) :to-be-truthy)
-    (expect (cl-cc/javascript::js-regexp-global-p re) :to-be-truthy)
-    (expect (cl-cc/javascript::js-regexp-sticky-p re) :to-be-truthy)
-    (let* ((exec-re (cl-cc/javascript::make-js-regexp
-                     :source "l"
-                     :flags "g"
-                     :compiled (lambda (str i groups)
-                                 (declare (ignore str groups))
-                                 (when (and (string= str "hello") (= i 2)) 3))
-                     :global-p t
-                     :ignore-case-p nil
-                     :multiline-p nil
-                     :sticky-p nil
-                     :last-index 0))
-           (m1 (cl-cc/javascript::%js-regex-exec exec-re "hello" 0)))
-      (expect (eq m1 cl-cc/javascript::+js-null+) :to-be-falsy)
-      (expect (= 3 (cl-cc/javascript::js-regexp-last-index exec-re)) :to-be-truthy)
-      (let ((m2 (cl-cc/javascript::%js-regex-exec exec-re "zzzz" 0)))
-        (expect m2 :to-be cl-cc/javascript::+js-null+))
-      (expect (= 0 (cl-cc/javascript::js-regexp-last-index exec-re)) :to-be-truthy))))
-
-(it-sequential "js-rt-regex-exec-uncompiled-pattern"
-  (let* ((re (cl-cc/javascript::make-js-regexp
-              :source "("
-              :flags ""
-              :compiled nil
-              :global-p nil
-              :ignore-case-p nil
-              :multiline-p nil
-              :sticky-p nil
-              :last-index 0))
-         (m  (cl-cc/javascript::%js-regex-exec re "hello" 0)))
-    (expect m :to-be cl-cc/javascript::+js-null+)))
-
-(it-sequential "js-rt-regex-string-match-global"
-  (let ((result (cl-cc/javascript::%js-string-match-regex
-                 "hello" (cl-cc/javascript::%js-make-regex "l" "g"))))
-    (expect (= 2 (length result)) :to-be-truthy)
-    (expect (aref result 0) :to-equal "l")
-    (expect (aref result 1) :to-equal "l")))
-
-(it-sequential "js-rt-regex-string-match-global-empty"
-  (let ((result (cl-cc/javascript::%js-string-match-regex
-                 "abc" (cl-cc/javascript::%js-make-regex "" "g"))))
-    (expect (= 4 (length result)) :to-be-truthy)
-    (dotimes (i (length result))
-      (expect (aref result i) :to-equal ""))))
-
-(it-sequential "js-rt-regex-string-pattern-branches"
-  (let ((replaced (cl-cc/javascript::%js-string-replace-regex "hello" "l" "-")))
-    (expect replaced :to-equal "he-lo"))
-  (expect (= 3 (cl-cc/javascript::%js-string-search-regex "hello" "lo")) :to-be-truthy)
-  (let ((matched (cl-cc/javascript::%js-string-match-regex "hello" "lo")))
-    (expect (= 1 (length matched)) :to-be-truthy)
-    (expect (aref matched 0) :to-equal "lo"))
-  (let ((replaced-all (cl-cc/javascript::%js-string-replace-all-regex "hello" "l" "-")))
-    (expect replaced-all :to-equal "he--o"))
-  (let ((parts (cl-cc/javascript::%js-string-split-regex "hello" "l")))
-    (expect (%jr-list parts) :to-equal '("he" "" "o"))))
-
-(it-sequential "js-rt-regex-string-search"
-  (expect (= 3 (cl-cc/javascript::%js-string-search-regex
-               "hello" (cl-cc/javascript::%js-make-regex "lo"))) :to-be-truthy))
-
-(it-sequential "js-rt-regex-string-replace"
-  (expect (cl-cc/javascript::%js-string-replace-regex
-                   "hello" (cl-cc/javascript::%js-make-regex "l") "-") :to-equal "he-lo"))
-
-(it-sequential "js-rt-regex-string-replace-placeholders"
-  (expect (cl-cc/javascript::%js-string-replace-regex
-                   "hello" (cl-cc/javascript::%js-make-regex "l") "$&-") :to-equal "hel-lo"))
-
-(it-sequential "js-rt-regex-string-replace-fn-and-fallback"
-  (let ((re (cl-cc/javascript::make-js-regexp
-             :source "he"
-             :flags ""
-             :compiled (lambda (str i groups)
-                         (declare (ignore str groups))
-                         (when (= i 0) 2))
-             :global-p nil
-             :ignore-case-p nil
-             :multiline-p nil
-             :sticky-p nil
-             :last-index 0)))
-    (expect (cl-cc/javascript::%js-string-replace-regex
-                     "hello"
-                     re
-                     (lambda (match-str match-start source)
-                       (declare (ignore match-str match-start source))
-                       "X")) :to-equal "Xllo"))
-  (let ((re (cl-cc/javascript::make-js-regexp
-             :source "l"
-             :flags ""
-             :compiled nil
-             :global-p nil
-             :ignore-case-p nil
-             :multiline-p nil
-             :sticky-p nil
-             :last-index 0)))
-    (expect (cl-cc/javascript::%js-string-replace-regex
-                     "hello" re "-") :to-equal "he-lo")))
-
-(it-sequential "js-rt-regex-string-replace-all"
-  (expect (cl-cc/javascript::%js-string-replace-all-regex
-                   "hello" (cl-cc/javascript::%js-make-regex "l" "g") "-") :to-equal "he--o"))
-
-(it-sequential "js-rt-regex-string-split"
-  (let ((parts (cl-cc/javascript::%js-string-split-regex
-                "a,b,c" (cl-cc/javascript::%js-make-regex ","))))
-    (expect (= 3 (length parts)) :to-be-truthy)
-    (expect (aref parts 0) :to-equal "a")
-    (expect (aref parts 1) :to-equal "b")
-    (expect (aref parts 2) :to-equal "c")))
-
-(it-sequential "js-rt-regex-string-split-limit-and-empty"
-  (let ((parts (cl-cc/javascript::%js-string-split-regex
-                "ab" (cl-cc/javascript::%js-make-regex "a") 1)))
-    (expect (= 1 (length parts)) :to-be-truthy)
-    (expect (aref parts 0) :to-equal ""))
-  (let ((parts (cl-cc/javascript::%js-string-split-regex
-                "ab" (cl-cc/javascript::%js-make-regex ""))))
-    (expect (= 2 (length parts)) :to-be-truthy)
-    (expect (aref parts 0) :to-equal "a")
-    (expect (aref parts 1) :to-equal "b")))
-
-(it-sequential "js-rt-regex-string-split-fallback"
-  (let ((parts (cl-cc/javascript::%js-string-split-regex
-                "a(b)c"
-                (cl-cc/javascript::make-js-regexp
-                 :source "b"
-                 :flags ""
-                 :compiled nil
-                 :global-p nil
-                 :ignore-case-p nil
-                 :multiline-p nil
-                 :sticky-p nil
-                 :last-index 0))))
-    (expect (%jr-list parts) :to-equal '("a(" ")c"))))
-
-(it-sequential "js-rt-regex-pattern-branches"
-  (let ((range-re (cl-cc/javascript::%js-make-regex "^[a-cx]+$")))
-    (expect (cl-cc/javascript::%js-regex-test range-re "abcx") :to-be-truthy)
-    (expect (cl-cc/javascript::%js-regex-test range-re "abdz") :to-be-falsy))
-  (let ((complement-re (cl-cc/javascript::%js-make-regex "[^a-c]+")))
-    (expect (cl-cc/javascript::%js-regex-test complement-re "z") :to-be-truthy)
-    (expect (cl-cc/javascript::%js-regex-test complement-re "b") :to-be-falsy))
-  (let ((class-escape-re (cl-cc/javascript::%js-make-regex "[\\d\\w\\s]+")))
-    (expect (cl-cc/javascript::%js-regex-test class-escape-re "a_9 ") :to-be-truthy)
-    (expect (cl-cc/javascript::%js-regex-test class-escape-re "!") :to-be-falsy))
-  (let ((group-re (cl-cc/javascript::%js-make-regex "^(?:cat|dog)?$")))
-    (expect (cl-cc/javascript::%js-regex-test group-re "cat") :to-be-truthy)
-    (expect (cl-cc/javascript::%js-regex-test group-re "") :to-be-truthy))
-  (let ((literal-escape-re (cl-cc/javascript::%js-make-regex "a\\+b")))
-    (expect (cl-cc/javascript::%js-regex-test literal-escape-re "a+b") :to-be-truthy)
-    (expect (cl-cc/javascript::%js-regex-test literal-escape-re "ab") :to-be-falsy))
-  (let ((dot-re (cl-cc/javascript::%js-make-regex "a.b" "m")))
-    (expect (cl-cc/javascript::%js-regex-test dot-re "acb") :to-be-truthy)
-    (expect (cl-cc/javascript::%js-regex-test dot-re (format nil "a~%b")) :to-be-falsy))
-  (let ((lazy-star-re (cl-cc/javascript::%js-make-regex "a*?")))
-    (expect (cl-cc/javascript::%js-regex-test lazy-star-re "aaa") :to-be-truthy)
-    (expect (gethash "0" (cl-cc/javascript::%js-regex-exec lazy-star-re "aaa" 0)) :to-equal "")))
 
 ;;; ─── Reflect helpers ─────────────────────────────────────────────────────────
 
@@ -208,7 +26,7 @@
 (it-sequential "js-rt-reflect-delete-property"
   (let ((obj (cl-cc/javascript::%js-make-object "k" 99)))
     (cl-cc/javascript::%js-reflect-delete-property obj "k")
-    (expect (cl-cc/javascript::%js-reflect-get obj "k") :to-be cl-cc/javascript::+js-undefined+)))
+    (expect (cl-cc/javascript::%js-reflect-get obj "k") :to-be-js-undefined)))
 
 (it-sequential "js-rt-reflect-apply"
   (let* ((fn     (lambda (a b) (+ a b)))
@@ -251,7 +69,7 @@
 (it-sequential-each (("real" t) ("__proto__" nil) ("__get_x" nil) ("__set_x" nil))
     "js-rt-get-own-property-descriptors-filters-internals ~A"
     (key should-appear)
-  (let* ((obj (cl-cc/javascript::%js-make-object "real" 1)))
+  (let ((obj (cl-cc/javascript::%js-make-object "real" 1)))
     (setf (gethash "__proto__" obj) cl-cc/javascript::+js-null+
           (gethash "__get_x"   obj) (lambda () 0)
           (gethash "__set_x"   obj) (lambda (v) v))
@@ -270,7 +88,7 @@
 (it-sequential "js-rt-bound-method-not-found"
   (let* ((table  (list (cons "existing" #'identity)))
          (result (cl-cc/javascript::%js-bound-method table 5 "missing")))
-    (expect result :to-be cl-cc/javascript::+js-undefined+)))
+    (expect result :to-be-js-undefined)))
 
 ;;; ─── Type resolver coverage (define-js-type-resolver) ────────────────────────
 
@@ -315,7 +133,7 @@
          (finally    (cl-cc/javascript::%js-resolve-promise-method fulfilled "finally"))
          (called     0)
          (then-value (cl-cc/javascript::%js-await
-                      (funcall then (lambda (v) (+ v 1)))))
+                      (funcall then (lambda (v) (1+ v)))))
          (catch-value (cl-cc/javascript::%js-await
                        (funcall catch (lambda (reason)
                                         (if (string= reason "boom") 99 0)))))
@@ -333,7 +151,8 @@
          (finally (cl-cc/javascript::%js-resolve-promise-method rejected "finally"))
          (result (funcall finally (lambda ()
                                     (incf called)))))
-    (let ((%%signaled1 nil)) (handler-case (progn (cl-cc/javascript::%js-await result)) (cl-cc/javascript:js-exception () (setf %%signaled1 t))) (expect %%signaled1 :to-be-truthy))
+    (expect-rejects (lambda () (cl-cc/javascript::%js-await result))
+      :to-be-instance-of 'cl-cc/javascript:js-exception)
     (expect (= 1 called) :to-be-truthy)))
 
 (it-sequential-each (("name" "") ("toString" "function() { [native code] }"))
@@ -349,7 +168,7 @@
 (it-sequential "js-rt-resolve-function-length"
   (let* ((fn  (lambda (&rest args) args))
          (val (cl-cc/javascript::%js-resolve-function-method fn "length")))
-    (expect (= 0 val) :to-be-truthy)))
+    (expect (zerop val) :to-be-truthy)))
 
 (it-sequential "js-rt-resolve-function-call-apply-bind"
   (let* ((seen nil)
@@ -374,7 +193,7 @@
     (expect val :to-equal "label")))
 
 (it-sequential "js-rt-resolve-method-dispatch-fallback"
-  (expect (cl-cc/javascript::%js-resolve-method (list 1 2) "anything") :to-be cl-cc/javascript::+js-undefined+))
+  (expect (cl-cc/javascript::%js-resolve-method (list 1 2) "anything") :to-be-js-undefined))
 
 (it-sequential-each (("Int32Array" 3 "length" 3)
                      ("Int32Array" 3 "byteLength" 12)
@@ -402,7 +221,7 @@
 ;;; ─── String resolver ───────────────────────────────────────────────────────
 
 (it-sequential "js-rt-string-resolver-rejects-deprecated-substr"
-  (expect (cl-cc/javascript::%js-resolve-string-method "abcdef" "substr") :to-be cl-cc/javascript::+js-undefined+))
+  (expect (cl-cc/javascript::%js-resolve-string-method "abcdef" "substr") :to-be-js-undefined))
 
 ;;; ─── String char-iter via get-prop ──────────────────────────────────────────
 
@@ -465,63 +284,4 @@
 (it-sequential "js-rt-object-fallback-unknown-returns-undefined"
   (let* ((obj    (cl-cc/javascript::%js-make-object))
          (result (cl-cc/javascript::%js-resolve-object-method obj "nonExistent")))
-    (expect result :to-be cl-cc/javascript::+js-undefined+)))
-
-;;; ─── Object.is — NaN/zero special cases ─────────────────────────────────────
-
-(it-sequential-each ((:js-nan :js-nan t)
-                     (:js-nan 1.0d0 nil)
-                     (0.0d0 -0.0d0 nil)
-                     (-0.0d0 0.0d0 nil)
-                     (3.0d0 3.0d0 t)
-                     ("x" "x" t)
-                     ("a" "b" nil))
-    "js-rt-object-is ~A/~A"
-    (a b expected)
-  (expect (cl-cc/javascript::%js-object-is a b) :to-equal expected))
-
-;;; ─── ToString: float formatting + Infinity + BigInt ──────────────────────────
-
-(it-sequential-each ((7.0d0 "7") (3.14d0 "3.14"))
-    "js-rt-to-string-extended ~A"
-    (value expected)
-  (expect (cl-cc/javascript::%js-to-string value) :to-equal expected))
-
-(it-sequential "js-rt-to-string-extended infinity"
-  (destructuring-bind (value expected) (list cl-cc/javascript::+js-infinity+ "Infinity")
-    (expect (cl-cc/javascript::%js-to-string value) :to-equal expected)))
-
-(it-sequential "js-rt-to-string-extended neg-inf"
-  (destructuring-bind (value expected) (list cl-cc/javascript::+js-neg-infinity+ "-Infinity")
-    (expect (cl-cc/javascript::%js-to-string value) :to-equal expected)))
-
-(it-sequential "js-rt-to-string-extended float-nan"
-  (destructuring-bind (value expected) (list cl-cc/javascript::*js-nan-float* "NaN")
-    (expect (cl-cc/javascript::%js-to-string value) :to-equal expected)))
-
-(it-sequential "js-rt-to-string-extended bigint"
-  (destructuring-bind (value expected) (list (cl-cc/javascript::%make-js-bigint 99) "99")
-    (expect (cl-cc/javascript::%js-to-string value) :to-equal expected)))
-
-;;; ─── Template string joining ─────────────────────────────────────────────────
-
-(it-sequential "js-rt-template-string-join"
-  (expect (cl-cc/javascript::%js-template-string '("hello " 42 " world")) :to-equal "hello 42 world")
-  (expect (cl-cc/javascript::%js-template-string '(t " and " nil)) :to-equal "true and false"))
-
-;;; ─── structuredClone / deep-clone ────────────────────────────────────────────
-
-(it-sequential "js-rt-deep-clone-array"
-  (let* ((orig  (%jr-arr 1 2 3))
-         (clone (cl-cc/javascript::%js-deep-clone orig)))
-    (expect (cl-cc/javascript::%js-vec-p clone) :to-be-truthy)
-    (expect (= (length orig) (length clone)) :to-be-truthy)
-    (expect (= 1 (aref clone 0)) :to-be-truthy)
-    (expect (eq orig clone) :to-be-falsy)))
-
-(it-sequential "js-rt-deep-clone-object"
-  (let* ((orig  (cl-cc/javascript::%js-make-object "x" 10))
-         (clone (cl-cc/javascript::%js-deep-clone orig)))
-    (expect (cl-cc/javascript::%js-ht-p clone) :to-be-truthy)
-    (expect (= 10 (gethash "x" clone)) :to-be-truthy)
-    (expect (eq orig clone) :to-be-falsy)))
+    (expect result :to-be-js-undefined)))
