@@ -1,8 +1,11 @@
 # API Reference
 
-Every symbol exported from the `cl-cc/javascript` package, in the order and under the
-groupings `src/package.lisp` itself uses for its `:export` list. Lambda lists are
-reproduced from the definitions in `src/`.
+Every symbol *defined in this repository* and exported from the `cl-cc/javascript`
+package, in the order and under the groupings `src/package.lisp` itself uses for its
+`:export` list. Lambda lists are reproduced from the definitions in `src/`. A further
+~70 exports are symbols re-exported from sibling `nerima-lisp` packages rather than
+defined here — see [Re-exported symbols](#re-exported-symbols) at the end of this page
+for why they're exported at all and where their own documentation lives.
 
 ## Reading this page
 
@@ -3244,4 +3247,32 @@ Defined in `src/runtime-collections-iterators.lisp`.
 Create iterator over a vector.
 
 Defined in `src/runtime-collections-iterators.lisp`.
+
+## Re-exported symbols
+
+`src/package.lisp` re-exports roughly 70 symbols this repository does not define, so
+that generated/using code can reference them without package-qualifying every call —
+the same reasoning the `%js-` prefix note above gives for the runtime bridge helpers.
+Each group is defined and documented by its own sibling package; this page does not
+duplicate their lambda lists, since that documentation is already authoritative there
+and would drift out of sync here.
+
+- **AST node constructors and accessors** (`make-ast-call`, `make-ast-let`,
+  `ast-var-name`, `ast-int-value`, `ast-call-func`, and similar) — defined in
+  `cl-cc-ast`. The parser builds these nodes directly; see
+  [Architecture](architecture.md) for how the frontend hands them to `cl-cc`'s
+  pipeline.
+- **`register-backend-bridge-provider`, `register-backend-global-seeder`,
+  `register-backend-parser`, `register-backend-vm-integration-installer`** —
+  defined in `cl-cc-bootstrap`. Called once, at load time, from
+  `src/vm-integration.lisp`, to register this frontend with `cl-cc`'s pipeline.
+- **`make-channel`, `send`, `recv`** — defined in `cl-concurrent-kit`. Used by
+  `src/runtime-generator.lisp` for a generator's suspend/resume coroutine hand-off;
+  see that file's header comment.
+- **`parse`, `stringify`, `json-parse-error`, `json-parse-error-position`** —
+  defined in `cl-json-kit`. Back `JSON.parse`/`JSON.stringify`
+  (`src/runtime-json.lisp`).
+- **`find-time-zone`, `format-zone-offset`, and the `zoned-date-time-*` family** —
+  defined in `cl-date-kit`. Back the `Temporal` runtime's IANA time-zone support
+  (`src/runtime-temporal*.lisp`).
 

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (docs, continued)
+
+- `docs/src/api-reference.md` claimed to document "every symbol exported from the
+  `cl-cc/javascript` package" — verified this by diffing `src/package.lisp`'s full
+  `:export` list against every documented symbol, and found ~70 exports genuinely
+  missing. All ~70 turned out to be legitimate re-exports from sibling `nerima-lisp`
+  packages (`cl-cc-ast`'s AST node constructors/accessors, `cl-cc-bootstrap`'s
+  `register-backend-*` integration hooks, `cl-concurrent-kit`'s `make-channel`/`send`/
+  `recv`, `cl-json-kit`'s `parse`/`stringify`/`json-parse-error`, `cl-date-kit`'s
+  `zoned-date-time-*`/`find-time-zone`/`format-zone-offset`) — none were this repo's
+  own undocumented code. Corrected the intro's claim and added a "Re-exported symbols"
+  section explaining each group and pointing at where its real documentation lives,
+  rather than duplicating ~70 lambda lists this page would then need to keep in sync
+  with 5 other repositories. Verified via `nix build .#checks.aarch64-darwin.docs`.
+
 ### Fixed (docs)
 
 - `docs/src/api-reference.md` still documented 6 symbols this session's own earlier
