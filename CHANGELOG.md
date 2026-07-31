@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- 15 dead `"console.*"` entries (`console.log`/`error`/`warn`/`info`/`debug`/`table`/
+  `time`/`timeEnd`/`timeLog`/`count`/`countReset`/`group`/`groupEnd`/`assert`/`dir`/
+  `trace`) from `*js-builtin-specs*` (`src/runtime-builtins-table-specs.lisp`). Found
+  while consolidating that table's no-op closures (see below): traced `*js-builtin-specs*`'s
+  two consumers — `%js-make-namespace-object` (builds an object from every entry whose
+  key is `PREFIX.PROP`, but `console` is never in `*js-prelude-global-specs*`'s
+  `:namespace` list) and `%js-builtin-ref` (bare-identifier lookup, never reached by a
+  member expression like `console.log`) — and confirmed neither ever reads a `"console."`
+  key; the real `console` global is built entirely separately, by `%js-make-console`
+  (`src/runtime-console.lisp`) from its own `*%js-console-method-specs*`/
+  `*%js-console-noop-methods*` tables. These 15 entries were unreachable from any code
+  path and untested by any of the ~30 `console.*`-calling e2e tests (all of which
+  exercise the real, separate mechanism). Verified via `nix build
+  .#checks.aarch64-darwin.default`: 1350 passed, 0 failed — identical to before removal.
+
 ### Changed
 
 - `src/runtime-symbol.lisp`'s 15 well-known-Symbol `defparameter`s (`Symbol.iterator`,
