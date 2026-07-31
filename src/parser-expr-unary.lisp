@@ -21,8 +21,7 @@
         (multiple-value-bind (parts-tok rest) (js-consume stream)
           (values (js-tok-value parts-tok) rest)))
       (:T-TEMPLATE-START
-        (multiple-value-bind (tok2 rest) (js-consume stream)
-          (declare (ignore tok2))
+        (%js-consume-then (rest (js-consume stream))
           (%js-template-parts-and-rest rest)))
       (t (error "JS parse error: expected template literal, got ~S" tok)))))
 
@@ -94,8 +93,7 @@ Returns (values ast rest)."
                      rest)))))
       ;; :T-TEMPLATE-START — consumed by the template lexer inline
       ((eq (js-tok-type tok) :T-TEMPLATE-START)
-       (multiple-value-bind (tok2 rest) (js-consume stream)
-         (declare (ignore tok2))
+       (%js-consume-then (rest (js-consume stream))
          (%js-parse-template-literal rest)))
       (t
        (error "JS parse error: expected template literal, got ~S" tok)))))
@@ -149,12 +147,10 @@ token itself. Shared by prefix-unary parsing (js-parse-unary) and primary
 parsing (js-parse-primary in parser-expr-primary.lisp), which each reach a
 bare/leading `yield' through a different dispatch path.
 Returns (values ast rest)."
-  (multiple-value-bind (tok rest) (js-consume stream)
-    (declare (ignore tok))
+  (%js-consume-then (rest (js-consume stream))
     ;; yield* iterable
     (if (and (eq (js-peek-type rest) :T-OP) (string= (js-peek-value rest) "*"))
-        (multiple-value-bind (tok2 rest2) (js-consume rest)
-          (declare (ignore tok2))
+        (%js-consume-then (rest2 (js-consume rest))
           (multiple-value-bind (expr rest3) (js-parse-assignment-expr rest2)
             (values (%js-call '%js-yield-from expr) rest3)))
         ;; yield expr or bare yield
@@ -172,8 +168,7 @@ Returns (values ast rest)."
         (val  (js-peek-value stream)))
     ;; CPS helper: consume one token, recurse into sub-expression, apply BUILDER.
     (labels ((consume-and-build (builder)
-               (multiple-value-bind (tok rest) (js-consume stream)
-                 (declare (ignore tok))
+               (%js-consume-then (rest (js-consume stream))
                  (multiple-value-bind (expr rest2) (js-parse-unary rest)
                    (values (funcall builder expr) rest2)))))
       (cond
@@ -182,8 +177,7 @@ Returns (values ast rest)."
          (consume-and-build (gethash val *js-unary-op-builders*)))
         ;; Unary - : constant-fold integer literals, else negate
         ((and (eq type :T-OP) (string= val "-"))
-         (multiple-value-bind (tok rest) (js-consume stream)
-           (declare (ignore tok))
+         (%js-consume-then (rest (js-consume stream))
            (multiple-value-bind (expr rest2) (js-parse-unary rest)
              (if (ast-int-p expr)
                  (values (make-ast-int :value (- (ast-int-value expr))) rest2)
@@ -195,14 +189,12 @@ Returns (values ast rest)."
          (consume-and-build (gethash type *js-unary-kw-builders*)))
         ;; Prefix ++ (var or place)
         ((and (eq type :T-OP) (string= val "++"))
-         (multiple-value-bind (tok rest) (js-consume stream)
-           (declare (ignore tok))
+         (%js-consume-then (rest (js-consume stream))
            (multiple-value-bind (expr rest2) (js-parse-unary rest)
              (values (%js-lower-incdec expr '+ t '%js-prefix-inc) rest2))))
         ;; Prefix -- (var or place)
         ((and (eq type :T-OP) (string= val "--"))
-         (multiple-value-bind (tok rest) (js-consume stream)
-           (declare (ignore tok))
+         (%js-consume-then (rest (js-consume stream))
            (multiple-value-bind (expr rest2) (js-parse-unary rest)
              (values (%js-lower-incdec expr '- t '%js-prefix-dec) rest2))))
         ;; yield (prefix usage)

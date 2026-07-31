@@ -47,8 +47,7 @@ of (string . string) pairs."
                  (and (eq (js-peek-type stream) :T-IDENT)
                       (equal "with" (js-peek-value stream)))))
     (setf stream (cdr stream))  ; consume 'with'
-    (multiple-value-bind (_ rest) (js-expect :T-LBRACE stream)
-      (declare (ignore _))
+    (%js-consume-then (rest (js-expect :T-LBRACE stream))
       (let ((attrs nil)
             (current rest))
         (loop until (or (js-at-eof-p current)
@@ -69,8 +68,7 @@ of (string . string) pairs."
                    (error "JS parse error: expected attribute key, got ~S"
                           (js-peek current))))
                 ;; colon
-                (multiple-value-bind (_ rest2) (js-expect :T-COLON current)
-                  (declare (ignore _))
+                (%js-consume-then (rest2 (js-expect :T-COLON current))
                   (setf current rest2))
                 ;; value (string)
                 (multiple-value-bind (val-tok rest2) (js-expect :T-STRING current)
@@ -79,8 +77,7 @@ of (string . string) pairs."
               ;; optional trailing comma
               (when (and current (eq (js-peek-type current) :T-COMMA))
                 (setf current (cdr current))))
-        (multiple-value-bind (_ rest2) (js-expect :T-RBRACE current)
-          (declare (ignore _))
+        (%js-consume-then (rest2 (js-expect :T-RBRACE current))
           (return-from %js-parse-import-attributes
             (values (nreverse attrs) rest2))))))
   ;; No 'with' clause
@@ -100,8 +97,7 @@ declarations. STREAM points at the opening '{' (consumed here).  For each
 entry, calls (FUNCALL BUILDER primary alias) — ALIAS defaults to PRIMARY when
 no `as' clause is present — and collects the results.
 Returns (values specifiers rest)."
-  (multiple-value-bind (_ rest) (js-expect :T-LBRACE stream)
-    (declare (ignore _))
+  (%js-consume-then (rest (js-expect :T-LBRACE stream))
     (let ((specifiers nil)
           (current rest))
       (loop until (or (js-at-eof-p current)
@@ -122,8 +118,7 @@ Returns (values specifiers rest)."
                  ;; optional trailing comma
                  (when (and current (eq (js-peek-type current) :T-COMMA))
                    (setf current (cdr current)))))
-      (multiple-value-bind (_ rest2) (js-expect :T-RBRACE current)
-        (declare (ignore _))
+      (%js-consume-then (rest2 (js-expect :T-RBRACE current))
         (values (nreverse specifiers) rest2)))))
 
 (defun js-parse-import-specifiers (stream)
@@ -178,11 +173,9 @@ ATTRS is an alist of import attributes (or NIL)."
 
 (defun %js-parse-import-namespace-form (current)
   "import * as ns from \"module\" — CURRENT points past '*'."
-  (multiple-value-bind (_ rest) (js-expect :T-AS current)
-    (declare (ignore _))
+  (%js-consume-then (rest (js-expect :T-AS current))
     (multiple-value-bind (ns-tok rest2) (js-expect :T-IDENT rest)
-      (multiple-value-bind (_ rest3) (js-expect :T-FROM rest2)
-        (declare (ignore _))
+      (%js-consume-then (rest3 (js-expect :T-FROM rest2))
         (multiple-value-bind (mod-tok rest4) (js-expect :T-STRING rest3)
           (multiple-value-bind (attrs rest5) (%js-parse-import-attributes rest4)
             (values
@@ -195,8 +188,7 @@ ATTRS is an alist of import attributes (or NIL)."
 (defun %js-parse-import-named-form (current)
   "import { a, b as c } from \"module\" — CURRENT points at the '{'."
   (multiple-value-bind (specifiers rest) (js-parse-import-specifiers current)
-    (multiple-value-bind (_ rest2) (js-expect :T-FROM rest)
-      (declare (ignore _))
+    (%js-consume-then (rest2 (js-expect :T-FROM rest))
       (multiple-value-bind (mod-tok rest3) (js-expect :T-STRING rest2)
         (multiple-value-bind (attrs rest4) (%js-parse-import-attributes rest3)
           (values
@@ -205,11 +197,9 @@ ATTRS is an alist of import attributes (or NIL)."
 
 (defun %js-parse-import-default-and-namespace-form (current default-spec)
   "import name, * as ns from \"module\" — CURRENT points past the comma and '*'."
-  (multiple-value-bind (_ rest) (js-expect :T-AS current)
-    (declare (ignore _))
+  (%js-consume-then (rest (js-expect :T-AS current))
     (multiple-value-bind (ns-tok rest2) (js-expect :T-IDENT rest)
-      (multiple-value-bind (_ rest3) (js-expect :T-FROM rest2)
-        (declare (ignore _))
+      (%js-consume-then (rest3 (js-expect :T-FROM rest2))
         (multiple-value-bind (mod-tok rest4) (js-expect :T-STRING rest3)
           (multiple-value-bind (attrs rest5) (%js-parse-import-attributes rest4)
             (values
@@ -222,8 +212,7 @@ ATTRS is an alist of import attributes (or NIL)."
 (defun %js-parse-import-default-and-named-form (current default-spec)
   "import name, { a, b } from \"module\" — CURRENT points past the comma, at '{'."
   (multiple-value-bind (named-specs rest) (js-parse-import-specifiers current)
-    (multiple-value-bind (_ rest2) (js-expect :T-FROM rest)
-      (declare (ignore _))
+    (%js-consume-then (rest2 (js-expect :T-FROM rest))
       (multiple-value-bind (mod-tok rest3) (js-expect :T-STRING rest2)
         (multiple-value-bind (attrs rest4) (%js-parse-import-attributes rest3)
           (values
@@ -232,8 +221,7 @@ ATTRS is an alist of import attributes (or NIL)."
 
 (defun %js-parse-import-default-only-form (current default-spec)
   "import name from \"module\" — CURRENT points past the default identifier."
-  (multiple-value-bind (_ rest) (js-expect :T-FROM current)
-    (declare (ignore _))
+  (%js-consume-then (rest (js-expect :T-FROM current))
     (multiple-value-bind (mod-tok rest2) (js-expect :T-STRING rest)
       (multiple-value-bind (attrs rest3) (%js-parse-import-attributes rest2)
         (values

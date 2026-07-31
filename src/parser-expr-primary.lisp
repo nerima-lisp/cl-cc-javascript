@@ -45,8 +45,7 @@ yield, await, import()."
         (val  (js-peek-value stream)))
     ;; CPS helper: consume one token, discard it, apply zero-arg BUILDER.
     (labels ((consume-and-build (builder)
-               (multiple-value-bind (tok rest) (js-consume stream)
-                 (declare (ignore tok))
+               (%js-consume-then (rest (js-consume stream))
                  (values (funcall builder) rest))))
     (case type
       ;; Numeric literal (integer or float)
@@ -91,8 +90,7 @@ yield, await, import()."
        (%js-parse-paren-or-arrow stream))
       ;; function expression
       (:T-FUNCTION
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
+       (%js-consume-then (rest (js-consume stream))
          (js-parse-function-expr rest)))
       ;; async function / async arrow
       (:T-ASYNC
@@ -111,20 +109,18 @@ yield, await, import()."
        (%js-parse-yield-expr stream))
       ;; await as expression
       (:T-AWAIT
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
+       (%js-consume-then (rest (js-consume stream))
          (multiple-value-bind (expr rest2) (js-parse-unary rest)
            (values (%js-call '%js-await expr) rest2))))
       ;; Identifier — may begin a single-parameter arrow function: x => body
       (:T-IDENT
-       (multiple-value-bind (tok rest) (js-consume stream)
-         (declare (ignore tok))
+       (%js-consume-then (rest (js-consume stream))
          (if (eq (js-peek-type rest) :T-ARROW)
              (%js-finish-arrow-function (list (js-ident-sym val)) rest)
              (values (make-ast-var :name (js-ident-sym val)) rest))))
       ;; Private field identifier #name — as standalone (for #name in obj)
       (:T-PRIVATE-IDENT
-       (multiple-value-bind (tok rest) (js-consume stream)
+       (%js-consume-then (rest (js-consume stream))
          (values (make-ast-var :name (js-ident-sym (concatenate 'string "#" val))) rest)))
       (t
        ;; Contextual keywords used as identifiers (get, set, from, as, of,
@@ -132,8 +128,7 @@ yield, await, import()."
        ;; literal list, so this membership test (against the table shared
        ;; with parser-stmt-binding.lisp) lives here instead of as a clause key.
        (if (member type *js-contextual-keyword-token-types* :test #'eq)
-           (multiple-value-bind (tok rest) (js-consume stream)
-             (declare (ignore tok))
+           (%js-consume-then (rest (js-consume stream))
              (values (make-ast-var :name (js-ident-sym val)) rest))
            (error "JS parse error: unexpected token ~S in expression" (js-peek stream))))))))
 
@@ -157,11 +152,9 @@ assignment (right-assoc), ternary, binary ops, and comma."
           (cond
             ;; Ternary: ? then : else
             ((eq op-type :T-QUESTION)
-             (multiple-value-bind (tok rest2) (js-consume rest)
-               (declare (ignore tok))
+             (%js-consume-then (rest2 (js-consume rest))
                (multiple-value-bind (then-ast rest3) (js-parse-assignment-expr rest2)
-                 (multiple-value-bind (tok2 rest4) (js-expect :T-COLON rest3)
-                   (declare (ignore tok2))
+                 (%js-consume-then (rest4 (js-expect :T-COLON rest3))
                    (multiple-value-bind (else-ast rest5) (js-parse-assignment-expr rest4)
                      ;; Coerce the condition to a JS boolean (%js-truthy), like the
                      ;; if/while/for statements do — otherwise "", null, undefined
@@ -172,8 +165,7 @@ assignment (right-assoc), ternary, binary ops, and comma."
             ;; Comma operator
             ((eq op-type :T-COMMA)
              (when (> prec min-prec)
-               (multiple-value-bind (tok rest2) (js-consume rest)
-                 (declare (ignore tok))
+               (%js-consume-then (rest2 (js-consume rest))
                  (multiple-value-bind (rhs rest3) (js-parse-expr rest2 1)
                    (setf lhs (make-ast-progn :forms (list lhs rhs))
                          rest rest3)))))
@@ -182,24 +174,21 @@ assignment (right-assoc), ternary, binary ops, and comma."
                   (member op-val *js-assignment-op-strings* :test #'string=))
              ;; Only assign if prec > min-prec (for right-assoc, use >= on rhs)
              (when (> prec min-prec)
-               (multiple-value-bind (tok rest2) (js-consume rest)
-                 (declare (ignore tok))
+               (%js-consume-then (rest2 (js-consume rest))
                  (multiple-value-bind (rhs rest3)
                      (js-parse-expr rest2 (if right-assoc-p (1- prec) prec))
                    (setf lhs (%js-lower-assignment op-val lhs rhs)
                          rest rest3)))))
             ;; instanceof / in (keyword tokens, not :T-OP)
             ((or (eq op-type :T-INSTANCEOF) (eq op-type :T-IN))
-             (multiple-value-bind (tok rest2) (js-consume rest)
-               (declare (ignore tok))
+             (%js-consume-then (rest2 (js-consume rest))
                (let ((next-prec (if right-assoc-p (1- prec) prec)))
                  (multiple-value-bind (rhs rest3) (js-parse-expr rest2 next-prec)
                    (setf lhs (%js-lower-binary op-val lhs rhs)
                          rest rest3)))))
             ;; All other binary operators
             (t
-             (multiple-value-bind (tok rest2) (js-consume rest)
-               (declare (ignore tok))
+             (%js-consume-then (rest2 (js-consume rest))
                (let ((next-prec (if right-assoc-p (1- prec) prec)))
                  (multiple-value-bind (rhs rest3) (js-parse-expr rest2 next-prec)
                    (setf lhs (%js-lower-binary op-val lhs rhs)

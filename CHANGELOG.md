@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Consolidated the parser's most-repeated boilerplate into a new `defmacro`,
+  `%js-consume-then` (`src/parser.lisp`, next to `js-consume`/`js-expect`): 71 call
+  sites across 9 files (`parser-arrow.lisp`, `parser-class.lisp`, `parser-expr-args.lisp`,
+  `parser-expr-literal.lisp`, `parser-expr-primary.lisp`, `parser-expr-unary.lisp`,
+  `parser-module.lisp`, `parser-stmt-binding.lisp`) previously spelled out
+  `(multiple-value-bind (tok rest) (js-consume/js-expect ...) (declare (ignore tok))
+  BODY)` by hand — "consume one token purely to advance the stream, discard it, continue
+  with the rest" — every time a closing delimiter, keyword, or operator token was
+  consumed with no further use for the token itself. Found via `paredit inspect
+  clone-classes` (scoped per-subsystem; the whole-`src/` tree exceeds the tool's own
+  similarity-operation budget) surfacing a 20-member clone class as a starting point,
+  then extended by hand to every other exact match of the same safe, mechanical pattern
+  in the same files. Purely mechanical, no behavior change — verified via
+  `nix build .#checks.aarch64-darwin.default`: 1350 passed, 0 failed, 0 errored,
+  identical pass count to before.
+
 ### Added
 
 - `paredit-cli` (the org's structure-editing CLI for S-expression refactoring) wired into

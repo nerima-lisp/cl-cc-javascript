@@ -252,8 +252,7 @@ Returns (values ast rest)."
       (cond
         ;; async function [*] name? (params) { body }
         ((eq next-type :T-FUNCTION)
-         (multiple-value-bind (tok2 rest2) (js-consume rest)
-           (declare (ignore tok2))
+         (%js-consume-then (rest2 (js-consume rest))
            (js-parse-function-expr rest2 :async-p t)))
         ;; async (params) => body  or  async ident => body
         ((eq next-type :T-LPAREN)
@@ -328,10 +327,8 @@ Returns (values ast rest)."
       ;; import.meta
       ((and (eq (js-peek-type rest) :T-DOT)
             (eq (js-peek-type (cdr rest)) :T-META))
-       (multiple-value-bind (dot-tok rest2) (js-consume rest)
-         (declare (ignore dot-tok))
-         (multiple-value-bind (meta-tok rest3) (js-consume rest2)
-           (declare (ignore meta-tok))
+       (%js-consume-then (rest2 (js-consume rest))
+         (%js-consume-then (rest3 (js-consume rest2))
            (values (%js-call '%js-import-meta) rest3))))
       ;; import(specifier)
       ((eq (js-peek-type rest) :T-LPAREN)

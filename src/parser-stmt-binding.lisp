@@ -41,8 +41,7 @@ case-sensitive), so a binding and its references resolve to the same symbol."
   "If STREAM begins with `= expr`, consume it and return (values default-ast rest);
 otherwise return (values nil stream). Used for destructuring defaults like
 [a = 1] and {a = 1}."
-  (if (and stream (eq (js-peek-type stream) :T-OP) (equal (js-peek-value stream) "=")) (multiple-value-bind (_tok rest) (js-consume stream)
-      (declare (ignore _tok))
+  (if (and stream (eq (js-peek-type stream) :T-OP) (equal (js-peek-value stream) "=")) (%js-consume-then (rest (js-consume stream))
       (js-parse-assignment-expr rest))
     (values nil stream)))
 

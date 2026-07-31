@@ -36,11 +36,9 @@ Returns (values param-syms optional-specs rest-sym new-stream) where
   optional-specs — list of (sym . default-expr) for params with defaults
   rest-sym      — symbol for rest parameter, or NIL
   new-stream    — stream after closing RPAREN."
-  (multiple-value-bind (tok rest) (js-expect :T-LPAREN stream)
-    (declare (ignore tok))
+  (%js-consume-then (rest (js-expect :T-LPAREN stream))
     (if (eq (js-peek-type rest) :T-RPAREN)
-        (multiple-value-bind (tok2 rest2) (js-consume rest)
-          (declare (ignore tok2))
+        (%js-consume-then (rest2 (js-consume rest))
           (values nil nil nil rest2))
         (let ((params nil)
               (optionals nil)
@@ -49,8 +47,7 @@ Returns (values param-syms optional-specs rest-sym new-stream) where
           (loop
             ;; Rest parameter: ...name
             (when (eq (js-peek-type current) :T-ELLIPSIS)
-              (multiple-value-bind (tok2 rest2) (js-consume current)
-                (declare (ignore tok2))
+              (%js-consume-then (rest2 (js-consume current))
                 (multiple-value-bind (name-tok rest3) (js-expect :T-IDENT rest2)
                   (setf rest-sym (js-ident-sym (js-tok-value name-tok))
                         current rest3)
@@ -62,8 +59,7 @@ Returns (values param-syms optional-specs rest-sym new-stream) where
                 (setf current rest2)
                 ;; Default value?
                 (when (js-at-op-p current "=")
-                  (multiple-value-bind (eq-tok rest3) (js-consume current)
-                    (declare (ignore eq-tok))
+                  (%js-consume-then (rest3 (js-consume current))
                     (multiple-value-bind (default-expr rest4)
                         (js-parse-assignment-expr rest3)
                       (push (cons sym default-expr) optionals)
@@ -72,8 +68,7 @@ Returns (values param-syms optional-specs rest-sym new-stream) where
             (multiple-value-bind (next-stream more-p) (%js-comma-list-step current :T-RPAREN)
               (setf current next-stream)
               (unless more-p (return))))
-          (multiple-value-bind (tok2 rest2) (js-expect :T-RPAREN current)
-            (declare (ignore tok2))
+          (%js-consume-then (rest2 (js-expect :T-RPAREN current))
             (values (nreverse params)
                     (nreverse optionals)
                     rest-sym
@@ -82,19 +77,16 @@ Returns (values param-syms optional-specs rest-sym new-stream) where
 (defun js-parse-arguments (stream)
   "Parse argument list after LPAREN. Handles spread (...expr).
 Returns (values arg-list rest)."
-  (multiple-value-bind (tok rest) (js-expect :T-LPAREN stream)
-    (declare (ignore tok))
+  (%js-consume-then (rest (js-expect :T-LPAREN stream))
     (if (eq (js-peek-type rest) :T-RPAREN)
-        (multiple-value-bind (tok2 rest2) (js-consume rest)
-          (declare (ignore tok2))
+        (%js-consume-then (rest2 (js-consume rest))
           (values nil rest2))
         (let ((args nil)
               (current rest))
           (loop
             ;; Spread argument: ...expr
             (if (eq (js-peek-type current) :T-ELLIPSIS)
-                (multiple-value-bind (tok2 rest2) (js-consume current)
-                  (declare (ignore tok2))
+                (%js-consume-then (rest2 (js-consume current))
                   (multiple-value-bind (expr rest3) (js-parse-assignment-expr rest2)
                     (push (%js-call '%js-spread expr) args)
                     (setf current rest3)))
@@ -104,6 +96,5 @@ Returns (values arg-list rest)."
             (multiple-value-bind (next-stream more-p) (%js-comma-list-step current :T-RPAREN)
               (setf current next-stream)
               (unless more-p (return))))
-          (multiple-value-bind (tok2 rest2) (js-expect :T-RPAREN current)
-            (declare (ignore tok2))
+          (%js-consume-then (rest2 (js-expect :T-RPAREN current))
             (values (nreverse args) rest2))))))

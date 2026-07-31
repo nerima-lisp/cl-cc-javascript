@@ -206,8 +206,7 @@ Each member is an ast-slot-def whose :imports plist carries:
         (multiple-value-bind (slot rest2) (%js-parse-class-body-member current)
           (when slot (push slot members))
           (setf current rest2)))
-      (multiple-value-bind (_ rest2) (js-expect :T-RBRACE current)
-        (declare (ignore _))
+      (%js-consume-then (rest2 (js-expect :T-RBRACE current))
         (values (nreverse members) rest2)))))
 
 ;;; ─── AST lowering + public entry point ──────────────────────────────────────

@@ -10,11 +10,9 @@
 (defun js-parse-array-literal (stream)
   "Parse [...] array literal. Returns (values ast rest).
 Handles elision (holes), spread elements, and assignment expressions."
-  (multiple-value-bind (tok rest) (js-expect :T-LBRACKET stream)
-    (declare (ignore tok))
+  (%js-consume-then (rest (js-expect :T-LBRACKET stream))
     (if (eq (js-peek-type rest) :T-RBRACKET)
-        (multiple-value-bind (tok2 rest2) (js-consume rest)
-          (declare (ignore tok2))
+        (%js-consume-then (rest2 (js-consume rest))
           (values (%js-call '%js-make-array) rest2))
         (let ((elements nil)
               (current rest))
@@ -25,20 +23,17 @@ Handles elision (holes), spread elements, and assignment expressions."
               ;; Elision hole: consecutive comma or leading comma
               ((eq (js-peek-type current) :T-COMMA)
                (push (make-ast-quote :value :js-hole) elements)
-               (multiple-value-bind (tok2 rest2) (js-consume current)
-                 (declare (ignore tok2))
+               (%js-consume-then (rest2 (js-consume current))
                  (setf current rest2)))
               ;; Spread element: ...expr
               ((eq (js-peek-type current) :T-ELLIPSIS)
-               (multiple-value-bind (tok2 rest2) (js-consume current)
-                 (declare (ignore tok2))
+               (%js-consume-then (rest2 (js-consume current))
                  (multiple-value-bind (expr rest3) (js-parse-assignment-expr rest2)
                    (push (%js-call '%js-spread expr) elements)
                    (setf current rest3)
                    ;; Consume trailing comma if present
                    (when (eq (js-peek-type current) :T-COMMA)
-                     (multiple-value-bind (tok3 rest4) (js-consume current)
-                       (declare (ignore tok3))
+                     (%js-consume-then (rest4 (js-consume current))
                        (setf current rest4))))))
               ;; Regular element
               (t
@@ -47,12 +42,10 @@ Handles elision (holes), spread elements, and assignment expressions."
                  (setf current rest2)
                  (cond
                    ((eq (js-peek-type current) :T-COMMA)
-                    (multiple-value-bind (tok2 rest2b) (js-consume current)
-                      (declare (ignore tok2))
+                    (%js-consume-then (rest2b (js-consume current))
                       (setf current rest2b)))
                    (t (return)))))))
-          (multiple-value-bind (tok2 rest2) (js-expect :T-RBRACKET current)
-            (declare (ignore tok2))
+          (%js-consume-then (rest2 (js-expect :T-RBRACKET current))
             (let ((elems (nreverse elements)))
               (values (if (%js-items-have-spread-p elems)
                           ;; [...a, x] -> (apply #'%js-make-array (append a (list x)))
@@ -65,30 +58,25 @@ Handles elision (holes), spread elements, and assignment expressions."
 ;;; ─── Object Literal ──────────────────────────────────────────────────────────
 (defun %js-parse-object-property-spread (stream)
   "...expr — STREAM points at the ellipsis token."
-  (multiple-value-bind (tok rest) (js-consume stream)
-    (declare (ignore tok))
+  (%js-consume-then (rest (js-consume stream))
     (multiple-value-bind (expr rest2) (js-parse-assignment-expr rest)
       (values :spread expr nil nil rest2))))
 
 (defun %js-parse-object-property-computed (stream)
   "[expr]: value or [expr](...) {} — STREAM points at '['."
-  (multiple-value-bind (tok rest) (js-consume stream)
-    (declare (ignore tok))
+  (%js-consume-then (rest (js-consume stream))
     (multiple-value-bind (key-expr rest2) (js-parse-assignment-expr rest)
-      (multiple-value-bind (tok2 rest3) (js-expect :T-RBRACKET rest2)
-        (declare (ignore tok2))
+      (%js-consume-then (rest3 (js-expect :T-RBRACKET rest2))
         (if (eq (js-peek-type rest3) :T-LPAREN) (multiple-value-bind (fn-ast rest4) (js-parse-function-expr rest3 :name nil)
             (values key-expr fn-ast t t rest4))
-          (multiple-value-bind (tok3 rest4) (js-expect :T-COLON rest3)
-            (declare (ignore tok3))
+          (%js-consume-then (rest4 (js-expect :T-COLON rest3))
             (multiple-value-bind (val-expr rest5) (js-parse-assignment-expr rest4)
               (values key-expr val-expr nil t rest5))))))))
 
 (defun %js-parse-object-property-generator-method (stream)
   "*name(...) {} — STREAM points past '*'."
   (let ((key-str (js-peek-value stream)))
-    (multiple-value-bind (key-tok rest) (js-consume stream)
-      (declare (ignore key-tok))
+    (%js-consume-then (rest (js-consume stream))
       (multiple-value-bind (fn-ast rest2) (js-parse-function-expr rest :generator-p t :name (js-ident-sym key-str))
         (values (make-ast-quote :value key-str) fn-ast t nil rest2)))))
 
@@ -99,11 +87,9 @@ Handles elision (holes), spread elements, and assignment expressions."
     (cond
       ;; async * name — async generator
       ((and (eq next-type :T-OP) (string= next-val "*"))
-       (multiple-value-bind (tok2 rest2) (js-consume stream)
-         (declare (ignore tok2))
+       (%js-consume-then (rest2 (js-consume stream))
          (let ((key-str (js-peek-value rest2)))
-           (multiple-value-bind (key-tok rest3) (js-consume rest2)
-             (declare (ignore key-tok))
+           (%js-consume-then (rest3 (js-consume rest2))
              (multiple-value-bind (fn-ast rest4)
                  (js-parse-function-expr rest3 :async-p t :generator-p t
                                                :name (js-ident-sym key-str))
@@ -113,8 +99,7 @@ Handles elision (holes), spread elements, and assignment expressions."
            (eq next-type :T-STRING)
            (eq next-type :T-NUMBER))
        (let ((key-str next-val))
-         (multiple-value-bind (key-tok rest2) (js-consume stream)
-           (declare (ignore key-tok))
+         (%js-consume-then (rest2 (js-consume stream))
            (multiple-value-bind (fn-ast rest3)
                (js-parse-function-expr rest2 :async-p t :name (js-ident-sym key-str))
              (values (make-ast-quote :value key-str) fn-ast t nil rest3)))))
@@ -122,8 +107,7 @@ Handles elision (holes), spread elements, and assignment expressions."
       (t
        (let ((key-sym (js-ident-sym "async")))
          (if (eq (js-peek-type stream) :T-COLON)
-             (multiple-value-bind (tok2 rest2) (js-consume stream)
-               (declare (ignore tok2))
+             (%js-consume-then (rest2 (js-consume stream))
                (multiple-value-bind (val-expr rest3) (js-parse-assignment-expr rest2)
                  (values (make-ast-quote :value "async") val-expr nil nil rest3)))
              (values (make-ast-quote :value "async")
@@ -133,11 +117,9 @@ Handles elision (holes), spread elements, and assignment expressions."
 (defun %js-parse-object-property-accessor (stream)
   "get name() {} / set name(x) {} — STREAM points at the T-GET/T-SET token."
   (let ((accessor-kind (js-tok-value (car stream))))
-    (multiple-value-bind (tok rest) (js-consume stream)
-      (declare (ignore tok))
+    (%js-consume-then (rest (js-consume stream))
       (let ((key-str (js-peek-value rest)))
-        (multiple-value-bind (key-tok rest2) (js-consume rest)
-          (declare (ignore key-tok))
+        (%js-consume-then (rest2 (js-consume rest))
           (multiple-value-bind (fn-ast rest3) (js-parse-function-expr rest2 :name (js-ident-sym key-str))
             (let ((tagged-fn
                   (%js-call '%js-accessor (make-ast-quote :value accessor-kind) fn-ast)))
@@ -155,8 +137,7 @@ already-consumed key token; KEY-STR is that key's value."
          (values (make-ast-quote :value key-str) fn-ast t nil rest2)))
       ;; Key : value
       ((eq next-type :T-COLON)
-       (multiple-value-bind (tok2 rest2) (js-consume stream)
-         (declare (ignore tok2))
+       (%js-consume-then (rest2 (js-consume stream))
          (multiple-value-bind (val-expr rest3) (js-parse-assignment-expr rest2)
            (values (make-ast-quote :value key-str) val-expr nil nil rest3))))
       ;; Shorthand: { name } — same as { name: name }
@@ -191,19 +172,16 @@ Returns (values key-expr value-expr method-p computed-p rest)."
        (%js-parse-object-property-accessor stream))
       ;; Identifier shorthand, method, or key: value
       (t
-       (multiple-value-bind (key-tok rest) (js-consume stream)
-         (declare (ignore key-tok))
+       (%js-consume-then (rest (js-consume stream))
          (%js-parse-object-property-shorthand-or-method-or-kv rest val))))))
 
 (defun js-parse-object-literal (stream)
   "Parse {...} object literal. Returns (values ast rest).
 Handles shorthand properties, method shorthands, computed keys,
 spread elements, getters, and setters."
-  (multiple-value-bind (tok rest) (js-expect :T-LBRACE stream)
-    (declare (ignore tok))
+  (%js-consume-then (rest (js-expect :T-LBRACE stream))
     (if (eq (js-peek-type rest) :T-RBRACE)
-        (multiple-value-bind (tok2 rest2) (js-consume rest)
-          (declare (ignore tok2))
+        (%js-consume-then (rest2 (js-consume rest))
           (values (%js-call '%js-make-object) rest2))
         (let ((entries nil)        ; ordered: (:spread expr) | (:pair key val)
               (has-spread nil)
@@ -219,13 +197,11 @@ spread elements, getters, and setters."
                   (push (list :pair key val) entries))
               (setf current rest2))
             (if (eq (js-peek-type current) :T-COMMA)
-                (multiple-value-bind (tok2 rest2) (js-consume current)
-                  (declare (ignore tok2))
+                (%js-consume-then (rest2 (js-consume current))
                   (setf current rest2))
                 (return)))
           (setf entries (nreverse entries))
-          (multiple-value-bind (tok2 rest2) (js-expect :T-RBRACE current)
-            (declare (ignore tok2))
+          (%js-consume-then (rest2 (js-expect :T-RBRACE current))
             (values
              (if has-spread
                  ;; {...a, k:v, ...b}: merge semantics. Fold entries left-to-right,
@@ -297,8 +273,7 @@ Returns (values ast rest)."
         (is-generator generator-p))
     ;; Consume optional * for generators
     (when (js-at-op-p current "*")
-      (multiple-value-bind (tok rest) (js-consume current)
-        (declare (ignore tok))
+      (%js-consume-then (rest (js-consume current))
         (setf is-generator t
               current rest)))
     ;; Optional function name
@@ -310,8 +285,7 @@ Returns (values ast rest)."
     (multiple-value-bind (params optionals rest-sym rest2)
         (js-parse-params current)
       ;; Body: { stmts... }
-      (multiple-value-bind (tok3 rest3) (js-expect :T-LBRACE rest2)
-        (declare (ignore tok3))
+      (%js-consume-then (rest3 (js-expect :T-LBRACE rest2))
         (multiple-value-bind (body-forms rest4)
             (js-parse-function-body rest3)
           (values (%js-build-function-expr-ast

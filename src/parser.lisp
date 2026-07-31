@@ -70,6 +70,19 @@ Returns (values token rest-stream). Signals an error on mismatch."
   "Return T when STREAM is exhausted or its first token is :T-EOF."
   (or (null stream) (eq (js-peek-type stream) :T-EOF)))
 
+(defmacro %js-consume-then ((rest-var consume-form) &body body)
+  "Consume one token via CONSUME-FORM (a JS-CONSUME or JS-EXPECT call, both of
+which return (values token rest-stream)), discard the token, and evaluate
+BODY with REST-VAR bound to the resulting rest-of-stream. Replaces the
+`(multiple-value-bind (tok rest) CONSUME-FORM (declare (ignore tok)) ,@body)'
+boilerplate repeated across the parser wherever a token (an operator, a
+keyword, a closing delimiter) is consumed purely to advance the stream, with
+no further use for the token value itself."
+  (let ((discarded-token (gensym "TOK-")))
+    `(multiple-value-bind (,discarded-token ,rest-var) ,consume-form
+       (declare (ignore ,discarded-token))
+       ,@body)))
+
 ;;; ─── Recursion Depth Guard ───────────────────────────────────────────────────
 ;;; The expression and statement parsers are mutually recursive with no inherent
 ;;; bound, so pathologically nested input (e.g. "((((((…))))))" or "[[[[…]]]]")
