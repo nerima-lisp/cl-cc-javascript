@@ -111,8 +111,8 @@ before every compiled JS program so standard globals are available.")
                (:quote     (make-ast-quote :value cl-sym))
                (:builtin   (%js-call '%js-builtin-ref (make-ast-quote :value cl-sym)))))))
 
-(defun js-program-forms (source &key strict-mode module-p)
+(defun js-program-forms (source)
   "Parse JS SOURCE prepending the standard-globals prelude.
 Returns top-level AST forms ready for the compiler backend."
   (append (mapcar #'%js-prelude-form *js-prelude-global-specs*)
-          (parse-js-source source :strict-mode strict-mode :module-p module-p)))
+          (parse-js-source source)))

@@ -6,13 +6,11 @@
 ;;;;
 ;;;; Load order: after runtime.lisp (needs type predicates and constants),
 ;;;;             before runtime-property.lisp (used by %js-get-prop / %js-set-prop).
-
 (in-package :cl-cc/javascript)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Callback invocation
 ;;; -----------------------------------------------------------------------
-
 (defvar %js-this +js-undefined+
   "Dynamically bound to the receiver when a JS method is called.
 JS source `this.x' compiles to (%js-get-prop %js-this \"x\").
@@ -36,8 +34,7 @@ Array higher-order methods use this instead of CL:FUNCALL so the same code path
 works whether FN is a host function (tests) or a compiled-JS closure (runtime)."
   (funcall *js-apply-fn* fn args))
 
-(defvar *js-apply-with-this-fn*
-  (lambda (this fn args)
+(defvar *js-apply-with-this-fn* (lambda (this fn args)
     (let ((%js-this this))
       (funcall *js-apply-fn* fn args)))
   "Invoke a method/constructor FN with `this' = THIS. The default binds only the
@@ -54,7 +51,6 @@ compiled-VM method bodies."
 ;;; -----------------------------------------------------------------------
 ;;;  Method resolution hooks
 ;;; -----------------------------------------------------------------------
-
 (defvar *js-method-resolver* nil
   "When set, a function (receiver method-name-string) -> a bound method closure,
 or +js-undefined+ when the name is not a method. Installed by a late runtime
@@ -65,9 +61,8 @@ invoke — mirroring how console.log resolves to a function value.")
 
 (defun %js-method-ref (obj key)
   "Resolve OBJ.KEY to a bound method via *js-method-resolver*, else +js-undefined+."
-  (if *js-method-resolver*
-      (funcall *js-method-resolver* obj key)
-      +js-undefined+))
+  (if *js-method-resolver* (funcall *js-method-resolver* obj key)
+    +js-undefined+))
 
 (defvar *js-callable-p* #'functionp
   "Predicate: is X a callable JS value? Defaults to host FUNCTIONP; the pipeline
@@ -81,9 +76,9 @@ live on the prototype."
   (loop with proto = (gethash "__proto__" obj)
         while (%js-ht-p proto)
         do (multiple-value-bind (val found) (gethash accessor-key proto)
-             (when found (return val)))
-           (setf proto (gethash "__proto__" proto))
-        finally (return nil)))
+      (when found
+        (return val))) (setf proto (gethash "__proto__" proto))
+        finally (return)))
 
 (defun %js-proto-method-lookup (obj k)
   "Walk OBJ's __proto__ chain for key K (JS prototype method resolution). A

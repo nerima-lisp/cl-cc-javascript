@@ -2,39 +2,39 @@
 
 (in-package :cl-cc/javascript)
 
-(defun %js-split-string-on-char (string char)
+(defun %js-split-string-on-char (str char)
   (let ((start 0)
         (parts nil))
-    (loop for pos = (position char string :start start)
-          do (push (subseq string start pos) parts)
+    (loop for pos = (position char str :start start)
+          do (push (subseq str start pos) parts)
           if pos
             do (setf start (1+ pos))
           else
             return (nreverse parts))))
 
-(defun %js-url-decode-component (string)
+(defun %js-url-decode-component (str)
   (with-output-to-string (out)
-    (loop for i from 0 below (length string)
-          for ch = (char string i)
+    (loop for i from 0 below (length str)
+          for ch = (char str i)
           do (cond
                ((char= ch #\+)
                 (write-char #\Space out))
                ((and (char= ch #\%)
-                     (< (+ i 2) (length string))
-                     (digit-char-p (char string (1+ i)) 16)
-                     (digit-char-p (char string (+ i 2)) 16))
+                     (< (+ i 2) (length str))
+                     (digit-char-p (char str (1+ i)) 16)
+                     (digit-char-p (char str (+ i 2)) 16))
                 (write-char
-                 (code-char (+ (* 16 (digit-char-p (char string (1+ i)) 16))
-                               (digit-char-p (char string (+ i 2)) 16)))
+                 (code-char (+ (* 16 (digit-char-p (char str (1+ i)) 16))
+                               (digit-char-p (char str (+ i 2)) 16)))
                  out)
                 (incf i 2))
                (t
                 (write-char ch out))))))
 
 (defun %js-url-encode-component (value)
-  (let ((string (%js-to-string value)))
+  (let ((str (%js-to-string value)))
     (with-output-to-string (out)
-      (loop for ch across string
+      (loop for ch across str
             for code = (char-code ch)
             do (cond
                  ((or (and (>= code (char-code #\a)) (<= code (char-code #\z)))
@@ -109,6 +109,22 @@
          (concatenate 'string with-leading "/"))
         (t with-leading)))))
 
+(defun %js-url-search-params-replace-first (pairs key value)
+  "URLSearchParams#set's pure rebuild step: PAIRS with every existing entry
+for KEY removed except the first, which is overwritten with VALUE in place;
+KEY is appended at the end when it wasn't already present. Order among the
+non-matching pairs is preserved."
+  (let ((written nil) (result nil))
+    (dolist (pair pairs)
+      (cond
+        ((string= (car pair) key)
+         (unless written
+           (push (cons key value) result)
+           (setf written t)))
+        (t (push pair result))))
+    (unless written (push (cons key value) result))
+    (nreverse result)))
+
 (defun %js-make-url-search-params (&optional init on-change)
   "URLSearchParams: ordered key/value query storage with common mutators."
   (let ((pairs (%js-url-search-params-pairs init)))
@@ -140,22 +156,9 @@
        "has" (lambda (key)
                (not (null (values-for key))))
        "set" (lambda (key value)
-               (let ((string-key (%js-to-string key))
-                     (string-value (%js-to-string value))
-                     (written nil)
-                     (result nil))
-                 (dolist (pair pairs)
-                   (cond
-                     ((string= (car pair) string-key)
-                      (unless written
-                        (push (cons string-key string-value) result)
-                        (setf written t)))
-                     (t
-                      (push pair result))))
-                 (unless written
-                   (push (cons string-key string-value) result))
-                 (setf pairs (nreverse result))
-                 (changed)))
+               (setf pairs (%js-url-search-params-replace-first
+                            pairs (%js-to-string key) (%js-to-string value)))
+               (changed))
        "sort" (lambda ()
                 (setf pairs
                       (stable-sort pairs

@@ -12,20 +12,33 @@
 ;;; +uri-component-safe-chars+ omits the URI-structure chars that encodeURI
 ;;; must preserve.
 
-(defparameter +uri-component-safe-chars+
+(defun %js-char-set (chars)
+  "Build an O(1)-membership hash-table from CHARS, for a fixed small set
+tested repeatedly inside a per-character loop (percent-encoding below) —
+MEMBER on the raw list would re-walk it once per input character."
+  (let ((table (make-hash-table)))
+    (dolist (ch chars table)
+      (setf (gethash ch table) t))))
+
+(defparameter +uri-unreserved-chars+
   '(#\- #\_ #\. #\! #\~ #\* #\' #\( #\))
+  "RFC 3986 unreserved characters, shared by both safe-char sets below.")
+
+(defparameter +uri-component-safe-chars+
+  (%js-char-set +uri-unreserved-chars+)
   "Characters that encodeURIComponent leaves unencoded (RFC 3986 unreserved).")
 
 (defparameter +uri-safe-chars+
-  (append +uri-component-safe-chars+
-          '(#\; #\/ #\? #\: #\@ #\& #\= #\+ #\$ #\, #\#))
+  (%js-char-set (append +uri-unreserved-chars+
+                        '(#\; #\/ #\? #\: #\@ #\& #\= #\+ #\$ #\, #\#)))
   "Characters that encodeURI leaves unencoded (unreserved + URI structure chars).")
 
 (defun %js-percent-encode (str safe-chars)
-  "Percent-encode STR, leaving alphanumerics and SAFE-CHARS unchanged."
+  "Percent-encode STR, leaving alphanumerics and SAFE-CHARS (a %js-char-set
+hash-table) unchanged."
   (with-output-to-string (out)
     (loop for ch across (%js-to-string str)
-          do (if (or (alphanumericp ch) (member ch safe-chars))
+          do (if (or (alphanumericp ch) (gethash ch safe-chars))
                  (write-char ch out)
                  (loop for byte across (sb-ext:string-to-octets (string ch) :external-format :utf-8)
                        do (format out "%~2,'0X" byte))))))
@@ -61,41 +74,21 @@
 
 ;;; ─── atob / btoa (base64 in browsers) ───────────────────────────────────────
 
+;;; The RFC 4648 arithmetic lives in %js-base64-encode-bytes /
+;;; %js-base64-decode-bytes (runtime-typed-arrays-encoding.lisp), shared with
+;;; Uint8Array.toBase64/fromBase64.  atob/btoa differ from those only in
+;;; treating each octet as a character code rather than a typed-array element.
+
 (defun %js-btoa (str)
   "JS btoa: base64-encode a binary string."
-  (let* ((s (%js-to-string str))
-         (alphabet "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"))
-    (with-output-to-string (out)
-      (let ((bytes (map 'vector #'char-code s))
-            (n (length s)))
-        (loop for i from 0 below n by 3
-              do (let* ((b0 (aref bytes i))
-                        (b1 (if (< (1+ i) n) (aref bytes (1+ i)) 0))
-                        (b2 (if (< (+ i 2) n) (aref bytes (+ i 2)) 0)))
-                   (write-char (char alphabet (ash b0 -2)) out)
-                   (write-char (char alphabet (logior (ash (logand b0 3) 4) (ash b1 -4))) out)
-                   (write-char (if (< (1+ i) n)
-                                   (char alphabet (logior (ash (logand b1 15) 2) (ash b2 -6)))
-                                   #\=)
-                               out)
-                   (write-char (if (< (+ i 2) n) (char alphabet (logand b2 63)) #\=) out)))))))
+  (let ((s (%js-to-string str)))
+    (%js-base64-encode-bytes (map 'vector #'char-code s) (length s))))
 
 (defun %js-atob (str)
   "JS atob: decode base64 string."
-  (let* ((s (string-trim '(#\Space #\Tab #\Newline #\Return) (%js-to-string str)))
-         (alphabet "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"))
-    (flet ((dc (ch) (or (position ch alphabet) 0)))
-      (with-output-to-string (out)
-        (loop for i from 0 below (length s) by 4
-              while (< (+ i 3) (length s))
-              do (let* ((g0 (dc (char s i)))       (g1 (dc (char s (1+ i))))
-                        (g2 (if (char= (char s (+ i 2)) #\=) 0 (dc (char s (+ i 2)))))
-                        (g3 (if (char= (char s (+ i 3)) #\=) 0 (dc (char s (+ i 3))))))
-                   (write-char (code-char (logior (ash g0 2) (ash g1 -4))) out)
-                   (unless (char= (char s (+ i 2)) #\=)
-                     (write-char (code-char (logior (ash (logand g1 15) 4) (ash g2 -2))) out))
-                   (unless (char= (char s (+ i 3)) #\=)
-                     (write-char (code-char (logior (ash (logand g2 3) 6) g3)) out))))))))
+  (with-output-to-string (out)
+    (%js-base64-decode-bytes (%js-to-string str)
+                             (lambda (byte) (write-char (code-char byte) out)))))
 
 ;;; ─── TextEncoder / TextDecoder ───────────────────────────────────────────────
 
@@ -116,9 +109,13 @@
       (t name))))
 
 (defun %js-text-decode-octets (bytes)
-  (handler-case
-      (sb-ext:octets-to-string bytes :external-format :utf-8)
-    (error () "")))
+  "Decode BYTES as UTF-8 the way JS's non-fatal TextDecoder does (this
+runtime's TextDecoder always reports \"fatal\" false — see
+%js-make-text-decoder): an invalid byte sequence becomes a single U+FFFD
+REPLACEMENT CHARACTER, and decoding continues, rather than discarding
+everything already decoded. SBCL's own :replacement external-format option
+does exactly this natively; no need to hand-roll a resync loop."
+  (sb-ext:octets-to-string bytes :external-format (list :utf-8 :replacement (code-char #xFFFD))))
 
 (defun %js-text-buffer-octets (buf)
   (cond

@@ -5,18 +5,15 @@
 ;;;; operations canonicalize through the insertion-order values because
 ;;;; ECMAScript membership uses SameValueZero, which CL hash-table tests cannot
 ;;;; express exactly for NaN.
-
 (in-package :cl-cc/javascript)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Set built-ins (ES2025)
 ;;; -----------------------------------------------------------------------
-
 ;;; JS Set is represented as a struct with:
 ;;;   HT    — CL hash-table (key → t) for canonical stored values
 ;;;   ORDER — list of values in insertion order (used by for-of / keys / values)
-(defstruct (js-set (:conc-name js-set-))
-  (ht    (make-hash-table :test #'equal :size 8) :type hash-table)
+(defstruct (js-set (:conc-name js-set-)) (ht (make-hash-table :test #'equal :size 8) :type hash-table)
   (order nil))
 
 (defun %js-make-set ()
@@ -63,7 +60,10 @@
   (copy-list (js-set-order s)))
 
 (defun %js-set-entries (s)
-  (mapcar (lambda (x) (list x x)) (js-set-order s)))
+  (mapcar
+    (lambda (x)
+      (list x x))
+    (js-set-order s)))
 
 (defun %js-set-for-each (s fn)
   (dolist (x (js-set-order s))
@@ -72,49 +72,44 @@
 
 (defun %js-set-like-has (obj value)
   (cond
-      ((js-set-p obj)
-       (%js-set-has obj value))
-      ((%js-ht-p obj)
-       (let ((has (gethash "has" obj)))
-         (and has (%js-truthy (%js-funcall has value)))))))
+    ((js-set-p obj) (%js-set-has obj value))
+    ((%js-ht-p obj)
+      (let ((has (gethash "has" obj)))
+        (and has (%js-truthy (%js-funcall has value)))))))
 
 (defun %js-set-like-keys-result-to-list (keys)
   (cond
-    ((%js-vec-p keys)
-     (coerce keys 'list))
-    ((listp keys)
-     keys)
-    ((js-set-p keys)
-     (%js-set-keys keys))
+    ((%js-vec-p keys) (coerce keys 'list))
+    ((listp keys) keys)
+    ((js-set-p keys) (%js-set-keys keys))
     (t nil)))
 
 (defun %js-set-like-keys (obj)
   (cond
-      ((js-set-p obj)
-       (%js-set-keys obj))
-      ((%js-ht-p obj)
-       (let ((keys (gethash "keys" obj)))
-         (when keys
-           (%js-set-like-keys-result-to-list (%js-funcall keys)))))))
+    ((js-set-p obj) (%js-set-keys obj))
+    ((%js-ht-p obj)
+      (let ((keys (gethash "keys" obj)))
+        (when keys
+          (%js-set-like-keys-result-to-list (%js-funcall keys)))))))
 
 ;;; JS Set ops with duck-typed right-hand side (Set or Map-like table)
-
 (defmacro define-js-set-predicate (name stop-condition result-if-stopped default-result)
   `(defun ,name (a b)
-     (block check
-       (dolist (k (js-set-order a))
-         (when ,stop-condition
-           (return-from check ,result-if-stopped)))
-       ,default-result)))
+    (block check
+      (dolist (k (js-set-order a))
+        (when ,stop-condition
+          (return-from check ,result-if-stopped)))
+      ,default-result)))
 
 (defmacro define-js-set-filter-op (name predicate)
   `(defun ,name (a b)
-     (let ((result (%js-make-set)))
-       (%js-set-copy-all result a)
-       (setf (js-set-order result) nil)
-       (dolist (k (%js-set-like-keys a) result)
-         (when ,predicate (%js-set-add result k)))
-       result)))
+    (let ((result (%js-make-set)))
+      (%js-set-copy-all result a)
+      (setf (js-set-order result) nil)
+      (dolist (k (%js-set-like-keys a) result)
+        (when ,predicate
+          (%js-set-add result k)))
+      result)))
 
 (defun %js-set-union (a b)
   (let ((result (%js-make-set)))
@@ -123,27 +118,29 @@
       (%js-set-add result k))
     result))
 
-(define-js-set-filter-op %js-set-intersection
-  (%js-set-like-has b k))
+(define-js-set-filter-op %js-set-intersection (%js-set-like-has b k))
 
-(define-js-set-filter-op %js-set-difference
-  (not (%js-set-like-has b k)))
+(define-js-set-filter-op %js-set-difference (not (%js-set-like-has b k)))
 
 (defun %js-set-symmetric-difference (a b)
   (let ((result (%js-make-set)))
     (dolist (k (%js-set-like-keys a))
-      (unless (%js-set-like-has b k) (%js-set-add result k)))
+      (unless (%js-set-like-has b k)
+        (%js-set-add result k)))
     (dolist (k (%js-set-like-keys b))
-      (unless (%js-set-has a k) (%js-set-add result k)))
+      (unless (%js-set-has a k)
+        (%js-set-add result k)))
     result))
 
-(define-js-set-predicate %js-set-is-subset-of
-  (not (%js-set-like-has b k)) nil t)
+(define-js-set-predicate
+  %js-set-is-subset-of
+  (not (%js-set-like-has b k))
+  nil
+  t)
 
-(define-js-set-predicate %js-set-is-disjoint-from
-  (%js-set-like-has b k) nil t)
+(define-js-set-predicate %js-set-is-disjoint-from (%js-set-like-has b k) nil t)
 
 (defun %js-set-is-superset-of (a b)
   (dolist (k (%js-set-like-keys b) t)
     (unless (%js-set-has a k)
-      (return-from %js-set-is-superset-of nil))))
+      (return-from %js-set-is-superset-of))))

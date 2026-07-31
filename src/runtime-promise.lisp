@@ -104,7 +104,11 @@ THUNK is a VM closure so use %js-funcall (not CL:FUNCALL) to re-enter the VM."
       (%js-promise-resolve results))))
 
 (defun %js-promise-any (promises)
-  "Resolve with first fulfillment; reject if all reject."
+  "Resolve with first fulfillment; reject with a real AggregateError if all
+reject (previously a plain object with matching `errors'/`message'
+properties but no AggregateError identity at all — `instanceof
+AggregateError` and `instanceof Error` both failed; %js-make-aggregate-error
+already existed, tested in isolation, just never called from here)."
   (%with-promise-vec (arr promises)
     (let ((errors (make-array 0 :element-type t :adjustable t :fill-pointer 0)))
       (loop for p across arr
@@ -112,7 +116,7 @@ THUNK is a VM closure so use %js-funcall (not CL:FUNCALL) to re-enter the VM."
                    (vector-push-extend (js-promise-value p) errors)
                    (return-from %js-promise-any (%js-promise-resolve (%js-promise-unwrap p)))))
       (%js-promise-reject
-       (%js-make-object "errors" errors "message" "All promises were rejected")))))
+       (%js-make-aggregate-error errors "All promises were rejected")))))
 
 (defun %js-promise-race (promises)
   "Return the first settled promise."

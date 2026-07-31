@@ -7,10 +7,7 @@
     "July" "August" "September" "October" "November" "December"))
 
 (defun %js-date-time-format-option-string (options name default)
-  (let ((value (%js-intl-option options name +js-undefined+)))
-    (if (eq value +js-undefined+)
-        default
-        (%js-to-string value))))
+  (%js-intl-coerced-option options name default #'%js-to-string))
 
 (defun %js-date-time-format-input-date (value)
   (cond
