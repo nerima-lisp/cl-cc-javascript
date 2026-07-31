@@ -7,7 +7,6 @@
 ;;;; CL universal-time epoch: 1900-01-01T00:00:00Z
 ;;;; JS epoch:                1970-01-01T00:00:00Z
 ;;;; Offset: 2208988800 seconds (70 years including leap years)
-
 (in-package :cl-cc/javascript)
 
 (defconstant +js-epoch-offset+ 2208988800
@@ -16,16 +15,29 @@
 ;;; -----------------------------------------------------------------------
 ;;;  js-date struct
 ;;; -----------------------------------------------------------------------
+(defstruct (js-date (:conc-name js-date-)) (ms 0 :type real)) ; milliseconds since Unix epoch (may be negative, or NaN for an Invalid Date)
 
-(defstruct (js-date (:conc-name js-date-))
-  (ms 0 :type integer))   ; milliseconds since Unix epoch (may be negative)
+(defun %js-date-p (x)
+  (js-date-p x))
 
-(defun %js-date-p (x) (js-date-p x))
+(defun %js-date-invalid-p (date)
+  "True when DATE's underlying time value is NaN -- an \"Invalid Date\",
+per ECMA-262 (e.g. `new Date(\"garbage\")`, `new Date(NaN)`,
+`d.setFullYear(NaN)`)."
+  (%js-float-nan-p (js-date-ms date)))
+
+(defun %js-date-truncate-or-nan (x)
+  "ToNumber X then TRUNCATE it, except return NaN as-is when the coerced
+value is NaN -- TRUNCATE itself signals FLOATING-POINT-INVALID-OPERATION on
+a NaN double-float argument (a real process-level crash, not a graceful JS
+NaN result), so every Date component setter/constructor argument that
+could be NaN must go through here instead of a bare (TRUNCATE ...)."
+  (let ((n (%js-to-number x)))
+    (if (%js-nan-p n) *js-nan-float* (truncate n))))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Constructors
 ;;; -----------------------------------------------------------------------
-
 (defun %js-date-now ()
   "Return current time as milliseconds since the Unix epoch (Date.now())."
   (* 1000 (- (get-universal-time) +js-epoch-offset+)))
@@ -36,51 +48,71 @@ Out-of-range months/days/times roll over as in JS (new Date(2020,12,1) =
 Jan 2021, day 32 = next month). Only year+month are passed to
 encode-universal-time — day and time are added as millisecond offsets from
 the 1st, both for rollover semantics and because encode-universal-time
-raises range errors via a hardware trap that hangs on macOS 26.5 ARM64."
-  (multiple-value-bind (extra-years m) (floor month 12)
-    (let ((y (+ year extra-years)))
-      (when (< y 1900)
-        (error "JS Date year ~A is below the supported range" y))
-      (+ (* 1000 (- (encode-universal-time 0 0 0 1 (1+ m) y 0)
-                    +js-epoch-offset+))
-         (* (- day 1) 86400000)
-         (* hour 3600000)
-         (* min 60000)
-         (* sec 1000)
-         ms))))
+raises range errors via a hardware trap that hangs on macOS 26.5 ARM64.
+Any NaN component makes the whole result NaN (an Invalid Date) --
+FLOOR/ENCODE-UNIVERSAL-TIME/+ all crash outright on a NaN argument, so this
+must short-circuit before any of them run, not rely on NaN propagating
+through the arithmetic below the way IEEE float ops normally would."
+  (if (some #'%js-nan-p (list year month day hour min sec ms))
+      *js-nan-float*
+      (multiple-value-bind (extra-years m) (floor month 12)
+        (let ((y (+ year extra-years)))
+          (when (< y 1900)
+            (error "JS Date year ~A is below the supported range" y))
+          (+
+            (* 1000 (- (encode-universal-time 0 0 0 1 (1+ m) y 0) +js-epoch-offset+))
+            (* (1- day) 86400000)
+            (* hour 3600000)
+            (* min 60000)
+            (* sec 1000)
+            ms)))))
 
 (defun %js-date-utc (year &optional (month 0) (day 1) (hour 0) (min 0) (sec 0) (ms 0))
-  "Date.UTC(year, month, ...) — epoch milliseconds as a JS number."
-  (coerce (%js-date-components-to-ms (truncate year) (truncate month) (truncate day)
-                                     (truncate hour) (truncate min) (truncate sec)
-                                     (truncate ms))
-          'double-float))
+  "Date.UTC(year, month, ...) — epoch milliseconds as a JS number (NaN for
+any NaN component)."
+  (coerce
+    (%js-date-components-to-ms
+      (%js-date-truncate-or-nan year)
+      (%js-date-truncate-or-nan month)
+      (%js-date-truncate-or-nan day)
+      (%js-date-truncate-or-nan hour)
+      (%js-date-truncate-or-nan min)
+      (%js-date-truncate-or-nan sec)
+      (%js-date-truncate-or-nan ms))
+    'double-float))
 
 (defun %js-make-date (&optional (arg +js-undefined+) &rest more)
   "Construct a JS Date object.
   - No args or undefined → current time
-  - Number → Unix epoch milliseconds
+  - Number → Unix epoch milliseconds (NaN → an Invalid Date)
   - Two or more numbers → year, month (0-based), day, hours, minutes, seconds, ms
   - String → parsed ISO-8601 date (simplified)
   - Another Date → copy"
   (cond
     ((or (eq arg +js-undefined+) (eq arg +js-null+))
-     (make-js-date :ms (%js-date-now)))
-    ((js-date-p arg)
-     (make-js-date :ms (js-date-ms arg)))
+      (make-js-date :ms (%js-date-now)))
+    ((js-date-p arg) (make-js-date :ms (js-date-ms arg)))
     ((and more (numberp arg))
-     (destructuring-bind (month &optional (day 1) (hour 0) (min 0) (sec 0) (ms 0)) more
-       (make-js-date :ms (%js-date-components-to-ms
-                          (truncate arg) (truncate month) (truncate day)
-                          (truncate hour) (truncate min) (truncate sec) (truncate ms)))))
-    ((numberp arg)
-     (make-js-date :ms (truncate arg)))
-    ((stringp arg)
-     (make-js-date :ms (%js-date-parse-string arg)))
+      (destructuring-bind (month &optional (day 1) (hour 0) (min 0) (sec 0) (ms 0)) more
+        (make-js-date
+          :ms
+          (%js-date-components-to-ms
+            (%js-date-truncate-or-nan arg)
+            (%js-date-truncate-or-nan month)
+            (%js-date-truncate-or-nan day)
+            (%js-date-truncate-or-nan hour)
+            (%js-date-truncate-or-nan min)
+            (%js-date-truncate-or-nan sec)
+            (%js-date-truncate-or-nan ms)))))
+    ((numberp arg) (make-js-date :ms (%js-date-truncate-or-nan arg)))
+    ((stringp arg) (make-js-date :ms (%js-date-parse-string arg)))
     (t (make-js-date :ms (%js-date-now)))))
 
 (defun %js-date-parse-string (s)
-  "Parse a date string to milliseconds. Supports 'YYYY-MM-DD' and 'YYYY-MM-DDTHH:MM:SS'."
+  "Parse a date string to milliseconds. Supports 'YYYY-MM-DD' and 'YYYY-MM-DDTHH:MM:SS'.
+An unparseable string is an Invalid Date (NaN), per ECMA-262 -- NOT the
+current time, which would silently substitute a plausible-looking wrong
+date for one JS guarantees is detectably invalid."
   (handler-case
       (let* ((trimmed (string-trim '(#\Space) s))
              ;; Extract year, month, day from YYYY-MM-DD prefix
@@ -98,134 +130,200 @@ raises range errors via a hardware trap that hangs on macOS 26.5 ARM64."
           (error "invalid date string: ~S" s))
         (* 1000 (- (encode-universal-time sec min hour day month year 0)
                    +js-epoch-offset+)))
-    (error () (%js-date-now))))
+    (error () *js-nan-float*)))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Date.prototype accessors — all operate on the local time
 ;;; -----------------------------------------------------------------------
-
 (defun %js-date-to-decoded (date)
-  "Decode a js-date to (sec min hour day month year day-of-week)."
+  "Decode a js-date to (sec min hour day month year day-of-week daylight-p
+zone). Precondition: DATE must not be invalid (%JS-DATE-INVALID-P) --
+FLOOR/DECODE-UNIVERSAL-TIME have no NaN to decode into and would crash;
+every caller (the DEFINE-JS-DATE-GETTER macro, %WITH-DATE-FIELDS's own call
+sites) checks validity first instead."
   (let ((ut (+ (floor (js-date-ms date) 1000) +js-epoch-offset+)))
-    (multiple-value-list (decode-universal-time ut 0))))  ; UTC
+    (multiple-value-list (decode-universal-time ut 0)))) ; UTC
 
 (defmacro define-js-date-getter (name index &optional (scale 1) (offset 0))
   `(defun ,name (date)
-     (* ,scale (+ ,offset (nth ,index (%js-date-to-decoded date))))))
+    (if (%js-date-invalid-p date)
+        *js-nan-float*
+        (* ,scale (+ ,offset (nth ,index (%js-date-to-decoded date)))))))
 
-(defmacro %with-date-fields ((date &key (sec (gensym)) (min (gensym)) (hour (gensym))
-                                        (day (gensym)) (month (gensym)) (year (gensym))
-                                        (dow (gensym))) &body body)
+(defmacro %with-date-fields ((date
+      &key
+      (sec (gensym))
+      (min (gensym))
+      (hour (gensym))
+      (day (gensym))
+      (month (gensym))
+      (year (gensym))
+      (dow (gensym)))
+    &body
+    body)
   "Destructure a decoded js-date into named variables (only name what you need)."
-  `(destructuring-bind (,sec ,min ,hour ,day ,month ,year ,dow &rest ,(gensym))
-       (%js-date-to-decoded ,date)
-     (declare (ignorable ,sec ,min ,hour ,day ,month ,year ,dow))
-     ,@body))
+  `(destructuring-bind (,sec ,min ,hour ,day ,month ,year ,dow &rest ,(gensym)) (%js-date-to-decoded ,date)
+    (declare (ignorable ,sec ,min ,hour ,day ,month ,year ,dow))
+    ,@body))
 
 ;;; Date.prototype.getFullYear / getUTCFullYear
-(define-js-date-getter %js-date-get-full-year    5)
+(define-js-date-getter %js-date-get-full-year 5)
+
 (define-js-date-getter %js-date-get-utc-full-year 5)
+
 ;;; Date.prototype.getMonth (0-based)
-(define-js-date-getter %js-date-get-month         4 1 -1)  ; CL months 1-12 → JS 0-11
-(define-js-date-getter %js-date-get-utc-month     4 1 -1)
+(define-js-date-getter %js-date-get-month 4 1 -1) ; CL months 1-12 → JS 0-11
+
+(define-js-date-getter %js-date-get-utc-month 4 1 -1)
+
 ;;; Date.prototype.getDate (day of month, 1-based)
-(define-js-date-getter %js-date-get-date          3)
-(define-js-date-getter %js-date-get-utc-date      3)
+(define-js-date-getter %js-date-get-date 3)
+
+(define-js-date-getter %js-date-get-utc-date 3)
+
 ;;; Date.prototype.getDay (day of week, 0=Sun)
-(define-js-date-getter %js-date-get-day           6)
-(define-js-date-getter %js-date-get-utc-day       6)
+(define-js-date-getter %js-date-get-day 6)
+
+(define-js-date-getter %js-date-get-utc-day 6)
+
 ;;; Date.prototype.getHours / getMinutes / getSeconds
-(define-js-date-getter %js-date-get-hours         2)
-(define-js-date-getter %js-date-get-utc-hours     2)
-(define-js-date-getter %js-date-get-minutes       1)
-(define-js-date-getter %js-date-get-utc-minutes   1)
-(define-js-date-getter %js-date-get-seconds       0)
-(define-js-date-getter %js-date-get-utc-seconds   0)
+(define-js-date-getter %js-date-get-hours 2)
+
+(define-js-date-getter %js-date-get-utc-hours 2)
+
+(define-js-date-getter %js-date-get-minutes 1)
+
+(define-js-date-getter %js-date-get-utc-minutes 1)
+
+(define-js-date-getter %js-date-get-seconds 0)
+
+(define-js-date-getter %js-date-get-utc-seconds 0)
 
 (defun %js-date-get-milliseconds (date)
-  (mod (js-date-ms date) 1000))
+  (if (%js-date-invalid-p date) *js-nan-float* (mod (js-date-ms date) 1000)))
 
 (defun %js-date-get-time (date)
   "Date.prototype.getTime() → milliseconds since Unix epoch."
   (coerce (js-date-ms date) 'double-float))
 
 (defun %js-date-get-timezone-offset (date)
-  "Date.prototype.getTimezoneOffset() → 0 (UTC assumed)."
-  (declare (ignore date))
-  0.0d0)
+  "Date.prototype.getTimezoneOffset() → minutes UTC is AHEAD of the host's
+local time (JS's sign convention: positive west of UTC, negative east —
+the opposite of a \"+09:00\"-style offset string), via the same cl-date-kit
+IANA projection Temporal uses (runtime-temporal.lisp). Falls back to 0 (UTC)
+when the host zone is UTC, unknown, or unresolvable — forward-referenced,
+not yet defined when this file loads (runtime-temporal.lisp loads later),
+but never called before the whole system finishes loading."
+  (if (%js-date-invalid-p date)
+      *js-nan-float*
+      (let ((tz (%temporal-host-time-zone-id)))
+        (if (string= tz "UTC") 0.0d0
+          (let ((projected (%temporal-zone-project-epoch (floor (js-date-ms date) 1000) tz)))
+            (if projected (coerce
+                (- (%temporal-offset-string-to-minutes (seventh projected)))
+                'double-float)
+              0.0d0))))))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Date.prototype setters
 ;;; -----------------------------------------------------------------------
-
 (defun %js-date-set-time (date ms)
-  (setf (js-date-ms date) (truncate ms))
+  (setf (js-date-ms date) (%js-date-truncate-or-nan ms))
   ms)
 
 (defun %js-date-set-full-year (date year &optional month day)
   "Date.prototype.setFullYear — sets year (and optionally month/day), preserving time."
-  (%js-date-rebuild date :year (truncate (%js-to-number year))
-                         :month (and month (not (eq month +js-undefined+))
-                                     (truncate (%js-to-number month)))
-                         :day   (and day   (not (eq day   +js-undefined+))
-                                     (truncate (%js-to-number day)))))
+  (%js-date-rebuild
+    date
+    :year
+    (%js-date-truncate-or-nan year)
+    :month
+    (and month (not (eq month +js-undefined+)) (%js-date-truncate-or-nan month))
+    :day
+    (and day (not (eq day +js-undefined+)) (%js-date-truncate-or-nan day))))
 
 (defun %js-date-rebuild (date &key sec min hour day month year)
   "Re-encode DATE's ms with overridden decoded components (sub-second ms preserved).
 MONTH is JS 0-based (converted to CL 1-based internally). Routed through
 %js-date-components-to-ms so out-of-range components roll over (JS setDate(40)
-semantics) instead of trapping in encode-universal-time."
-  (%with-date-fields (date :sec ds :min dmn :hour dh :day dd :month dm :year dy)
-    (let* ((frac-ms (mod (js-date-ms date) 1000))
-           (base-ms (%js-date-components-to-ms
-                     (or year dy) (if month month (- dm 1)) (or day dd)
-                     (or hour dh) (or min dmn) (or sec ds) 0)))
-      (setf (js-date-ms date) (+ base-ms frac-ms))
-      (coerce (js-date-ms date) 'double-float))))
+semantics) instead of trapping in encode-universal-time. If DATE is already
+invalid, or any override argument is NaN, the result stays/becomes an
+Invalid Date -- decoding an already-invalid DATE's current fields is
+impossible (%JS-DATE-TO-DECODED's precondition), so this checks first
+instead of calling it."
+  (if (or (%js-date-invalid-p date)
+          (some #'%js-nan-p (remove nil (list sec min hour day month year))))
+      (progn (setf (js-date-ms date) *js-nan-float*) *js-nan-float*)
+      (%with-date-fields
+        (date :sec ds :min dmn :hour dh :day dd :month dm :year dy)
+        (let* ((frac-ms (mod (js-date-ms date) 1000))
+               (base-ms
+              (%js-date-components-to-ms
+                (or year dy)
+                (or month (1- dm))
+                (or day dd)
+                (or hour dh)
+                (or min dmn)
+                (or sec ds)
+                0)))
+          (setf (js-date-ms date) (+ base-ms frac-ms))
+          (coerce (js-date-ms date) 'double-float)))))
 
 (defun %js-date-set-month (date month &optional day)
   "Date.prototype.setMonth(month[, day]) — MONTH is 0-based."
-  (%js-date-rebuild date :month (truncate (%js-to-number month))
-                         :day (and day
-                                   (not (eq day +js-undefined+))
-                                   (truncate (%js-to-number day)))))
+  (%js-date-rebuild
+    date
+    :month
+    (%js-date-truncate-or-nan month)
+    :day
+    (and day (not (eq day +js-undefined+)) (%js-date-truncate-or-nan day))))
 
 (defun %js-date-set-date (date day)
   "Date.prototype.setDate(day) — day of month, 1-based."
-  (%js-date-rebuild date :day (truncate (%js-to-number day))))
+  (%js-date-rebuild date :day (%js-date-truncate-or-nan day)))
 
-(defmacro define-js-date-cascading-setter (name docstring (primary-var primary-key)
-                                           &rest secondary-specs)
+(defmacro define-js-date-cascading-setter (name docstring (primary-var primary-key) &rest secondary-specs)
   "Define a Date.prototype cascading setter (setHours/setMinutes/setSeconds):
 PRIMARY-VAR is required and stored under PRIMARY-KEY; each (VAR KEY) in
 SECONDARY-SPECS is an optional trailing component, defaulting to \"leave
 unchanged\" when omitted or undefined. A trailing MS parameter is always
 accepted and ignored (sub-second ms are preserved separately by
 %js-date-rebuild)."
-  (let ((params (list* 'date primary-var '&optional
-                       (append (mapcar #'first secondary-specs) '(ms)))))
+  (let ((params
+        (list*
+          'date
+          primary-var
+          '&optional
+          (append (mapcar #'first secondary-specs) '(ms)))))
     `(defun ,name ,params
-       ,docstring
-       (declare (ignore ms))
-       (%js-date-rebuild date
-                         ,primary-key (truncate (%js-to-number ,primary-var))
-                         ,@(mapcan (lambda (spec)
-                                     (destructuring-bind (var key) spec
-                                       (list key `(and ,var (not (eq ,var +js-undefined+))
-                                                        (truncate (%js-to-number ,var))))))
-                                   secondary-specs)))))
+      ,docstring
+      (declare (ignore ms))
+      (%js-date-rebuild
+        date
+        ,primary-key
+        (%js-date-truncate-or-nan ,primary-var)
+        ,@(mapcan
+          (lambda (spec)
+            (destructuring-bind (var key) spec
+              (list
+                key
+                `(and ,var (not (eq ,var +js-undefined+)) (%js-date-truncate-or-nan ,var)))))
+          secondary-specs)))))
 
-(define-js-date-cascading-setter %js-date-set-hours
-    "Date.prototype.setHours(hours[, min, sec, ms])."
-    (hours :hour)
+(define-js-date-cascading-setter
+  %js-date-set-hours
+  "Date.prototype.setHours(hours[, min, sec, ms])."
+  (hours :hour)
   (min :min)
   (sec :sec))
 
-(define-js-date-cascading-setter %js-date-set-minutes
-    "Date.prototype.setMinutes(minutes[, sec, ms])."
-    (minutes :min)
+(define-js-date-cascading-setter
+  %js-date-set-minutes
+  "Date.prototype.setMinutes(minutes[, sec, ms])."
+  (minutes :min)
   (sec :sec))
 
-(define-js-date-cascading-setter %js-date-set-seconds
-    "Date.prototype.setSeconds(seconds[, ms])."
-    (seconds :sec))
+(define-js-date-cascading-setter
+  %js-date-set-seconds
+  "Date.prototype.setSeconds(seconds[, ms])."
+  (seconds :sec))
