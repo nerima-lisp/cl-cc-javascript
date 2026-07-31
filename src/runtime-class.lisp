@@ -1,19 +1,23 @@
 ;;;; packages/javascript/src/runtime-class.lisp — JS Class/OOP, nullish coalesce, misc
 ;;;;
 ;;;; Class instantiation, private fields, and miscellaneous JS operators.
-
 (in-package :cl-cc/javascript)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Class / OOP
 ;;; -----------------------------------------------------------------------
-
 (defun %js-make-class (&rest args)
   "Build a JS class object. ARGS = (SUPER CTOR name1 fn1 name2 fn2 …): SUPER is
 the parent class object (or nil/undefined), CTOR the constructor fn, and the rest
 alternating method-name strings and method fns. Methods live on __prototype__;
 %js-new links each instance's __proto__ to it for prototype-chain lookup.
-An \"@@static\" marker in the tail separates instance methods from static ones.
+An \"@@static\" marker in the tail separates instance methods from static
+ones (which set directly on the class object), and an optional
+\"@@private-static\" marker after that further separates off static PRIVATE
+methods, which instead go through %js-class-private-field-set on the class
+object itself — so `C.#secret()' (this bound to C for a static method call)
+finds it via %js-class-private-field-get the same way an instance's private
+method/field does, and it never becomes an ordinary public C.secret.
 Called at runtime via the :metaclass slot of the ast-defclass node emitted by
 %js-lower-class-to-ast in parser-class-lower.lisp. NOTE: pure &rest shape (not
 `super ctor &rest`) — required args before &rest marshal incorrectly through the
@@ -21,12 +25,12 @@ VM host bridge for vm-closure values."
   (let* ((super (first args))
          (ctor  (second args))
          (rest  (cddr args))
-         ;; A "@@static" marker (if present) separates instance method pairs from
-         ;; static method pairs. Statics are set directly on the class object;
-         ;; instance methods go on the prototype.
-         (split (position "@@static" rest :test #'equal))
-         (instance-pairs (if split (subseq rest 0 split) rest))
-         (static-pairs   (if split (subseq rest (1+ split)) nil))
+         (static-split (position "@@static" rest :test #'equal))
+         (instance-pairs (if static-split (subseq rest 0 static-split) rest))
+         (after-static   (when static-split (subseq rest (1+ static-split))))
+         (private-split  (position "@@private-static" after-static :test #'equal))
+         (static-pairs         (if private-split (subseq after-static 0 private-split) after-static))
+         (private-static-pairs (when private-split (subseq after-static (1+ private-split))))
          (super* (and (%js-ht-p super) super))
          (klass  (%js-make-ht))
          (proto  (%js-make-ht)))
@@ -40,6 +44,8 @@ VM host bridge for vm-closure values."
     (setf (gethash "__prototype__" klass)   proto
           (gethash "__constructor__" klass) (and ctor (not (eq ctor +js-undefined+)) ctor)
           (gethash "__super__" klass)        super*)
+    (loop for (name fn) on private-static-pairs by #'cddr
+          do (%js-class-private-field-set klass name fn))
     klass))
 
 (defun %js-run-constructor (klass obj args)
@@ -71,12 +77,17 @@ multi-level inheritance)."
         (when super-proto
           (setf (gethash "__proto__" super-obj) super-proto))))
     (setf (gethash "__super_this__" super-obj) this)
-    (setf (gethash "__call__" super-obj)
-          (lambda (&rest args)
-            (when (%js-ht-p super-class)
-              (%js-run-constructor super-class this args))
-            +js-undefined+))
+    (setf (gethash "__call__" super-obj) (lambda (&rest args)
+        (when (%js-ht-p super-class)
+          (%js-run-constructor super-class this args))
+        +js-undefined+))
     super-obj))
+
+(defun %js-composite-value-p (value)
+  "True when VALUE is a JS object, array, or struct-backed collection —
+i.e. a value real `new` semantics would let a constructor's return value
+override `this` with. A bare primitive (including +js-undefined+) is not."
+  (or (%js-ht-p value) (%js-vec-p value) (typep value 'structure-object)))
 
 (defun %js-new (constructor &optional (args nil))
   "Instantiate a JS class. CONSTRUCTOR is a class object from %js-make-class
@@ -116,7 +127,7 @@ this = the new instance."
        ;; STRUCTURE-OBJECT check alongside %js-ht-p/%js-vec-p.
        (let* ((obj (%js-make-ht))
               (result (%js-call-with-this obj constructor arglist)))
-         (if (or (%js-ht-p result) (%js-vec-p result) (typep result 'structure-object))
+         (if (%js-composite-value-p result)
              result
              obj)))
       (t
@@ -137,30 +148,34 @@ this = the new instance."
   "Bind VAR to OBJ's __private__ hash-table and run BODY, or return MISSING-FORM."
   (let ((g (gensym "obj")))
     `(let* ((,g ,obj)
-            (,var (%js-private-ht ,g)))
-       (if ,var
-           (progn ,@body)
-           ,missing-form))))
+           (,var (%js-private-ht ,g)))
+      (if ,var (progn ,@body)
+        ,missing-form))))
 
 (defun %js-class-private-field-get (obj field-name)
   "Read a private field from OBJ."
-  (%with-private-ht (privates obj)
+  (%with-private-ht
+    (privates obj)
     (multiple-value-bind (v f) (gethash field-name privates)
-      (if f v +js-undefined+))))
+      (if f v
+        +js-undefined+))))
 
 (defun %js-class-private-field-set (obj field-name value)
   "Write a private field on OBJ."
   (when (%js-ht-p obj)
-    (let ((privates (or (%js-private-ht obj)
-                        (let ((ht (%js-make-ht)))
-                          (setf (gethash "__private__" obj) ht)
-                          ht))))
+    (let ((privates
+          (or
+            (%js-private-ht obj)
+            (let ((ht (%js-make-ht)))
+              (setf (gethash "__private__" obj) ht)
+              ht))))
       (setf (gethash field-name privates) value)))
   value)
 
 (defun %js-has-private-field (obj field-name)
   "True if OBJ has the named private field."
-  (%with-private-ht (privates obj nil)
+  (%with-private-ht
+    (privates obj nil)
     (nth-value 1 (gethash field-name privates))))
 
 ;;; -----------------------------------------------------------------------
@@ -169,7 +184,6 @@ this = the new instance."
 ;;;
 ;;; JS Error instances are hash-tables with __proto__ pointing to the
 ;;; class's __prototype__ hash-table. This makes instanceof work correctly.
-
 (defun %js-make-error-class (name parent-class)
   "Create an Error class with NAME inheriting from PARENT-CLASS (nil = root base).
 Covers both the base Error and all subclasses."
@@ -177,26 +191,32 @@ Covers both the base Error and all subclasses."
         (proto (%js-make-ht)))
     (when (and (%js-ht-p parent-class) (gethash "__prototype__" parent-class))
       (setf (gethash "__proto__" proto) (gethash "__prototype__" parent-class)))
-    (setf (gethash "name"    proto) name
+    (setf (gethash "name" proto) name
           (gethash "message" proto) ""
-          (gethash "stack"   proto) ""
-          (gethash "toString" proto)
-          (lambda (&rest _) (declare (ignore _))
-            (let* ((this %js-this)
-                   (n (if (%js-ht-p this) (gethash "name"    this name) name))
-                   (m (if (%js-ht-p this) (gethash "message" this "")   "")))
-              (if (string= m "") n (format nil "~A: ~A" n m)))))
-    (setf (gethash "__prototype__"   klass) proto
-          (gethash "__constructor__" klass)
-          (let ((class-name name))
-            (lambda (&rest args)
-              (let ((msg (if args (%js-to-string (first args)) "")))
-                (when (%js-ht-p %js-this)
-                  (setf (gethash "message" %js-this) msg
-                        (gethash "name"    %js-this) class-name
-                        (gethash "stack"   %js-this) (format nil "~A: ~A" class-name msg))))))
+          (gethash "stack" proto) ""
+          (gethash "toString" proto) (lambda (&rest _)
+        (declare (ignore _))
+        (let* ((this %js-this)
+               (n
+              (if (%js-ht-p this) (gethash "name" this name)
+                name))
+               (m
+              (if (%js-ht-p this) (gethash "message" this "")
+                "")))
+          (if (string= m "") n
+            (format nil "~A: ~A" n m)))))
+    (setf (gethash "__prototype__" klass) proto
+          (gethash "__constructor__" klass) (let ((class-name name))
+        (lambda (&rest args)
+          (let ((msg
+                (if args (%js-to-string (first args))
+                  "")))
+            (when (%js-ht-p %js-this)
+              (setf (gethash "message" %js-this) msg
+                    (gethash "name" %js-this) class-name
+                    (gethash "stack" %js-this) (format nil "~A: ~A" class-name msg))))))
           (gethash "__super__" klass) parent-class
-          (gethash "name"      klass) name)
+          (gethash "name" klass) name)
     klass))
 
 (defparameter *js-error-class* (%js-make-error-class "Error" nil)
@@ -207,37 +227,37 @@ Covers both the base Error and all subclasses."
 Example: (define-js-error-subclasses (\"TypeError\" type-error)  ...)
 → (defparameter *js-type-error-class* (%js-make-error-class \"TypeError\" *js-error-class*))"
   `(progn
-     ,@(mapcar (lambda (pair)
-                 (let* ((js-name (first pair))
-                        (base    (second pair))
-                        (var     (intern (format nil "*JS-~A-CLASS*" (string-upcase base))
-                                         :cl-cc/javascript)))
-                   `(defparameter ,var (%js-make-error-class ,js-name *js-error-class*))))
-               name-var-pairs)))
+     ,@(mapcar
+        (lambda (pair)
+          (let* ((js-name (first pair))
+                 (base (second pair))
+                 (var
+                  (intern (format nil "*JS-~A-CLASS*" (string-upcase base)) :cl-cc/javascript)))
+            `(defparameter ,var (%js-make-error-class ,js-name *js-error-class*))))
+        name-var-pairs)))
 
 (define-js-error-subclasses
-  ("TypeError"      type-error)
-  ("RangeError"     range-error)
+  ("TypeError" type-error)
+  ("RangeError" range-error)
   ("ReferenceError" reference-error)
-  ("SyntaxError"    syntax-error)
-  ("EvalError"      eval-error)
-  ("URIError"       uri-error)
+  ("SyntaxError" syntax-error)
+  ("EvalError" eval-error)
+  ("URIError" uri-error)
   ("AggregateError" aggregate-error))
 
-(setf (gethash "__constructor__" *js-aggregate-error-class*)
-      (lambda (&optional errors message opts)
-        (let ((msg (if (or (null message) (eq message +js-undefined+))
-                       ""
-                       (%js-to-string message))))
-          (when (%js-ht-p %js-this)
-            (setf (gethash "message" %js-this) msg
-                  (gethash "name"    %js-this) "AggregateError"
-                  (gethash "stack"   %js-this) (format nil "AggregateError: ~A" msg)
-                  (gethash "errors"  %js-this) (or errors (%js-make-array)))
-            (when (%js-ht-p opts)
-              (multiple-value-bind (cause present-p) (gethash "cause" opts)
-                (when present-p
-                  (setf (gethash "cause" %js-this) cause))))))))
+(setf (gethash "__constructor__" *js-aggregate-error-class*) (lambda (&optional errors message opts)
+    (let ((msg
+          (if (or (null message) (eq message +js-undefined+)) ""
+            (%js-to-string message))))
+      (when (%js-ht-p %js-this)
+        (setf (gethash "message" %js-this) msg
+              (gethash "name" %js-this) "AggregateError"
+              (gethash "stack" %js-this) (format nil "AggregateError: ~A" msg)
+              (gethash "errors" %js-this) (or errors (%js-make-array)))
+        (when (%js-ht-p opts)
+          (multiple-value-bind (cause present-p) (gethash "cause" opts)
+            (when present-p
+              (setf (gethash "cause" %js-this) cause))))))))
 
 (defun %js-make-aggregate-error (errors message &optional opts)
   "Create an AggregateError instance with errors, message, and optional cause."
@@ -250,15 +270,14 @@ Example: (define-js-error-subclasses (\"TypeError\" type-error)  ...)
 ;;; -----------------------------------------------------------------------
 ;;;  Nullish coalesce
 ;;; -----------------------------------------------------------------------
-
 (defun %js-nullish-coalesce (a b)
   "JS ?? operator."
-  (if (%js-not-nullish a) a b))
+  (if (%js-not-nullish a) a
+    b))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Misc
 ;;; -----------------------------------------------------------------------
-
 (defun %js-void (x)
   "JS void operator."
   (declare (ignore x))

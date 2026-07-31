@@ -1,125 +1,15 @@
 ;;;; packages/javascript/src/parser-class-lower.lisp — JS class AST lowering
 ;;;;
 ;;;; Extracted from parser-class.lisp: the %js-lower-class-to-ast family and
-;;;; the public js-parse-class-decl entry point.
-;;;; Load order: after parser-class.lisp (needs %js-parse-class-body).
-
+;;;; the public js-parse-class-decl entry point. Per-role lowering (turning a
+;;;; classified slot into %js-make-class arguments) only -- classifying which
+;;;; slot is which role lives in parser-class-lower-classify.lisp.
+;;;; Load order: after parser-class-lower-classify.lisp (needs its
+;;;; %js-class-*-slots predicates and %js-class-member-key-ast/
+;;;; %js-slot-to-method-lambda/%js-wrap-method-super helpers).
 (in-package :cl-cc/javascript)
 
-;;; ─── %js-lower-class-to-ast helpers ─────────────────────────────────────────
-
-;;; Accessor shorthands — ast-slot-def uses (:conc-name ast-slot-) so slots
-;;; are read as ast-slot-NAME, but :imports is inherited from ast-node which
-;;; uses (:conc-name ast-) and is therefore read as ast-imports.
-
-(defun %js-slot-method-p (slot)
-  "True when SLOT is an instance method (initform is ast-defun/lambda, not a field)."
-  (and slot
-       (ast-slot-def-p slot)
-       (or (ast-defun-p  (ast-slot-initform slot))
-           (ast-lambda-p (ast-slot-initform slot)))
-       (not (member :field (ast-imports slot)))))
-
-(defun %js-slot-to-method-lambda (slot)
-  "Convert a method slot's initform to an ast-lambda for %js-make-class."
-  (let ((fn (ast-slot-initform slot)))
-    (cond
-      ((ast-lambda-p fn) fn)
-      ((ast-defun-p fn)
-       (make-ast-lambda :params (ast-defun-params fn)
-                        :body   (ast-defun-body  fn)))
-      (t nil))))
-
-(defun %js-super-ref (super-expr)
-  "A FRESH reference to SUPER-EXPR for embedding inside a method/constructor body,
-so the super-class AST node is not shared between the %js-make-class call and each
-wrapped body."
-  (if (ast-var-p super-expr)
-      (make-ast-var :name (ast-var-name super-expr))
-      super-expr))
-
-(defun %js-wrap-method-super (lambda-ast super-expr)
-  "When the class has a SUPER-EXPR, wrap LAMBDA-AST's body in a let binding %js-super
-to a super-binding built from the (lexical) super class and the current this, so
-super(args) calls the parent constructor.  Mutates LAMBDA-AST in place (preserving
-its params/optional/rest) and returns it."
-  (when (and lambda-ast (ast-lambda-p lambda-ast) super-expr)
-    (setf (ast-lambda-body lambda-ast)
-          (list (make-ast-let
-                 :bindings (list (cons '%js-super
-                                       (%js-call '%js-make-super-binding
-                                                 (%js-super-ref super-expr)
-                                                 (make-ast-var :name '%js-this))))
-                 :declarations (list :let)
-                 :body (ast-lambda-body lambda-ast)))))
-  lambda-ast)
-
-(defun %js-class-member-key (slot orig-name)
-  "Prototype/class key for a class member.  A get/set accessor is stored under
-__get_NAME / __set_NAME so %js-get-prop / %js-set-prop dispatch it as an
-accessor (invoke on read/write); a regular method keeps its plain name.  Without
-this, `get v()' was stored as a plain prototype method, so `obj.v' returned the
-getter FUNCTION instead of its result."
-  (case (getf (ast-imports slot) :js-member-kind)
-    (:getter (concatenate 'string "__get_" orig-name))
-    (:setter (concatenate 'string "__set_" orig-name))
-    (t orig-name)))
-
-;;; ─── %js-lower-class-to-ast: member classification ──────────────────────────
-;;;
-;;; A class's parsed MEMBERS list holds every slot (constructor, instance
-;;; methods, static methods, static fields, instance fields) undifferentiated;
-;;; these five predicates partition it by role before any of it gets lowered.
-
-(defun %js-class-member-orig-name (slot)
-  "SLOT's original (pre-mangling) JS member name, as a string."
-  (or (getf (ast-imports slot) :js-orig-name)
-      (let ((n (ast-slot-name slot)))
-        (if n (string-downcase (symbol-name n)) ""))))
-
-(defun %js-class-ctor-slot (members)
-  "The constructor slot in MEMBERS, or NIL if the class declares none."
-  (find-if (lambda (s)
-             (and (ast-slot-def-p s)
-                  (let ((n (ast-slot-name s)))
-                    (and n (string-equal (symbol-name n) "CONSTRUCTOR")))))
-           members))
-
-(defun %js-class-method-slots (members)
-  "Instance methods in MEMBERS: non-constructor, non-static, non-field."
-  (remove-if (lambda (s)
-               (or (not (%js-slot-method-p s))
-                   (getf (ast-imports s) :js-static)
-                   (and (ast-slot-name s)
-                        (string-equal (symbol-name (ast-slot-name s)) "CONSTRUCTOR"))))
-             members))
-
-(defun %js-class-static-slots (members)
-  "Static methods in MEMBERS."
-  (remove-if-not (lambda (s)
-                   (and (%js-slot-method-p s)
-                        (getf (ast-imports s) :js-static)))
-                 members))
-
-(defun %js-class-static-field-slots (members)
-  "Static fields in MEMBERS: `static x = init;' — set once on the class object."
-  (remove-if-not (lambda (s)
-                   (and (not (%js-slot-method-p s))
-                        (getf (ast-imports s) :js-static)
-                        (eq (getf (ast-imports s) :js-member-kind) :field)))
-                 members))
-
-(defun %js-class-field-slots (members)
-  "Instance fields in MEMBERS: non-method, non-static `x = init;' / `x;'.
-These initialize on every instance BEFORE the constructor body."
-  (remove-if (lambda (s)
-               (or (%js-slot-method-p s)
-                   (getf (ast-imports s) :js-static)
-                   (not (eq (getf (ast-imports s) :js-member-kind) :field))))
-             members))
-
 ;;; ─── %js-lower-class-to-ast: per-role lowering ──────────────────────────────
-
 (defun %js-lower-class-field-inits (field-slots)
   "Lower FIELD-SLOTS to (%js-set-prop this \"x\" init) forms — or the private-field
 equivalent for #x fields — to prepend to the constructor body."
@@ -131,6 +21,9 @@ equivalent for #x fields — to prepend to the constructor body."
                             (make-ast-quote :value +js-undefined+))
         ;; Private fields (#x) must use the private-field-set accessor so
         ;; they land in the __private__ table, not the public property bag.
+        ;; A computed field name ([expr] = init;) can never be private
+        ;; (private names are always literal #ident), so only the public
+        ;; branch needs the runtime %js-class-member-key-ast key.
         collect (if private-p
                     (%js-call '%js-class-private-field-set
                               (make-ast-var :name '%js-this)
@@ -138,8 +31,25 @@ equivalent for #x fields — to prepend to the constructor body."
                               initform)
                     (%js-call '%js-set-prop
                               (make-ast-var :name '%js-this)
-                              (make-ast-quote :value orig-name)
+                              (%js-class-member-key-ast slot orig-name)
                               initform))))
+
+(defun %js-lower-class-private-method-inits (private-method-slots super-expr)
+  "Lower PRIVATE-METHOD-SLOTS to (%js-class-private-field-set this \"name\" fn)
+forms, to prepend to the constructor body alongside %JS-LOWER-CLASS-FIELD-
+INITS's field inits. A #name() method is stored in the SAME per-instance
+__private__ table a #name field would use, so this.#name() (which reads via
+%js-class-private-field-get) actually finds it -- unlike a public method,
+which lives on __prototype__ and is shared, a private method's closure is
+rebuilt once per instance here, matching how field inits already work."
+  (loop for slot in private-method-slots
+        for orig-name = (%js-class-member-orig-name slot)
+        for fn = (%js-wrap-method-super (%js-slot-to-method-lambda slot) super-expr)
+        when fn
+          collect (%js-call '%js-class-private-field-set
+                             (make-ast-var :name '%js-this)
+                             (make-ast-quote :value orig-name)
+                             fn)))
 
 (defun %js-lower-class-ctor (ctor-slot field-inits super-expr)
   "Build the class's constructor lambda: an explicit ctor gets FIELD-INITS
@@ -147,21 +57,27 @@ prepended; a class with fields but no explicit ctor gets a synthetic one
 (forwarding to super for a derived class so the parent still initializes)."
   (cond
     (ctor-slot
-     (let ((lam (%js-slot-to-method-lambda ctor-slot)))
-       (when field-inits
-         (setf (ast-lambda-body lam) (append field-inits (ast-lambda-body lam))))
-       (%js-wrap-method-super lam super-expr)))
+      (let ((lam (%js-slot-to-method-lambda ctor-slot)))
+        (when field-inits
+          (setf (ast-lambda-body lam) (append field-inits (ast-lambda-body lam))))
+        (%js-wrap-method-super lam super-expr)))
     (field-inits
-     (make-ast-lambda
-      :params nil
-      :rest-param (when super-expr 'js-ctor-rest-args)
-      :body (append
-             (when super-expr
-               (list (%js-call '%js-run-constructor
-                               (%js-super-ref super-expr)
-                               (make-ast-var :name '%js-this)
-                               (make-ast-var :name 'js-ctor-rest-args))))
-             field-inits)))
+      (make-ast-lambda
+        :params
+        nil
+        :rest-param
+        (when super-expr
+          'js-ctor-rest-args)
+        :body
+        (append
+          (when super-expr
+            (list
+              (%js-call
+                '%js-run-constructor
+                (%js-super-ref super-expr)
+                (make-ast-var :name '%js-this)
+                (make-ast-var :name 'js-ctor-rest-args))))
+          field-inits)))
     (t (make-ast-quote :value nil))))
 
 (defun %js-lower-class-method-args (method-slots super-expr)
@@ -170,40 +86,56 @@ prepended; a class with fields but no explicit ctor gets a synthetic one
         for orig-name = (%js-class-member-orig-name slot)
         for fn = (%js-wrap-method-super (%js-slot-to-method-lambda slot) super-expr)
         when fn
-          append (list (make-ast-quote :value (%js-class-member-key slot orig-name)) fn)))
+          append (list (%js-class-member-key-ast slot orig-name) fn)))
 
 (defun %js-lower-class-static-args (static-slots)
-  "Static method args for %js-make-class, preceded by the caller's \"@@static\"
-marker that %js-make-class splits on to set them on the class object itself."
+  "(name1 fn1 name2 fn2 ...) pairs for %js-make-class, built the same way
+regardless of whether STATIC-SLOTS are public or private static methods --
+%js-lower-class-to-ast calls this twice, once for each, and the CALLER
+decides where the result lands (after \"@@static\" for public, after the
+further \"@@private-static\" marker for private)."
   (loop for slot in static-slots
         for orig-name = (%js-class-member-orig-name slot)
         for fn = (%js-slot-to-method-lambda slot)
         when fn
-          append (list (make-ast-quote :value (%js-class-member-key slot orig-name)) fn)))
+          append (list (%js-class-member-key-ast slot orig-name) fn)))
 
 (defun %js-lower-class-static-field-args (static-field-slots)
   "Static field args (name value ...) for %js-make-class, set on the class
 object alongside the static methods via the same \"@@static\" marker."
   (loop for slot in static-field-slots
         for orig-name = (%js-class-member-orig-name slot)
-        append (list (make-ast-quote :value orig-name)
-                     (or (ast-slot-initform slot)
-                         (make-ast-quote :value +js-undefined+)))))
+        append (list
+      (%js-class-member-key-ast slot orig-name)
+      (or (ast-slot-initform slot) (make-ast-quote :value +js-undefined+)))))
 
-(defun %js-lower-class-make-class-call (super-expr ctor-lambda method-args
-                                         static-args static-field-args)
-  "The %js-make-class call itself: super ctor inst-methods... [@@static statics...]."
+(defun %js-lower-class-make-class-call
+    (super-expr ctor-lambda method-args static-args static-field-args private-static-args)
+  "The %js-make-class call itself: super ctor inst-methods...
+[@@static statics... [@@private-static private-statics...]]. The
+\"@@private-static\" marker (and everything after \"@@static\") is only
+emitted when PRIVATE-STATIC-ARGS is non-empty, since %js-make-class's own
+marker search only looks for it within whatever follows \"@@static\" --
+so \"@@static\" itself must be present whenever private static methods are,
+even if there are no ordinary static methods/fields to go with it."
   (make-ast-call
-   :func (make-ast-var :name '%js-make-class)
-   :args (list* (or super-expr (make-ast-quote :value nil))
-                ctor-lambda
-                (append method-args
-                        (when (or static-args static-field-args)
-                          (cons (make-ast-quote :value "@@static")
-                                (append static-args static-field-args)))))))
+    :func
+    (make-ast-var :name '%js-make-class)
+    :args
+    (list*
+      (or super-expr (make-ast-quote :value nil))
+      ctor-lambda
+      (append
+        method-args
+        (when (or static-args static-field-args private-static-args)
+          (append
+            (list (make-ast-quote :value "@@static"))
+            static-args
+            static-field-args
+            (when private-static-args
+              (cons (make-ast-quote :value "@@private-static") private-static-args))))))))
 
 ;;; ─── %js-lower-class-to-ast ──────────────────────────────────────────────────
-
 (defun %js-lower-class-to-ast (name-sym super-expr members decorators)
   "Lower a parsed class to a prototype-based JS class using %js-make-class.
 Emits: (defvar ClassName (%js-make-class SuperOrNil CtorOrNil 'method1 fn1 ...))
@@ -215,14 +147,19 @@ DECORATORS — list of AST nodes for class-level decorators"
   (declare (ignore decorators))
   (let* ((effective-name (or name-sym (gensym "JS-CLASS-")))
          (field-slots (%js-class-field-slots members))
-         (field-inits (%js-lower-class-field-inits field-slots))
+         (field-inits (append (%js-lower-class-field-inits field-slots)
+                               (%js-lower-class-private-method-inits
+                                (%js-class-private-method-slots members) super-expr)))
          (ctor-lambda (%js-lower-class-ctor (%js-class-ctor-slot members) field-inits super-expr))
          (method-args (%js-lower-class-method-args (%js-class-method-slots members) super-expr))
          (static-args (%js-lower-class-static-args (%js-class-static-slots members)))
          (static-field-args (%js-lower-class-static-field-args
                               (%js-class-static-field-slots members)))
+         (private-static-args (%js-lower-class-static-args
+                                (%js-class-private-static-method-slots members)))
          (make-class-call (%js-lower-class-make-class-call
-                            super-expr ctor-lambda method-args static-args static-field-args))
+                            super-expr ctor-lambda method-args static-args
+                            static-field-args private-static-args))
          ;; Single primary ast-defclass node — carries full semantic info for
          ;; tools/tests AND encodes the runtime implementation. :php-kind
          ;; :javascript tells codegen-clos to compile the :metaclass make-class-call
@@ -239,7 +176,6 @@ DECORATORS — list of AST nodes for class-level decorators"
     (list class-node)))
 
 ;;; ─── js-parse-class-decl (public entry point) ───────────────────────────────
-
 (defun js-parse-class-decl (stream &key expression-p decorators)
   "Parse class [Name] [extends Super] { body }.
 
@@ -258,7 +194,7 @@ by %js-lower-class-to-ast."
       (multiple-value-bind (tok rest) (js-consume current)
         (setf class-name (js-ident-sym (js-tok-value tok))
               current rest)))
-    (when (and (not expression-p) (null class-name))
+    (unless (or expression-p class-name)
       (error "JS parse error: class declaration requires a name"))
     ;; Optional: extends SuperClass
     (when (and current (eq (js-peek-type current) :T-EXTENDS))

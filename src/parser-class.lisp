@@ -26,8 +26,14 @@
 
 (defun %js-parse-class-static-block (stream decorators)
   "Parse the body of a 'static { ... }' initialisation block. STREAM points at
-'{'. Parses via js-parse-stmt-list (the real statement parser) so static
-initializer code actually executes, not a raw token dump.
+'{'. Parses via js-parse-stmt-list (the real statement parser), and marks
+the resulting slot :js-static t (via %js-member-kind-metadata, the same
+helper every other static member uses) so %js-class-static-field-slots
+(src/parser-class-lower-classify.lisp) picks it up and actually threads its body
+into the class's %js-make-class call -- an initform this codebase never
+routes to %js-make-class simply never runs, no matter how correctly it was
+parsed. The slot's own gensym name becomes an unreferenced property on the
+class object; nothing reads it, only the initform's side effects matter.
 Returns (values slot rest)."
   (let ((rest (cdr stream)))            ; consume '{'
     (multiple-value-bind (body-stmts rest2) (js-parse-stmt-list rest)
@@ -36,8 +42,8 @@ Returns (values slot rest)."
                     :name (gensym "JS-STATIC-INIT-")
                     :initform body-ast
                     :allocation :class
-                    :imports (list :js-member-kind :static-block
-                                   :js-decorators decorators))))
+                    :imports (%js-member-kind-metadata
+                              :static-block t nil nil nil decorators))))
         (values slot rest2)))))
 
 (defun %js-parse-class-method-member (name static-p private-p async-p generator-p
@@ -45,7 +51,8 @@ Returns (values slot rest)."
   "Parse a class method's params/body. STREAM points at '('.
 Returns (values slot rest)."
   (multiple-value-bind (params body rest2) (%js-parse-method-params-body stream)
-    (let* ((sym (if (symbolp name) name (gensym "JS-METHOD-")))
+    (let* ((computed-p (not (symbolp name)))
+           (sym (if computed-p (gensym "JS-METHOD-") name))
            (defun-ast (make-ast-defun
                        :name sym
                        :params params
@@ -56,12 +63,18 @@ Returns (values slot rest)."
                   :allocation (if static-p :class :instance)
                   ;; :js-name carries the ORIGINAL-CASE method name so the
                   ;; class lowering stores it under the key obj.m accesses.
-                  :imports (%js-member-kind-metadata
-                            (if (equal (symbol-name sym) "CONSTRUCTOR")
-                                :constructor
-                                :method)
-                            static-p private-p async-p generator-p decorators
-                            orig-name))))
+                  ;; :js-computed-key-ast (computed names only) carries the
+                  ;; REAL runtime key expression -- SYM above is just an
+                  ;; internal AST-tree identifier in that case, never the
+                  ;; runtime property key.
+                  :imports (append
+                            (when computed-p (list :js-computed-key-ast name))
+                            (%js-member-kind-metadata
+                             (if (equal (symbol-name sym) "CONSTRUCTOR")
+                                 :constructor
+                                 :method)
+                             static-p private-p async-p generator-p decorators
+                             orig-name)))))
       (values slot (js-skip-semis rest2)))))
 
 (defun %js-parse-class-field-member (name static-p private-p decorators orig-name stream)
@@ -95,7 +108,8 @@ the member name (at '=', ';', or '}'). Returns (values slot rest)."
         ;; placeholder, so field initializers never actually ran.)
         (setf initform
               (nth-value 0 (js-parse-assignment-expr (nreverse expr-toks))))))
-    (let ((sym (if (symbolp name) name (gensym "JS-FIELD-"))))
+    (let* ((computed-p (not (symbolp name)))
+           (sym (if computed-p (gensym "JS-FIELD-") name)))
       (values (make-ast-slot-def
                :name sym
                :initform initform
@@ -103,8 +117,12 @@ the member name (at '=', ';', or '}'). Returns (values slot rest)."
                ;; Pass ORIG-NAME so the field key preserves the original
                ;; case (downcasing the symbol broke `static VERSION = …'
                ;; — set under "version" but read as A.VERSION).
-               :imports (%js-member-kind-metadata
-                         :field static-p private-p nil nil decorators orig-name))
+               ;; :js-computed-key-ast (computed names only) carries the
+               ;; REAL runtime key expression for a `[expr] = init;' field.
+               :imports (append
+                         (when computed-p (list :js-computed-key-ast name))
+                         (%js-member-kind-metadata
+                          :field static-p private-p nil nil decorators orig-name)))
               (js-skip-semis current)))))
 
 (defun %js-parse-class-body-member (stream)
@@ -194,5 +212,6 @@ Each member is an ast-slot-def whose :imports plist carries:
 
 ;;; ─── AST lowering + public entry point ──────────────────────────────────────
 ;;; %js-slot-method-p, %js-slot-to-method-lambda, %js-super-ref,
-;;; %js-wrap-method-super, %js-class-member-key, %js-lower-class-to-ast,
-;;; and js-parse-class-decl are in parser-class-lower.lisp (loads after this).
+;;; %js-wrap-method-super, and %js-class-member-key are in
+;;; parser-class-lower-classify.lisp; %js-lower-class-to-ast and
+;;; js-parse-class-decl are in parser-class-lower.lisp (both load after this).
