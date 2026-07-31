@@ -4,11 +4,9 @@
 ;;;; "literal expression" layer that builds compound primary expressions.
 ;;;; Load order: after parser-expr-args.lisp (needs js-parse-params, %js-call),
 ;;;;             before parser-expr-primary.lisp (calls these parsers).
-
 (in-package :cl-cc/javascript)
 
 ;;; ─── Array Literal ───────────────────────────────────────────────────────────
-
 (defun js-parse-array-literal (stream)
   "Parse [...] array literal. Returns (values ast rest).
 Handles elision (holes), spread elements, and assignment expressions."
@@ -65,7 +63,6 @@ Handles elision (holes), spread elements, and assignment expressions."
                       rest2)))))))
 
 ;;; ─── Object Literal ──────────────────────────────────────────────────────────
-
 (defun %js-parse-object-property-spread (stream)
   "...expr — STREAM points at the ellipsis token."
   (multiple-value-bind (tok rest) (js-consume stream)
@@ -80,21 +77,19 @@ Handles elision (holes), spread elements, and assignment expressions."
     (multiple-value-bind (key-expr rest2) (js-parse-assignment-expr rest)
       (multiple-value-bind (tok2 rest3) (js-expect :T-RBRACKET rest2)
         (declare (ignore tok2))
-        (if (eq (js-peek-type rest3) :T-LPAREN)
-            (multiple-value-bind (fn-ast rest4) (js-parse-function-expr rest3 :name nil)
-              (values key-expr fn-ast t t rest4))
-            (multiple-value-bind (tok3 rest4) (js-expect :T-COLON rest3)
-              (declare (ignore tok3))
-              (multiple-value-bind (val-expr rest5) (js-parse-assignment-expr rest4)
-                (values key-expr val-expr nil t rest5))))))))
+        (if (eq (js-peek-type rest3) :T-LPAREN) (multiple-value-bind (fn-ast rest4) (js-parse-function-expr rest3 :name nil)
+            (values key-expr fn-ast t t rest4))
+          (multiple-value-bind (tok3 rest4) (js-expect :T-COLON rest3)
+            (declare (ignore tok3))
+            (multiple-value-bind (val-expr rest5) (js-parse-assignment-expr rest4)
+              (values key-expr val-expr nil t rest5))))))))
 
 (defun %js-parse-object-property-generator-method (stream)
   "*name(...) {} — STREAM points past '*'."
   (let ((key-str (js-peek-value stream)))
     (multiple-value-bind (key-tok rest) (js-consume stream)
       (declare (ignore key-tok))
-      (multiple-value-bind (fn-ast rest2)
-          (js-parse-function-expr rest :generator-p t :name (js-ident-sym key-str))
+      (multiple-value-bind (fn-ast rest2) (js-parse-function-expr rest :generator-p t :name (js-ident-sym key-str))
         (values (make-ast-quote :value key-str) fn-ast t nil rest2)))))
 
 (defun %js-parse-object-property-async-method (stream)
@@ -143,11 +138,9 @@ Handles elision (holes), spread elements, and assignment expressions."
       (let ((key-str (js-peek-value rest)))
         (multiple-value-bind (key-tok rest2) (js-consume rest)
           (declare (ignore key-tok))
-          (multiple-value-bind (fn-ast rest3)
-              (js-parse-function-expr rest2 :name (js-ident-sym key-str))
-            (let ((tagged-fn (%js-call '%js-accessor
-                                       (make-ast-quote :value accessor-kind)
-                                       fn-ast)))
+          (multiple-value-bind (fn-ast rest3) (js-parse-function-expr rest2 :name (js-ident-sym key-str))
+            (let ((tagged-fn
+                  (%js-call '%js-accessor (make-ast-quote :value accessor-kind) fn-ast)))
               (values (make-ast-quote :value key-str) tagged-fn t nil rest3))))))))
 
 (defun %js-parse-object-property-shorthand-or-method-or-kv (stream key-str)
@@ -194,11 +187,7 @@ Returns (values key-expr value-expr method-p computed-p rest)."
             ;; method named get/set: `{ get() {} }` — when `(` follows, `get`
             ;; is the METHOD NAME, so fall through to the method-shorthand arm.
             (let ((next (js-peek-type (cdr stream))))
-              (and (not (eq next :T-COMMA))
-                   (not (eq next :T-RBRACE))
-                   (not (eq next :T-COLON))
-                   (not (eq next :T-LPAREN))
-                   (not (eq next :T-EOF)))))
+              (not (or (eq next :T-COMMA) (eq next :T-RBRACE) (eq next :T-COLON) (eq next :T-LPAREN) (eq next :T-EOF)))))
        (%js-parse-object-property-accessor stream))
       ;; Identifier shorthand, method, or key: value
       (t
@@ -256,6 +245,48 @@ spread elements, getters, and setters."
              rest2))))))
 
 ;;; ─── Function Expression Parser ──────────────────────────────────────────────
+(defun %js-build-function-expr-ast (params optionals rest-sym body-forms async-p is-generator name)
+  "Build the AST for a parsed function expression: its lambda, any async/
+generator wrapping, and (if NAME) its letrec self-recursion binding. Split
+out of JS-PARSE-FUNCTION-EXPR so that function's own multiple-value-bind
+chain only threads stream state through parsing, instead of also nesting
+this AST-building logic at its deepest, hardest-to-read level."
+  (multiple-value-bind (required opts) (%js-split-params-by-defaults params optionals)
+    ;; Wrap in (block nil ...) so `return' (which lowers to return-from nil)
+    ;; works — a function-expression body was previously used raw, so any
+    ;; `return value' silently produced nothing.
+    (multiple-value-bind (rest-param wrapped-body)
+        (%js-rest-binding rest-sym (%js-callable-body body-forms))
+      (let* ((lambda-ast (make-ast-lambda :params required
+                                          :optional-params opts
+                                          :rest-param rest-param
+                                          :body wrapped-body))
+             ;; Wrap async/generator expressions.
+             ;; Generator expressions use %js-wrap-generator-body which returns a
+             ;; CALLABLE that creates a fresh generator on each invocation — unlike
+             ;; %js-make-generator which runs the body eagerly with no arguments.
+             (result (cond
+                       ((and async-p is-generator)
+                        (%js-call '%js-make-async-generator lambda-ast))
+                       (async-p
+                        (%js-call '%js-make-async lambda-ast))
+                       (is-generator
+                        (%js-call '%js-wrap-generator-body lambda-ast))
+                       (t lambda-ast))))
+        ;; Named function expression — the name is visible INSIDE the body
+        ;; (for self-recursion) but not outside.  A plain (let ((f lambda)) f)
+        ;; binds in PARALLEL, so `f` inside the lambda body resolves to the
+        ;; enclosing scope (undefined → "Undefined function") rather than the
+        ;; function itself.  Bind the name to nil first, then assign the
+        ;; lambda: the name is now mutated AND captured by the lambda, so the
+        ;; compiler boxes it and the closure reads the assigned value —
+        ;; letrec semantics, so `function fac(n){...fac(n-1)...}` recurses.
+        (if name
+            (make-ast-let
+             :bindings (list (cons name (make-ast-quote :value nil)))
+             :body (list (make-ast-setq :var name :value result)
+                         (make-ast-var :name name)))
+            result)))))
 
 (defun js-parse-function-expr (stream &key async-p generator-p name)
   "Parse function [*] [name] (params) { body } as expression.
@@ -265,8 +296,7 @@ Returns (values ast rest)."
   (let ((current stream)
         (is-generator generator-p))
     ;; Consume optional * for generators
-    (when (and (eq (js-peek-type current) :T-OP)
-               (string= (js-peek-value current) "*"))
+    (when (js-at-op-p current "*")
       (multiple-value-bind (tok rest) (js-consume current)
         (declare (ignore tok))
         (setf is-generator t
@@ -284,45 +314,10 @@ Returns (values ast rest)."
         (declare (ignore tok3))
         (multiple-value-bind (body-forms rest4)
             (js-parse-function-body rest3)
-          (multiple-value-bind (required opts)
-              (%js-split-params-by-defaults params optionals)
-          ;; Wrap in (block nil ...) so `return' (which lowers to return-from nil)
-          ;; works — a function-expression body was previously used raw, so any
-          ;; `return value' silently produced nothing.
-          (multiple-value-bind (rest-param wrapped-body)
-              (%js-rest-binding rest-sym (%js-callable-body body-forms))
-          (let ((lambda-ast (make-ast-lambda :params required
-                                             :optional-params opts
-                                             :rest-param rest-param
-                                             :body wrapped-body)))
-            ;; Wrap async/generator expressions.
-            ;; Generator expressions use %js-wrap-generator-body which returns a
-            ;; CALLABLE that creates a fresh generator on each invocation — unlike
-            ;; %js-make-generator which runs the body eagerly with no arguments.
-            (let ((result (cond
-                            ((and async-p is-generator)
-                             (%js-call '%js-make-async-generator lambda-ast))
-                            (async-p
-                             (%js-call '%js-make-async lambda-ast))
-                            (is-generator
-                             (%js-call '%js-wrap-generator-body lambda-ast))
-                            (t lambda-ast))))
-              ;; Named function expression — the name is visible INSIDE the body
-              ;; (for self-recursion) but not outside.  A plain (let ((f lambda)) f)
-              ;; binds in PARALLEL, so `f` inside the lambda body resolves to the
-              ;; enclosing scope (undefined → "Undefined function") rather than the
-              ;; function itself.  Bind the name to nil first, then assign the
-              ;; lambda: the name is now mutated AND captured by the lambda, so the
-              ;; compiler boxes it and the closure reads the assigned value —
-              ;; letrec semantics, so `function fac(n){...fac(n-1)...}` recurses.
-              (values (if name
-                          (make-ast-let
-                           :bindings (list (cons name (make-ast-quote :value nil)))
-                           :body (list (make-ast-setq :var name :value result)
-                                       (make-ast-var :name name)))
-                          result)
-                      rest4))))))))))
+          (values (%js-build-function-expr-ast
+                   params optionals rest-sym body-forms async-p is-generator name)
+                  rest4))))))
 
 (defun js-parse-function-body (stream)
   "Parse statements inside { } until matching }."
-  (funcall #'js-parse-stmt-list stream))
+  (js-parse-stmt-list stream))
