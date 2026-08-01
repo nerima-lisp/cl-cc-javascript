@@ -9,8 +9,9 @@
 ;;;; the Temporal runtime's IANA time zone support, on cl-json-kit for
 ;;;; JSON.parse/JSON.stringify, on cl-concurrent-kit for the generator
 ;;;; runtime's suspend/resume coroutine channel, and on cl-weave for tests.
-;;;; cl-host-kit itself is transitive-only here (cl-cc-javascript's own code
-;;;; does not import it) -- see flake.nix's comment on that input for why.
+;;;; cl-host-kit is needed both transitively (cl-boundary-kit v2.0.0 requires
+;;;; it) and directly: the Temporal runtime reads the host TZ variable through
+;;;; host-kit:getenv -- see runtime-temporal.lisp.
 ;;;; Each is located via an environment variable, falling back to a sibling
 ;;;; checkout beside this repo (the ghq layout every nerima-lisp repo
 ;;;; already assumes).

@@ -113,7 +113,7 @@ for validation:
 Returns \"UTC\" when neither source yields a name cl-date-kit recognizes --
 including inside a build sandbox, which typically has neither TZ set nor a
 readable /etc/localtime."
-  (or (let ((tz (uiop:getenv "TZ")))
+  (or (let ((tz (host-kit:getenv "TZ")))
         (and (%temporal-valid-iana-zone-p tz) tz))
       (let ((resolved (ignore-errors (namestring (truename "/etc/localtime")))))
         (when resolved

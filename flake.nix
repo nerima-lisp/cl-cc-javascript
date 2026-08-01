@@ -192,11 +192,13 @@
       url = "github:nerima-lisp/cl-concurrent-kit/v0.2.0";
       flake = false;
     };
-    # Not used directly by cl-cc-javascript's own code (evaluated and
-    # rejected on its own merits earlier this session: this repo's
-    # host/filesystem surface is too small to justify it as a direct
-    # dependency) — declared purely so cl-boundary-kit v2.0.0, which now
-    # requires it, is resolvable. See cl-boundary-kit's comment above.
+    # Now a DIRECT dependency: the Temporal runtime's host-time-zone discovery
+    # reads TZ through `host-kit:getenv` (see runtime-temporal.lisp), replacing
+    # this repo's last `uiop:` call site in src/. It was already declared here
+    # as a transitive-only input, because cl-boundary-kit v2.0.0 requires it
+    # (see cl-boundary-kit's comment above); that reason still holds too, so
+    # the pin and the CL_CC_JAVASCRIPT_CL_HOST_KIT_ROOT wiring below are
+    # unchanged -- only the justification grew.
     cl-host-kit = {
       url = "github:nerima-lisp/cl-host-kit/v0.2.1";
       flake = false;

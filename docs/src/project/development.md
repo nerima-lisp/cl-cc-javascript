@@ -55,7 +55,8 @@ systems that still live inside the cl-cc checkout (`cl-cc-ast`, `cl-cc-bootstrap
 `cl-cc-parse`, `cl-cc-vm`), everything cl-cc's umbrella system pulls in transitively, and
 a handful of `nerima-lisp` sibling packages this frontend depends on directly
 (`cl-date-kit` for Temporal, `cl-json-kit` for JSON, `cl-concurrent-kit` for the
-generator runtime — see [Architecture](../reference/architecture.md)).
+generator runtime, `cl-host-kit` for reading the host `TZ` environment variable —
+see [Architecture](../reference/architecture.md)).
 `scripts/dependency-roots.lisp` locates each of them, in this order:
 
 1. an explicit environment variable, one per dependency;
@@ -76,8 +77,9 @@ generator runtime — see [Architecture](../reference/architecture.md)).
 | `CL_CC_JAVASCRIPT_CL_DATE_KIT_ROOT` | `cl-date-kit` |
 | `CL_CC_JAVASCRIPT_CL_JSON_KIT_ROOT` | `cl-json-kit` |
 | `CL_CC_JAVASCRIPT_CL_CONCURRENT_KIT_ROOT` | `cl-concurrent-kit` |
+| `CL_CC_JAVASCRIPT_CL_HOST_KIT_ROOT` | `cl-host-kit` |
 
-`nix develop` sets all twelve for you from the pinned flake inputs, so inside the dev
+`nix develop` sets all thirteen for you from the pinned flake inputs, so inside the dev
 shell no further configuration is needed.
 
 ## Running tests without Nix

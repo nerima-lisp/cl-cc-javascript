@@ -22,11 +22,11 @@
   :homepage "https://github.com/nerima-lisp/cl-cc-javascript"
   :bug-tracker "https://github.com/nerima-lisp/cl-cc-javascript/issues"
   :source-control (:git "https://github.com/nerima-lisp/cl-cc-javascript.git")
-  ;; cl-date-kit/cl-json-kit/cl-concurrent-kit are strings, not keywords: they
-  ;; are plain nerima-lisp sibling systems consumed directly (no adapter), not
-  ;; one of cl-cc's own packages/*/ components, so they do not need the
-  ;; eval-when trick that :cl-cc-ast and friends rely on -- ASDF finds them on
-  ;; the source registry like any other dependency.
+  ;; cl-date-kit/cl-json-kit/cl-concurrent-kit/cl-host-kit are strings, not
+  ;; keywords: they are plain nerima-lisp sibling systems consumed directly (no
+  ;; adapter), not one of cl-cc's own packages/*/ components, so they do not
+  ;; need the eval-when trick that :cl-cc-ast and friends rely on -- ASDF finds
+  ;; them on the source registry like any other dependency.
   :depends-on
   (:cl-cc-ast
    :cl-cc-bootstrap
@@ -34,7 +34,8 @@
    :cl-cc-vm
    "cl-date-kit"
    "cl-json-kit"
-   "cl-concurrent-kit")
+   "cl-concurrent-kit"
+   "cl-host-kit")
   :pathname "src"
   :serial t
   :components
