@@ -196,10 +196,16 @@
    (:file "runtime-builtins-platform-object-test")
    (:file "runtime-console-test")
    (:file "runtime-builtins-platform-test"))
+  ;; Not UIOP:SYMBOL-CALL, and not a sibling-package prefix either: a .asd is
+  ;; read by the plain CL reader before :depends-on is ever consulted, so any
+  ;; PKG:SYMBOL token here must resolve against a package already present in
+  ;; the image. UIOP is safe only because ASDF ships it. FIND-SYMBOL/
+  ;; FIND-PACKAGE/FUNCALL are CL, always present, and are what
+  ;; UIOP:SYMBOL-CALL itself reduces to. CL-WEAVE is guaranteed loaded here:
+  ;; this system's own :depends-on includes it.
   :perform (asdf:test-op (op system)
              (declare (ignore op system))
-             (unless (uiop:symbol-call :cl-weave
-                                       :run-all
-                                       :reporter :spec
-                                       :pass-with-no-tests nil)
+             (unless (funcall (find-symbol "RUN-ALL" (find-package "CL-WEAVE"))
+                              :reporter :spec
+                              :pass-with-no-tests nil)
                (error "cl-cc-javascript tests failed"))))
