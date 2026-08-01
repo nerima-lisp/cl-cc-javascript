@@ -47,6 +47,6 @@ distinguish them, and do not rely on it being stable.
 
 ## See also
 
-- [`js-exception`](api-reference.md#js-exception) and
-  [`%js-throw`](api-reference.md#js-throw) in the API reference.
+- [`js-exception`](api.md#js-exception) and
+  [`%js-throw`](api.md#js-throw) in the API reference.
 - [Compatibility](compatibility.md#resource-limits) for the parse depth limit.

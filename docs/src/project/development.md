@@ -48,12 +48,43 @@ and `clone-classes` scoped to a narrow subset will misreport symbols that are on
 because the files that call them were left out. Set `--timeout-ms` on any scan over the
 whole tree, consistent with this project's "every command execution needs a timeout" rule.
 
+## Resolving the source-tree dependencies
+
+Unlike the dependency-free leaf packages in this org, cl-cc-javascript depends on
+systems that still live inside the cl-cc checkout (`cl-cc-ast`, `cl-cc-bootstrap`,
+`cl-cc-parse`, `cl-cc-vm`), everything cl-cc's umbrella system pulls in transitively, and
+a handful of `nerima-lisp` sibling packages this frontend depends on directly
+(`cl-date-kit` for Temporal, `cl-json-kit` for JSON, `cl-concurrent-kit` for the
+generator runtime — see [Architecture](../reference/architecture.md)).
+`scripts/dependency-roots.lisp` locates each of them, in this order:
+
+1. an explicit environment variable, one per dependency;
+2. otherwise a sibling checkout next to this repository, which is the layout `ghq`
+   already produces.
+
+| Environment variable | Dependency |
+|---|---|
+| `CL_CC_JAVASCRIPT_CL_CC_ROOT` | `cl-cc` |
+| `CL_CC_JAVASCRIPT_CL_WEAVE_ROOT` | `cl-weave` |
+| `CL_CC_JAVASCRIPT_CL_PROLOG_ROOT` | `cl-prolog` |
+| `CL_CC_JAVASCRIPT_CL_PARSER_KIT_ROOT` | `cl-parser-kit` |
+| `CL_CC_JAVASCRIPT_CL_DATAFLOW_ROOT` | `cl-dataflow` |
+| `CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT` | `cl-boundary-kit` |
+| `CL_CC_JAVASCRIPT_CL_CLI_ROOT` | `cl-cli` |
+| `CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT` | `cl-tty-kit` |
+| `CL_CC_JAVASCRIPT_CL_LOG_KIT_ROOT` | `cl-log-kit` |
+| `CL_CC_JAVASCRIPT_CL_DATE_KIT_ROOT` | `cl-date-kit` |
+| `CL_CC_JAVASCRIPT_CL_JSON_KIT_ROOT` | `cl-json-kit` |
+| `CL_CC_JAVASCRIPT_CL_CONCURRENT_KIT_ROOT` | `cl-concurrent-kit` |
+
+`nix develop` sets all twelve for you from the pinned flake inputs, so inside the dev
+shell no further configuration is needed.
+
 ## Running tests without Nix
 
 The suite needs the sibling checkouts. Inside `nix develop` they are already pointed at
 the pinned flake inputs; outside it, `scripts/dependency-roots.lisp` falls back to
-sibling directories next to this repository. See
-[Installation](installation.md#resolving-the-source-tree-dependencies).
+sibling directories next to this repository.
 
 Always run under a timeout — a hung compile or test should never occupy a worker
 indefinitely:
@@ -112,7 +143,7 @@ JavaScript programs through the frontend and the VM.
 2. Add it to the `:components` list in `cl-cc-javascript.asd`, before
    `runtime-bridge-provider`.
 3. Export it from `src/package.lisp`, under the group heading it belongs to — those
-   headings are the H2 sections of [the API reference](api-reference.md).
+   headings are the H2 sections of [the API reference](../reference/api.md).
 4. Register it in the relevant dispatch table (`*js-builtin-map*`, or a
    `*js-*-method-table*`) so property access finds it.
 5. Add tests to the `t/runtime-*-test.lisp` file matching the source file you

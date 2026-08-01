@@ -14,7 +14,7 @@
 ;;;;   Groups: (expr) and (?<name>expr) capturing (numbered/named data comes
 ;;;;     out of exec/match/replace), (?:expr) non-capturing, (?=expr)/(?!expr)
 ;;;;     lookahead — (?<=expr)/(?<!expr) lookbehind is not recognized as group
-;;;;     syntax. See docs/src/compatibility.md.
+;;;;     syntax. See docs/src/reference/compatibility.md.
 ;;;;   Character classes: [abc] [a-z] [^abc]
 ;;;;   Alternation: a|b
 ;;;;

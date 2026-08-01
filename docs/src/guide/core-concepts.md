@@ -103,5 +103,5 @@ guards.
 
 ## Next
 
-- [Architecture](architecture.md) — how those ideas are distributed across `src/`.
-- [API Reference](api-reference.md) — the symbols themselves.
+- [Architecture](../reference/architecture.md) — how those ideas are distributed across `src/`.
+- [API Reference](../reference/api.md) — the symbols themselves.

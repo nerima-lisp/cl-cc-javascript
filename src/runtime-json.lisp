@@ -128,7 +128,7 @@ fragment text verbatim."
 (defun %js-json-stringify (val)
   "JSON.stringify(value). Replacer/space are accepted but ignored by the
 caller (JSON.stringify's own binding in runtime-builtins-table-specs.lisp) —
-see docs/src/compatibility.md."
+see docs/src/reference/compatibility.md."
   (if (%js-json-unrepresentable-p val)
       +js-undefined+
       (let ((fragments (make-array 0 :adjustable t :fill-pointer 0)))

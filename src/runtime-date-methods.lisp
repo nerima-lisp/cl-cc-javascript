@@ -10,7 +10,7 @@
   "Date.prototype.toISOString() → 'YYYY-MM-DDTHH:MM:SS.mmmZ'. Real JS throws
 a RangeError for an Invalid Date; this runtime returns \"Invalid Date\"
 instead (the same string toString() does) -- a known simplification, see
-docs/src/compatibility.md."
+docs/src/reference/compatibility.md."
   (if (%js-date-invalid-p date)
       "Invalid Date"
       (%with-date-fields (date :sec sec :min min :hour hour :day day :month month :year year)

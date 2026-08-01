@@ -44,11 +44,11 @@ as the first tag exists.
 
 ## Documentation
 
-- [Quick Start](https://nerima-lisp.github.io/cl-cc-javascript/quick-start/)
-- [Core Concepts](https://nerima-lisp.github.io/cl-cc-javascript/core-concepts/) — the
+- [Getting Started](https://nerima-lisp.github.io/cl-cc-javascript/getting-started/)
+- [Core Concepts](https://nerima-lisp.github.io/cl-cc-javascript/guide/core-concepts/) — the
   value model, and why `nil` is `false` rather than `null`
-- [API Reference](https://nerima-lisp.github.io/cl-cc-javascript/api-reference/)
-- [Compatibility](https://nerima-lisp.github.io/cl-cc-javascript/compatibility/) — the
+- [API Reference](https://nerima-lisp.github.io/cl-cc-javascript/reference/api/)
+- [Compatibility](https://nerima-lisp.github.io/cl-cc-javascript/reference/compatibility/) — the
   deliberate simplifications, including the synchronous promise model
 
 ## Development

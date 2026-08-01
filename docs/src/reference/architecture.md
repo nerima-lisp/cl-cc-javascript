@@ -91,4 +91,4 @@ modern), and runtime tests per builtin family, each file kept under the org's 50
 cap (five files that had grown past it were split along their own existing section
 boundaries; the largest is now 477 lines). End-to-end tests compile to the VM and
 compare captured `console.log` output, so they exercise the real path rather than the
-parser alone. See [Development](development.md).
+parser alone. See [Development](../project/development.md).

@@ -1,9 +1,62 @@
-# Quick Start
+# Getting Started
 
-Compiling and running one JavaScript program, then looking at the two intermediate
-stages it passed through.
+cl-cc-javascript is consumed as a Nix flake input and loaded through ASDF.
 
-## 1. Run a program
+## Add the flake input
+
+```nix
+# flake.nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    cl-cc-javascript = {
+      url = "github:nerima-lisp/cl-cc-javascript";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+}
+```
+
+!!! note "This input is not yet pinned to a tag"
+
+    Consumers inside this org normally pin a release tag
+    (`github:nerima-lisp/cl-cc-javascript/v0.1.0`) rather than follow the default
+    branch, because an upstream push to `main` otherwise breaks downstream CI without
+    warning. cl-cc-javascript has no release tag yet, so there is nothing to pin to.
+    Pin one as soon as the first tag exists.
+
+## Add the system dependency
+
+```lisp
+;; your-system.asd
+:depends-on ("cl-cc" "cl-cc-javascript")
+```
+
+Loading the system is all that is required to register the JavaScript frontend: the last
+two components (`runtime-bridge-provider` and `vm-integration`) self-register with
+`cl-cc/bootstrap`, so `cl-cc:compile-string` accepts `:language :javascript` from then
+on. There is no separate initialisation call.
+
+Consuming the flake needs nothing else. Building or testing this repository from a
+raw checkout does: cl-cc-javascript depends on systems that still live inside the
+cl-cc checkout, plus several `nerima-lisp` siblings. `nix develop` wires all of them
+up from the pinned flake inputs; outside it, see
+[Development](project/development.md#resolving-the-source-tree-dependencies).
+
+## Verify
+
+```sh
+nix flake check --print-build-logs
+```
+
+This runs the compile gate, the test suite, the Nix formatting gate and the docs build.
+See [Development](project/development.md).
+
+## Run a program
+
+The rest of this page compiles and runs one JavaScript program, then looks at the two
+intermediate stages it passed through.
 
 `cl-cc:compile-string` is the entry point. Loading `cl-cc-javascript` is what makes
 `:language :javascript` available.
@@ -17,11 +70,11 @@ stages it passed through.
   (cl-cc/vm:run-compiled program))
 ```
 
-```
+```text
 2
 ```
 
-## 2. Seed the runtime globals
+## Seed the runtime globals
 
 The program above only needed `console`. Anything that touches `Math`, `JSON`, `Map`,
 `Promise` and the rest of the standard globals needs those seeded into the VM state
@@ -43,7 +96,7 @@ first, which is what `cl-cc/pipeline:seed-js-runtime-globals` does.
 This is exactly the shape of `%js-run-capture`, the helper the end-to-end test suite
 uses, so it is the path to copy.
 
-## 3. Look at the tokens
+## Look at the tokens
 
 `tokenize-js-source` returns a flat list of token plists, ending with `:T-EOF`.
 
@@ -63,7 +116,7 @@ rather than a token type of its own.
 Numeric values are already decoded: `0xFF` lexes to `255`, `1_000_000` to `1000000`,
 `3.14` to a `double-float`, and `42n` to a `:T-BIGINT` token.
 
-## 4. Look at the AST
+## Look at the AST
 
 `parse-js-source` returns a list of top-level cl-cc AST nodes — not a JavaScript-shaped
 tree. `const x = 42` becomes an `ast-let`:
@@ -84,7 +137,7 @@ is, not a different parser:
 (cl-cc/javascript:parse-js-module source)
 ```
 
-## 5. Parse with the prelude attached
+## Parse with the prelude attached
 
 `js-program-forms` is `parse-js-source` with the standard-globals prelude prepended. It
 returns forms ready to hand to the compiler backend, and is what the pipeline calls.
@@ -121,5 +174,5 @@ returns forms ready to hand to the compiler backend, and is what the pipeline ca
 
 ## Next
 
-- [Core Concepts](core-concepts.md) for the vocabulary used above.
-- [API Reference](api-reference.md) for every exported symbol.
+- [Core Concepts](guide/core-concepts.md) for the vocabulary used above.
+- [API Reference](reference/api.md) for every exported symbol.

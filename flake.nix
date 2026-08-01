@@ -49,7 +49,7 @@
     # cl-cli/cl-tty-kit (cli/repl), and cl-log-kit (boundary-kit). cl-date-kit
     # gives the Temporal runtime real IANA time zone support (host zone
     # discovery and instant -> local-zone projection; see
-    # docs/src/compatibility.md for what that does and does not cover).
+    # docs/src/reference/compatibility.md for what that does and does not cover).
     # cl-json-kit replaces the JSON.parse/JSON.stringify runtime's own ad hoc
     # parser/writer with an RFC-8259-conformant one (95/95 JSONTestSuite
     # must-accept, 188/188 must-reject) — adopted directly through its own
@@ -448,7 +448,7 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
           # The Temporal time-zone tests read real IANA data through
-          # cl-date-kit's TZDIR/zoneinfo lookup (see docs/src/compatibility.md),
+          # cl-date-kit's TZDIR/zoneinfo lookup (see docs/src/reference/compatibility.md),
           # so the Nix sandbox needs its own zoneinfo tree: nixpkgs' `tzdata`
           # package, not whatever the host happens to have at
           # /usr/share/zoneinfo, which the sandbox does not expose anyway.

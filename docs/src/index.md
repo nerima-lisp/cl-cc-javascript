@@ -14,14 +14,14 @@ generation and optimisation belong to cl-cc itself.
 
 ## Where to go next
 
-- [Installation](installation.md) — add the flake input and the `:depends-on` entry.
-- [Quick Start](quick-start.md) — tokenize, parse, and run a program end to end.
-- [Core Concepts](core-concepts.md) — the token/AST/runtime-bridge vocabulary, and the
+- [Getting Started](getting-started.md) — add the flake input and the `:depends-on`
+  entry, then tokenize, parse, and run a program end to end.
+- [Core Concepts](guide/core-concepts.md) — the token/AST/runtime-bridge vocabulary, and the
   `undefined` versus `null` distinction that trips up every first reader.
-- [API Reference](api-reference.md) — all 320 exported symbols.
-- [Compatibility](compatibility.md) — which ECMAScript editions are covered, and what is
+- [API Reference](reference/api.md) — all 320 exported symbols.
+- [Compatibility](reference/compatibility.md) — which ECMAScript editions are covered, and what is
   deliberately not implemented.
-- [Architecture](architecture.md) — how `src/` is split, and why.
+- [Architecture](reference/architecture.md) — how `src/` is split, and why.
 
 ## Project
 

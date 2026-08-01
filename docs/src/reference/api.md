@@ -15,7 +15,7 @@ through the bridge provider registered in `src/runtime-bridge-provider.lisp`. Th
 exported because generated code has to name them. The handful of symbols without the
 prefix — `tokenize-js-source`, `parse-js-source`, `parse-js-module`, `js-program-forms`
 and the `js-exception` condition — are the surface most callers want; see
-[Quick Start](quick-start.md).
+[Quick Start](../getting-started.md).
 
 Two conventions hold across the whole page, so they are not repeated per entry.
 
@@ -27,7 +27,7 @@ produce. Entries that deviate say so. See [Conditions](conditions.md).
 **Undefined.** `+js-undefined+` (the keyword `:js-undefined`) is the sentinel for
 JavaScript `undefined`, and `+js-null+` (`:js-null`) is `null`. Neither is `nil`: `nil`
 and `t` are JavaScript `false` and `true`. See
-[Core Concepts](core-concepts.md#the-value-model).
+[Core Concepts](../guide/core-concepts.md#the-value-model).
 
 ## Entry points
 

@@ -186,7 +186,7 @@ fix). These cases observe the block's side effect through an outer variable
 rather than the class's own name -- referencing the class by its own name
 from a static field/block initializer (as opposed to from inside a method
 body, which is lazily invoked later once the binding exists) is a separate,
-deeper, not-yet-fixed limitation; see docs/src/compatibility.md."
+deeper, not-yet-fixed limitation; see docs/src/reference/compatibility.md."
   ("42" "let se=0; class C{static {se=42;}} console.log(se);")
   ("3"  "let se=0; class C{static {se+=1; se+=2;}} console.log(se);")
   ("ab" "let se=''; class C{static {se+='a';} static {se+='b';}} console.log(se);"))

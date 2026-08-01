@@ -33,7 +33,7 @@ The lexer and parser cover the modern language, including editions well past ES2
   ES2025 `Uint8Array` base64/hex conversions), the ES2025 iterator helpers, and
   `Temporal`.
 
-The authoritative list is [the API reference](api-reference.md), which is generated
+The authoritative list is [the API reference](api.md), which is generated
 against the actual `:export` list.
 
 ## Deliberate simplifications
@@ -176,7 +176,7 @@ assigning to `eval`/`arguments`, and the other ECMAScript strict-mode-only rejec
 parse successfully; there is no `"use strict"` directive handling and no separate strict
 parse mode. `import`/`export` syntax parses unconditionally too — `parse-js-module` is a
 plain alias for `parse-js-source`, not a validating module parser (see
-[Quick Start](quick-start.md)). `js-exception` (see [Conditions](conditions.md)) would be
+[Quick Start](../getting-started.md)). `js-exception` (see [Conditions](conditions.md)) would be
 the signal for a real violation if strict-mode validation is implemented later.
 
 **Class method default parameter values are parsed but never applied.**
