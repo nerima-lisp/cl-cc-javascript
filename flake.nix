@@ -98,14 +98,14 @@
     # like this repo sees it — checked against cl-weave's own CHANGELOG.md
     # before bumping.
     cl-weave = {
-      url = "github:nerima-lisp/cl-weave/v1.1.0";
+      url = "github:nerima-lisp/cl-weave/v1.1.4";
       flake = false;
     };
     # v1.0.1 -> v1.1.0: internal performance work (indexed substitution,
     # tabled-answer replay, hash-table dispatch) plus a coverage report
     # target. No public API change — checked against cl-prolog's CHANGELOG.md.
     cl-prolog = {
-      url = "github:nerima-lisp/cl-prolog/v1.1.0";
+      url = "github:nerima-lisp/cl-prolog/v1.3.0";
       flake = false;
     };
     # v1.0.0 -> v1.0.1: org package-standard conformance only (file renames,
@@ -115,14 +115,14 @@
     # parts) — no public API change either way. Checked against
     # cl-parser-kit's CHANGELOG.md both times.
     cl-parser-kit = {
-      url = "github:nerima-lisp/cl-parser-kit/v1.0.2";
+      url = "github:nerima-lisp/cl-parser-kit/v1.0.3";
       flake = false;
     };
     # v1.0.0 -> v1.1.0: additive-only `:parallel` keyword on run-pipeline/
     # map-pipeline (default nil, backward compatible); CHANGELOG.md states
     # "No public API changed or removed" explicitly.
     cl-dataflow = {
-      url = "github:nerima-lisp/cl-dataflow/v1.1.0";
+      url = "github:nerima-lisp/cl-dataflow/v1.1.1";
       flake = false;
     };
     # v0.6.0 -> v1.0.0: CHANGELOG.md states "No exported symbol, protocol, or
@@ -138,13 +138,13 @@
     # never imports it directly. Bumped after adding cl-host-kit as a new
     # input below to satisfy the new transitive requirement.
     cl-boundary-kit = {
-      url = "github:nerima-lisp/cl-boundary-kit/v2.0.0";
+      url = "github:nerima-lisp/cl-boundary-kit/v2.0.1";
       flake = false;
     };
     # v1.0.1 -> v1.1.0: CHANGELOG.md states "No behavior of the cl-cli system
     # itself changed" — org package-standard conformance only.
     cl-cli = {
-      url = "github:nerima-lisp/cl-cli/v1.1.0";
+      url = "github:nerima-lisp/cl-cli/v1.2.0";
       flake = false;
     };
     # v1.0.0 -> v1.0.3: three bug fixes (a FORMAT directive-parsing bug in a
@@ -152,7 +152,7 @@
     # plus an internal cl-weave test-migration and macro consolidation — no
     # public API change, checked against cl-tty-kit's CHANGELOG.md.
     cl-tty-kit = {
-      url = "github:nerima-lisp/cl-tty-kit/v1.0.3";
+      url = "github:nerima-lisp/cl-tty-kit/v1.2.0";
       flake = false;
     };
     # v1.0.0 -> v2.0.0, evaluated 2026-07-31 (a prior session deliberately left
@@ -170,7 +170,7 @@
     # (cl-date-kit >= 0.2.0, cl-concurrent-kit >= 0.1.0, cl-host-kit >= 0.2.0)
     # are already met by the pins below. Safe bump.
     cl-log-kit = {
-      url = "github:nerima-lisp/cl-log-kit/v2.0.0";
+      url = "github:nerima-lisp/cl-log-kit/v2.0.1";
       flake = false;
     };
     cl-date-kit = {
@@ -178,7 +178,7 @@
       flake = false;
     };
     cl-json-kit = {
-      url = "github:nerima-lisp/cl-json-kit/v1.0.1";
+      url = "github:nerima-lisp/cl-json-kit/v1.0.2";
       flake = false;
     };
     # v0.1.0 -> v0.2.0: substantial internal rework (intrusive-list FIFO,
@@ -189,7 +189,7 @@
     # "### Changed" section line by line for a signature change to any of
     # the three before bumping; found none.
     cl-concurrent-kit = {
-      url = "github:nerima-lisp/cl-concurrent-kit/v0.2.0";
+      url = "github:nerima-lisp/cl-concurrent-kit/v0.3.0";
       flake = false;
     };
     # Now a DIRECT dependency: the Temporal runtime's host-time-zone discovery
@@ -200,7 +200,7 @@
     # the pin and the CL_CC_JAVASCRIPT_CL_HOST_KIT_ROOT wiring below are
     # unchanged -- only the justification grew.
     cl-host-kit = {
-      url = "github:nerima-lisp/cl-host-kit/v0.2.1";
+      url = "github:nerima-lisp/cl-host-kit/v0.2.5";
       flake = false;
     };
 
@@ -220,7 +220,7 @@
     # tool), not packages/checks: nothing in this repo's own build or test
     # suite depends on it.
     paredit-cli = {
-      url = "github:nerima-lisp/paredit-cli/v1.3.0";
+      url = "github:nerima-lisp/paredit-cli/v1.4.0";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
