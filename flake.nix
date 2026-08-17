@@ -248,7 +248,7 @@
       flake = false;
     };
     cl-cc-bootstrap = {
-      url = "github:nerima-lisp/cl-cc-bootstrap/v0.1.0";
+      url = "github:nerima-lisp/cl-cc-bootstrap/88d61be01658bc247ae2889cb08f1e7c6c2c9b33";
       flake = false;
     };
     cl-cc-parse = {
