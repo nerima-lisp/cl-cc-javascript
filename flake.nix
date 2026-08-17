@@ -89,7 +89,7 @@
     # branch and would break this repository on an unrelated upstream push.
     # Move to `/vX.Y.Z` once cl-cc's suite is green and it releases.
     cl-cc = {
-      url = "github:nerima-lisp/cl-cc/594456c6671356508a9393a97761be41e4ef8f1f";
+      url = "github:nerima-lisp/cl-cc/ce67ffd62647985cf72947b34075d8b20a351d0e";
       flake = false;
     };
     # v1.0.0 -> v1.1.0: internal reorg (org package-standard adoption, file
