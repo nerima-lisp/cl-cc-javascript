@@ -3,7 +3,7 @@
 ;;;; cl-cc-javascript is a plugin frontend for the cl-cc umbrella compiler: it
 ;;;; depends on packages that still live inside the cl-cc monorepo checkout
 ;;;; (cl-cc-ast/-bootstrap/-parse/-vm, plus everything cl-cc's own umbrella
-;;;; system pulls in transitively — optimize needs cl-prolog/cl-parser-kit,
+;;;; system pulls in transitively — optimize needs cl-prolog-kit/cl-parser-kit,
 ;;;; cli/repl need cl-boundary-kit/cl-cli/cl-tty-kit, boundary-kit needs
 ;;;; cl-log-kit and, as of its v2.0.0, cl-host-kit too), on cl-date-kit for
 ;;;; the Temporal runtime's IANA time zone support, on cl-json-kit for
@@ -21,9 +21,9 @@
 (defparameter *dependency-specs*
   '(("CL_CC_JAVASCRIPT_CL_CC_ROOT" "cl-cc")
     ("CL_CC_JAVASCRIPT_CL_WEAVE_ROOT" "cl-weave")
-    ("CL_CC_JAVASCRIPT_CL_PROLOG_ROOT" "cl-prolog")
+    ("CL_CC_JAVASCRIPT_CL_PROLOG_KIT_ROOT" "cl-prolog-kit")
     ("CL_CC_JAVASCRIPT_CL_PARSER_KIT_ROOT" "cl-parser-kit")
-    ("CL_CC_JAVASCRIPT_CL_DATAFLOW_ROOT" "cl-dataflow")
+    ("CL_CC_JAVASCRIPT_CL_DATAFLOW_KIT_ROOT" "cl-dataflow-kit")
     ("CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT" "cl-boundary-kit")
     ("CL_CC_JAVASCRIPT_CL_CLI_ROOT" "cl-cli")
     ("CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT" "cl-tty-kit")

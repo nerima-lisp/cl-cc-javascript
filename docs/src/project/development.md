@@ -67,9 +67,9 @@ see [Architecture](../reference/architecture.md)).
 |---|---|
 | `CL_CC_JAVASCRIPT_CL_CC_ROOT` | `cl-cc` |
 | `CL_CC_JAVASCRIPT_CL_WEAVE_ROOT` | `cl-weave` |
-| `CL_CC_JAVASCRIPT_CL_PROLOG_ROOT` | `cl-prolog` |
+| `CL_CC_JAVASCRIPT_CL_PROLOG_KIT_ROOT` | `cl-prolog-kit` |
 | `CL_CC_JAVASCRIPT_CL_PARSER_KIT_ROOT` | `cl-parser-kit` |
-| `CL_CC_JAVASCRIPT_CL_DATAFLOW_ROOT` | `cl-dataflow` |
+| `CL_CC_JAVASCRIPT_CL_DATAFLOW_KIT_ROOT` | `cl-dataflow-kit` |
 | `CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT` | `cl-boundary-kit` |
 | `CL_CC_JAVASCRIPT_CL_CLI_ROOT` | `cl-cli` |
 | `CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT` | `cl-tty-kit` |
