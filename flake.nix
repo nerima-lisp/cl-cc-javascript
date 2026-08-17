@@ -22,16 +22,18 @@
     # system with exactly `(require "asdf") (asdf:load-system "<name>")`,
     # with no hook to run arbitrary Lisp first. cl-cc-javascript's production
     # system `:depends-on (:cl-cc-ast :cl-cc-bootstrap :cl-cc-parse
-    # :cl-cc-vm)` -- four systems with no discoverable .asd of their own;
-    # they exist only because cl-cc.asd registers them (as an eval-when side
-    # effect) when IT is loaded. scripts/dependency-roots.lisp's
-    # `initialize-dependency-source-registry` does exactly that extra
-    # `(load ".../cl-cc.asd")` step before anything else runs -- a step
-    # `lispDerivation` has no argument to express. Forcing the main package
-    # through it would build a derivation whose own build phase cannot
-    # resolve its dependencies, so the hand-rolled buildPhase below (which
-    # runs the same dependency-roots.lisp bootstrap CI and a contributor's
-    # shell both already rely on) stays. Re-check this reasoning against
+    # :cl-cc-vm)`, and its /test system's much wider transitive closure (see
+    # the standalone cl-cc-* inputs below), are each their own flake input now
+    # -- but dependency-roots.lisp's `initialize-dependency-source-registry`
+    # still ends with an extra `(load ".../cl-cc.asd")` step: that is what
+    # registers cl-cc-compile/cl-cc-stdlib/cl-cc-pipeline (in-tree inside the
+    # cl-cc checkout, no .asd of their own anywhere else) onto the source
+    # registry, and `lispDerivation` has no argument to express an extra load
+    # before `asdf:load-system`. Forcing the main package through it would
+    # build a derivation whose own build phase cannot resolve its
+    # dependencies, so the hand-rolled buildPhase below (which runs the same
+    # dependency-roots.lisp bootstrap CI and a contributor's shell both
+    # already rely on) stays. Re-check this reasoning against
     # lib/core/asdf-derivation.nix before revisiting it on a future
     # cl-nix-forge upgrade.
     #
@@ -43,15 +45,14 @@
     };
 
     # cl-cc-javascript is a plugin frontend: its production system depends on
-    # cl-cc-ast/-bootstrap/-parse/-vm, which still live inside the cl-cc
-    # monorepo checkout, and cl-cc's own umbrella system transitively pulls in
-    # cl-prolog/cl-parser-kit (optimize's e-graph rules), cl-boundary-kit/
-    # cl-cli/cl-tty-kit (cli/repl), and cl-log-kit (boundary-kit). cl-date-kit
-    # gives the Temporal runtime real IANA time zone support (host zone
-    # discovery and instant -> local-zone projection; see
-    # docs/src/reference/compatibility.md for what that does and does not cover).
-    # cl-json-kit replaces the JSON.parse/JSON.stringify runtime's own ad hoc
-    # parser/writer with an RFC-8259-conformant one (95/95 JSONTestSuite
+    # cl-cc-ast/-bootstrap/-parse/-vm, and cl-cc's own umbrella system
+    # transitively pulls in cl-prolog-kit/cl-parser-kit (optimize's e-graph
+    # rules), cl-boundary-kit/cl-cli/cl-tty-kit (cli/repl), and cl-log-kit
+    # (boundary-kit). cl-date-kit gives the Temporal runtime real IANA time
+    # zone support (host zone discovery and instant -> local-zone projection;
+    # see docs/src/reference/compatibility.md for what that does and does not
+    # cover). cl-json-kit replaces the JSON.parse/JSON.stringify runtime's own
+    # ad hoc parser/writer with an RFC-8259-conformant one (95/95 JSONTestSuite
     # must-accept, 188/188 must-reject) — adopted directly through its own
     # null-value/false-value/true-value/number-encoder hooks, not an adapter;
     # see runtime-json.lisp for what those hooks are used for. cl-concurrent-
@@ -59,6 +60,23 @@
     # the value — a two-party rendezvous) replaces the generator runtime's own
     # hand-rolled mutex+condvar+turn-tracking for its suspend/resume coroutine
     # hand-off; see runtime-generator.lisp. cl-weave is the test framework.
+    #
+    # NEITHER cl-cc-ast/-bootstrap/-parse/-vm NOR any of the standalone cl-cc-*
+    # inputs further below "still live inside the cl-cc monorepo checkout" —
+    # a prior version of this comment said so, and it was wrong by the time it
+    # was written: cl-cc.asd deliberately carries no in-tree packages/{ast,
+    # bootstrap,parse,vm,type,binary,mir,cps,expand,optimize,runtime}, or a
+    # packages/codegen-native equivalent — every one of them is an external
+    # repository only, reached as a flake input exactly like cl-cc itself.
+    # `find packages/<name> -iname '*.asd'` on the pinned cl-cc checkout
+    # confirms each is empty of its own .asd. The four production deps were
+    # the only ones this file supplied before; see the standalone cl-cc-*
+    # input group below for the rest, needed because cl-cc-javascript.asd's
+    # own /test system depends on cl-cc-pipeline (not the full cl-cc
+    # umbrella — see that .asd's comment, which quotes cl-cc-php's own
+    # precedent for the same choice), and cl-cc-pipeline's :depends-on pulls
+    # in cl-cc-type/-optimize/-expand/-binary/-mir/-codegen(-native)/-runtime/
+    # -cps transitively.
     #
     # Every one of these is consumed as a plain source tree (`flake = false`)
     # rather than as a flake, because scripts/dependency-roots.lisp locates
@@ -89,7 +107,7 @@
     # branch and would break this repository on an unrelated upstream push.
     # Move to `/vX.Y.Z` once cl-cc's suite is green and it releases.
     cl-cc = {
-      url = "github:nerima-lisp/cl-cc/594456c6671356508a9393a97761be41e4ef8f1f";
+      url = "github:nerima-lisp/cl-cc/ce67ffd62647985cf72947b34075d8b20a351d0e";
       flake = false;
     };
     # v1.0.0 -> v1.1.0: internal reorg (org package-standard adoption, file
@@ -103,9 +121,9 @@
     };
     # v1.0.1 -> v1.1.0: internal performance work (indexed substitution,
     # tabled-answer replay, hash-table dispatch) plus a coverage report
-    # target. No public API change — checked against cl-prolog's CHANGELOG.md.
-    cl-prolog = {
-      url = "github:nerima-lisp/cl-prolog/v1.3.0";
+    # target. No public API change — checked against cl-prolog-kit's CHANGELOG.md.
+    cl-prolog-kit = {
+      url = "github:nerima-lisp/cl-prolog-kit/v1.5.0";
       flake = false;
     };
     # v1.0.0 -> v1.0.1: org package-standard conformance only (file renames,
@@ -121,8 +139,8 @@
     # v1.0.0 -> v1.1.0: additive-only `:parallel` keyword on run-pipeline/
     # map-pipeline (default nil, backward compatible); CHANGELOG.md states
     # "No public API changed or removed" explicitly.
-    cl-dataflow = {
-      url = "github:nerima-lisp/cl-dataflow/v1.1.1";
+    cl-dataflow-kit = {
+      url = "github:nerima-lisp/cl-dataflow-kit/v1.2.0";
       flake = false;
     };
     # v0.6.0 -> v1.0.0: CHANGELOG.md states "No exported symbol, protocol, or
@@ -204,6 +222,112 @@
       flake = false;
     };
 
+    # --- Standalone cl-cc-* subsystems, needed only for cl-cc-javascript/test ---
+    #
+    # cl-cc-javascript.asd's /test system depends on cl-cc-pipeline (see that
+    # .asd's comment), not on the full cl-cc umbrella; cl-cc-pipeline's own
+    # :depends-on is (:cl-cc-bootstrap :cl-cc-ast :cl-cc-parse :cl-cc-type
+    # :cl-cc-optimize :cl-cc-vm :cl-cc-expand :cl-cc-emit :cl-cc-stdlib
+    # :cl-cc-binary :cl-cc-mir :cl-cc-codegen :cl-cc-compile). cl-cc-stdlib and
+    # cl-cc-compile are in-tree inside the cl-cc checkout (loaded by cl-cc.asd's
+    # own eval-when, see the cl-cc input's comment above); every other name in
+    # that list is one of the inputs below, plus what each pulls in
+    # transitively (cl-cc-vm needs cl-cc-runtime/cl-regex-kit; cl-cc-runtime
+    # and cl-cc-binary need cl-process-kit; cl-process-kit needs cl-codec-kit;
+    # cl-cc-compile needs cl-cc-cps).
+    #
+    # Pin choice per input: a release tag when the tag and origin/main agree
+    # on :depends-on, otherwise the current main revision with a comment
+    # saying what changed. This whole family of repos went through the same
+    # in-flight migration wave (org-wide cl-prolog -> cl-prolog-kit rename,
+    # cl-host-kit adoption) at different paces, so several latest tags predate
+    # it while main does not — checked with `git show origin/main:<name>.asd`
+    # against `git show <tag>:<name>.asd` for each, not assumed.
+    cl-cc-ast = {
+      url = "github:nerima-lisp/cl-cc-ast/v0.2.0";
+      flake = false;
+    };
+    cl-cc-bootstrap = {
+      url = "github:nerima-lisp/cl-cc-bootstrap/88d61be01658bc247ae2889cb08f1e7c6c2c9b33";
+      flake = false;
+    };
+    cl-cc-parse = {
+      url = "github:nerima-lisp/cl-cc-parse/v0.1.0";
+      flake = false;
+    };
+    # v0.1.0's :depends-on is missing cl-host-kit, which origin/main has
+    # gained since (cl-cc-vm now reads through it directly, not just
+    # transitively via cl-boundary-kit) -- main revision, not the tag.
+    cl-cc-vm = {
+      url = "github:nerima-lisp/cl-cc-vm/8634a8e8764fb7d4419b173db38a927638ac4b44";
+      flake = false;
+    };
+    cl-cc-type = {
+      url = "github:nerima-lisp/cl-cc-type/v0.2.0";
+      flake = false;
+    };
+    # v0.5.1's :depends-on still says :cl-prolog; origin/main says
+    # :cl-prolog-kit (the org-wide rename) and has also gained :cl-host-kit.
+    # Same revision cl-cc's own flake.nix already pins for this input.
+    cl-cc-optimize = {
+      url = "github:nerima-lisp/cl-cc-optimize/51c0db63ff125413568ec08c79e33dcf34f00fbf";
+      flake = false;
+    };
+    # v0.1.0's :depends-on is missing cl-host-kit; main has it -- main
+    # revision, not the tag, same reasoning as cl-cc-vm above.
+    cl-cc-expand = {
+      url = "github:nerima-lisp/cl-cc-expand/df72247b33514740e604472edea208ebb31cf84a";
+      flake = false;
+    };
+    cl-cc-binary = {
+      url = "github:nerima-lisp/cl-cc-binary/v0.2.0";
+      flake = false;
+    };
+    # No tags cut yet; also provides the cl-cc-target system (same source
+    # tree, both cl-cc-mir.asd and cl-cc-target.asd live at the repo root) --
+    # one CL_CC_JAVASCRIPT_CL_CC_MIR_ROOT directory entry below reaches both.
+    cl-cc-mir = {
+      url = "github:nerima-lisp/cl-cc-mir/663c4c01c800ca7e64d444c53204645173e84854";
+      flake = false;
+    };
+    # One source tree, three systems, none of them at the repo root:
+    # cl-cc-codegen-native.asd (repo root, unused here), codegen/cl-cc-codegen.asd,
+    # emit/cl-cc-emit.asd, regalloc/cl-cc-regalloc.asd. dependency-roots.lisp's
+    # source-registry entries are non-recursive `:directory` scans (see its own
+    # comment on why), so this repo needs three separate ROOT env vars below,
+    # each pointing at a subdirectory of this one checkout -- not three inputs.
+    cl-cc-codegen-native = {
+      url = "github:nerima-lisp/cl-cc-codegen-native/v0.2.0";
+      flake = false;
+    };
+    # v0.1.0's :depends-on is missing cl-host-kit; main has it -- main
+    # revision, not the tag, same reasoning as cl-cc-vm above.
+    cl-cc-runtime = {
+      url = "github:nerima-lisp/cl-cc-runtime/488a7788c707b384ba3ed4f877d5149e24bc178d";
+      flake = false;
+    };
+    cl-cc-cps = {
+      url = "github:nerima-lisp/cl-cc-cps/v0.1.0";
+      flake = false;
+    };
+    # cl-cc-vm's dependency, not consumed by this repo's own src/.
+    cl-regex-kit = {
+      url = "github:nerima-lisp/cl-regex-kit/v2.0.0";
+      flake = false;
+    };
+    # cl-cc-runtime's and cl-cc-binary's dependency. v3.2.0's :depends-on is
+    # missing cl-concurrent-kit, which origin/main has gained -- main
+    # revision, not the tag, same reasoning as cl-cc-vm above.
+    cl-process-kit = {
+      url = "github:nerima-lisp/cl-process-kit/07ddd1adb6fd94f7fe81197150bdef5b3793b459";
+      flake = false;
+    };
+    # cl-process-kit's dependency, not consumed by this repo's own src/.
+    cl-codec-kit = {
+      url = "github:nerima-lisp/cl-codec-kit/v0.5.0";
+      flake = false;
+    };
+
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -232,9 +356,9 @@
       cl-nix-forge,
       cl-cc,
       cl-weave,
-      cl-prolog,
+      cl-prolog-kit,
       cl-parser-kit,
-      cl-dataflow,
+      cl-dataflow-kit,
       cl-boundary-kit,
       cl-cli,
       cl-tty-kit,
@@ -243,6 +367,21 @@
       cl-json-kit,
       cl-concurrent-kit,
       cl-host-kit,
+      cl-cc-ast,
+      cl-cc-bootstrap,
+      cl-cc-parse,
+      cl-cc-vm,
+      cl-cc-type,
+      cl-cc-optimize,
+      cl-cc-expand,
+      cl-cc-binary,
+      cl-cc-mir,
+      cl-cc-codegen-native,
+      cl-cc-runtime,
+      cl-cc-cps,
+      cl-regex-kit,
+      cl-process-kit,
+      cl-codec-kit,
       treefmt-nix,
       paredit-cli,
     }:
@@ -279,9 +418,9 @@
       dependencyEnv = {
         CL_CC_JAVASCRIPT_CL_CC_ROOT = toString cl-cc;
         CL_CC_JAVASCRIPT_CL_WEAVE_ROOT = toString cl-weave;
-        CL_CC_JAVASCRIPT_CL_PROLOG_ROOT = toString cl-prolog;
+        CL_CC_JAVASCRIPT_CL_PROLOG_KIT_ROOT = toString cl-prolog-kit;
         CL_CC_JAVASCRIPT_CL_PARSER_KIT_ROOT = toString cl-parser-kit;
-        CL_CC_JAVASCRIPT_CL_DATAFLOW_ROOT = toString cl-dataflow;
+        CL_CC_JAVASCRIPT_CL_DATAFLOW_KIT_ROOT = toString cl-dataflow-kit;
         CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT = toString cl-boundary-kit;
         CL_CC_JAVASCRIPT_CL_CLI_ROOT = toString cl-cli;
         CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT = toString cl-tty-kit;
@@ -290,6 +429,27 @@
         CL_CC_JAVASCRIPT_CL_JSON_KIT_ROOT = toString cl-json-kit;
         CL_CC_JAVASCRIPT_CL_CONCURRENT_KIT_ROOT = toString cl-concurrent-kit;
         CL_CC_JAVASCRIPT_CL_HOST_KIT_ROOT = toString cl-host-kit;
+        CL_CC_JAVASCRIPT_CL_CC_AST_ROOT = toString cl-cc-ast;
+        CL_CC_JAVASCRIPT_CL_CC_BOOTSTRAP_ROOT = toString cl-cc-bootstrap;
+        CL_CC_JAVASCRIPT_CL_CC_PARSE_ROOT = toString cl-cc-parse;
+        CL_CC_JAVASCRIPT_CL_CC_VM_ROOT = toString cl-cc-vm;
+        CL_CC_JAVASCRIPT_CL_CC_TYPE_ROOT = toString cl-cc-type;
+        CL_CC_JAVASCRIPT_CL_CC_OPTIMIZE_ROOT = toString cl-cc-optimize;
+        CL_CC_JAVASCRIPT_CL_CC_EXPAND_ROOT = toString cl-cc-expand;
+        CL_CC_JAVASCRIPT_CL_CC_BINARY_ROOT = toString cl-cc-binary;
+        # Also reaches cl-cc-target.asd -- see the cl-cc-mir input's comment.
+        CL_CC_JAVASCRIPT_CL_CC_MIR_ROOT = toString cl-cc-mir;
+        # Three subdirectories of the same cl-cc-codegen-native checkout, not
+        # three inputs -- see that input's comment on why the .asd files
+        # aren't at the repo root a plain :directory scan would reach.
+        CL_CC_JAVASCRIPT_CL_CC_CODEGEN_ROOT = "${cl-cc-codegen-native}/codegen";
+        CL_CC_JAVASCRIPT_CL_CC_EMIT_ROOT = "${cl-cc-codegen-native}/emit";
+        CL_CC_JAVASCRIPT_CL_CC_REGALLOC_ROOT = "${cl-cc-codegen-native}/regalloc";
+        CL_CC_JAVASCRIPT_CL_CC_RUNTIME_ROOT = toString cl-cc-runtime;
+        CL_CC_JAVASCRIPT_CL_CC_CPS_ROOT = toString cl-cc-cps;
+        CL_CC_JAVASCRIPT_CL_REGEX_KIT_ROOT = toString cl-regex-kit;
+        CL_CC_JAVASCRIPT_CL_PROCESS_KIT_ROOT = toString cl-process-kit;
+        CL_CC_JAVASCRIPT_CL_CODEC_KIT_ROOT = toString cl-codec-kit;
       };
       exportDependencyEnv = nixpkgs.lib.concatStrings (
         nixpkgs.lib.mapAttrsToList (
@@ -390,9 +550,9 @@
           # `nix build .#coverage-report`: runs the regression suite under
           # SB-COVER via scripts/run-coverage.lisp (pre-existing, previously
           # unwired into flake.nix — CI and `nix flake check` never ran it) and
-          # publishes the HTML report as $out, matching the shape cl-prolog's
+          # publishes the HTML report as $out, matching the shape cl-prolog-kit's
           # v1.1.0 established. `checks.coverage` below only asserts the
-          # report exists, the same restraint cl-prolog's docs give for the
+          # report exists, the same restraint cl-prolog-kit's docs give for the
           # same reason: SB-COVER's HTML output isn't a numeric gate without
           # its own parser, which this repository does not have yet.
           coverage-report = pkgs.stdenvNoCC.mkDerivation {

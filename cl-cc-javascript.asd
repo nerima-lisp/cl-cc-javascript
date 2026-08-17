@@ -157,8 +157,19 @@
   :homepage "https://github.com/nerima-lisp/cl-cc-javascript"
   :bug-tracker "https://github.com/nerima-lisp/cl-cc-javascript/issues"
   :source-control (:git "https://github.com/nerima-lisp/cl-cc-javascript.git")
+  ;; NOT :cl-cc, the full umbrella: :cl-cc's own :depends-on ends in
+  ;; (... :cl-cc-php :cl-cc-javascript), so depending on the umbrella here
+  ;; would pull this very system in through :cl-cc as well as directly, plus
+  ;; cl-cc-php, cl-cc-selfhost, cl-cc-repl, cl-cc-cli and every other
+  ;; sibling frontend/tool cl-cc's umbrella carries -- none of which this
+  ;; suite touches. :cl-cc-pipeline is cl-cc-php.asd's own precedent for
+  ;; this: its /test system's comment says depending on cl-cc-pipeline (not
+  ;; :cl-cc) is deliberate, "folding cl-cc-pipeline into the main system
+  ;; would make every consumer of the PHP frontend drag along
+  ;; codegen/optimize/regalloc/emit for no reason" -- same reasoning here,
+  ;; minus the self-reference cl-cc-php doesn't have to worry about.
   ;; cl-weave is the org's test framework everywhere.
-  :depends-on (:cl-cc :cl-weave :cl-cc-javascript)
+  :depends-on (:cl-cc-pipeline :cl-weave :cl-cc-javascript)
   :pathname "t"
   :serial t
   :components
