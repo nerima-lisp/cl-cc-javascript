@@ -45,7 +45,7 @@
     # cl-cc-javascript is a plugin frontend: its production system depends on
     # cl-cc-ast/-bootstrap/-parse/-vm, which still live inside the cl-cc
     # monorepo checkout, and cl-cc's own umbrella system transitively pulls in
-    # cl-prolog/cl-parser-kit (optimize's e-graph rules), cl-boundary-kit/
+    # cl-prolog-kit/cl-parser-kit (optimize's e-graph rules), cl-boundary-kit/
     # cl-cli/cl-tty-kit (cli/repl), and cl-log-kit (boundary-kit). cl-date-kit
     # gives the Temporal runtime real IANA time zone support (host zone
     # discovery and instant -> local-zone projection; see
@@ -103,9 +103,9 @@
     };
     # v1.0.1 -> v1.1.0: internal performance work (indexed substitution,
     # tabled-answer replay, hash-table dispatch) plus a coverage report
-    # target. No public API change — checked against cl-prolog's CHANGELOG.md.
-    cl-prolog = {
-      url = "github:nerima-lisp/cl-prolog/v1.5.0";
+    # target. No public API change — checked against cl-prolog-kit's CHANGELOG.md.
+    cl-prolog-kit = {
+      url = "github:nerima-lisp/cl-prolog-kit/v1.5.0";
       flake = false;
     };
     # v1.0.0 -> v1.0.1: org package-standard conformance only (file renames,
@@ -236,7 +236,7 @@
       cl-nix-forge,
       cl-cc,
       cl-weave,
-      cl-prolog,
+      cl-prolog-kit,
       cl-parser-kit,
       cl-dataflow,
       cl-boundary-kit,
@@ -284,7 +284,7 @@
       dependencyEnv = {
         CL_CC_JAVASCRIPT_CL_CC_ROOT = toString cl-cc;
         CL_CC_JAVASCRIPT_CL_WEAVE_ROOT = toString cl-weave;
-        CL_CC_JAVASCRIPT_CL_PROLOG_ROOT = toString cl-prolog;
+        CL_CC_JAVASCRIPT_CL_PROLOG_KIT_ROOT = toString cl-prolog-kit;
         CL_CC_JAVASCRIPT_CL_PARSER_KIT_ROOT = toString cl-parser-kit;
         CL_CC_JAVASCRIPT_CL_DATAFLOW_ROOT = toString cl-dataflow;
         CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT = toString cl-boundary-kit;
@@ -396,7 +396,7 @@
           # `nix build .#coverage-report`: runs the regression suite under
           # SB-COVER via scripts/run-coverage.lisp (pre-existing, previously
           # unwired into flake.nix — CI and `nix flake check` never ran it) and
-          # publishes the HTML report as $out, matching the shape cl-prolog's
+          # publishes the HTML report as $out, matching the shape cl-prolog-kit's
           # v1.1.0 established. `checks.coverage` below only asserts the
           # report exists, the same restraint cl-prolog's docs give for the
           # same reason: SB-COVER's HTML output isn't a numeric gate without
