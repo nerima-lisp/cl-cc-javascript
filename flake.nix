@@ -155,6 +155,10 @@
       url = "github:nerima-lisp/cl-tty-kit/v1.2.0";
       flake = false;
     };
+    cl-codec-kit = {
+      url = "github:nerima-lisp/cl-codec-kit/v0.6.0";
+      flake = false;
+    };
     # v1.0.0 -> v2.0.0, evaluated 2026-07-31 (a prior session deliberately left
     # this bump for its own dedicated evaluation rather than doing it as a
     # side effect of unblocking cl-date-kit/cl-concurrent-kit/cl-host-kit as
@@ -238,6 +242,7 @@
       cl-boundary-kit,
       cl-cli,
       cl-tty-kit,
+      cl-codec-kit,
       cl-log-kit,
       cl-date-kit,
       cl-json-kit,
@@ -285,6 +290,7 @@
         CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT = toString cl-boundary-kit;
         CL_CC_JAVASCRIPT_CL_CLI_ROOT = toString cl-cli;
         CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT = toString cl-tty-kit;
+        CL_CC_JAVASCRIPT_CL_CODEC_KIT_ROOT = toString cl-codec-kit;
         CL_CC_JAVASCRIPT_CL_LOG_KIT_ROOT = toString cl-log-kit;
         CL_CC_JAVASCRIPT_CL_DATE_KIT_ROOT = toString cl-date-kit;
         CL_CC_JAVASCRIPT_CL_JSON_KIT_ROOT = toString cl-json-kit;

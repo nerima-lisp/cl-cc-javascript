@@ -27,6 +27,7 @@
     ("CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT" "cl-boundary-kit")
     ("CL_CC_JAVASCRIPT_CL_CLI_ROOT" "cl-cli")
     ("CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT" "cl-tty-kit")
+    ("CL_CC_JAVASCRIPT_CL_CODEC_KIT_ROOT" "cl-codec-kit")
     ("CL_CC_JAVASCRIPT_CL_LOG_KIT_ROOT" "cl-log-kit")
     ("CL_CC_JAVASCRIPT_CL_DATE_KIT_ROOT" "cl-date-kit")
     ("CL_CC_JAVASCRIPT_CL_JSON_KIT_ROOT" "cl-json-kit")
