@@ -159,10 +159,6 @@
       url = "github:nerima-lisp/cl-codec-kit/v0.6.0";
       flake = false;
     };
-    cl-codec-kit = {
-      url = "github:nerima-lisp/cl-codec-kit/v0.6.0";
-      flake = false;
-    };
     # v1.0.0 -> v2.0.0, evaluated 2026-07-31 (a prior session deliberately left
     # this bump for its own dedicated evaluation rather than doing it as a
     # side effect of unblocking cl-date-kit/cl-concurrent-kit/cl-host-kit as
