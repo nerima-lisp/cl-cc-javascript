@@ -108,6 +108,12 @@
       url = "github:nerima-lisp/cl-prolog-kit/v1.5.0";
       flake = false;
     };
+    # Compatibility source for the currently pinned cl-cc revision, whose
+    # optimize system still depends on the pre-rename :cl-prolog name.
+    cl-prolog = {
+      url = "github:nerima-lisp/cl-prolog/v1.3.0";
+      flake = false;
+    };
     # v1.0.0 -> v1.0.1: org package-standard conformance only (file renames,
     # `defpackage` designator style, test-system name). v1.0.1 -> v1.0.2: two
     # bug fixes (a dropped :position on parse-pratt's token-limit failure
@@ -237,6 +243,7 @@
       cl-cc,
       cl-weave,
       cl-prolog-kit,
+      cl-prolog,
       cl-parser-kit,
       cl-dataflow,
       cl-boundary-kit,
@@ -285,6 +292,7 @@
         CL_CC_JAVASCRIPT_CL_CC_ROOT = toString cl-cc;
         CL_CC_JAVASCRIPT_CL_WEAVE_ROOT = toString cl-weave;
         CL_CC_JAVASCRIPT_CL_PROLOG_KIT_ROOT = toString cl-prolog-kit;
+        CL_CC_JAVASCRIPT_CL_PROLOG_ROOT = toString cl-prolog;
         CL_CC_JAVASCRIPT_CL_PARSER_KIT_ROOT = toString cl-parser-kit;
         CL_CC_JAVASCRIPT_CL_DATAFLOW_ROOT = toString cl-dataflow;
         CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT = toString cl-boundary-kit;
