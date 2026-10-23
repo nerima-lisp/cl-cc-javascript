@@ -47,6 +47,7 @@ jobs:
           set +e
           nix develop --command sbcl --noinform --non-interactive \
             --eval '(require :asdf)' \
+            --eval '(asdf:load-asd "cl-cc-javascript.asd")' \
             --eval '(asdf:test-system "cl-cc-javascript")' > "$log" 2>&1
           status=$?
           set -e
