@@ -340,3 +340,8 @@ const upper = user?.profile?.address?.city?.toUpperCase();
                      (equal (optional-chain-keys (first upper-args))
                             '("profile" "address" "city")))
                 :to-be-truthy)))))
+
+;;; W2-23 control: verify that one registered failure makes ASDF fail.
+
+(it-sequential "js-e2e-control-intentional-failure"
+  (expect nil :to-be-truthy))
