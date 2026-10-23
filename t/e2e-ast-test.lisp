@@ -85,8 +85,44 @@ const doubled = nums.map(x => x * 2);
 const evens = nums.filter(x => x % 2 === 0);
 const sum = nums.reduce((acc, x) => acc + x, 0);
 ")))
-    (expect (>= (length asts) 1) :to-be-truthy)
-    (expect (cl-cc/ast:ast-let-p (first asts)) :to-be-truthy)))
+    (labels ((binding-named (name nodes)
+               (loop for node in nodes
+                     when (cl-cc/ast:ast-let-p node)
+                       thereis
+                         (or (find name (cl-cc/ast:ast-let-bindings node)
+                                   :key (lambda (binding) (symbol-name (car binding)))
+                                   :test #'string-equal)
+                             (binding-named name (cl-cc/ast:ast-let-body node)))))
+             (higher-order-call-p (method arity binding)
+               (let* ((call (cdr binding))
+                      (callee (and (cl-cc/ast:ast-call-p call)
+                                   (cl-cc/ast:ast-call-func call)))
+                      (property-args (and (cl-cc/ast:ast-call-p callee)
+                                          (cl-cc/ast:ast-call-args callee)))
+                      (args (and (cl-cc/ast:ast-call-p call)
+                                 (cl-cc/ast:ast-call-args call)))
+                      (callback (first args)))
+                 (and (cl-cc/ast:ast-call-p call)
+                      (cl-cc/ast:ast-call-p callee)
+                      (equal "%JS-GET-PROP" (%js-call-name callee))
+                      (= 2 (length property-args))
+                      (cl-cc/ast:ast-quote-p (second property-args))
+                      (stringp (cl-cc/ast:ast-quote-value (second property-args)))
+                      (string-equal method (cl-cc/ast:ast-quote-value (second property-args)))
+                      (= arity (length args))
+                      (cl-cc/ast:ast-lambda-p callback)
+                      (= arity (length (cl-cc/ast:ast-lambda-params callback)))))))
+      (let ((nums (binding-named "nums" asts))
+            (doubled (binding-named "doubled" asts))
+            (evens (binding-named "evens" asts))
+            (sum (binding-named "sum" asts)))
+        (expect (and nums
+                     (cl-cc/ast:ast-call-p (cdr nums))
+                     (equal "%JS-MAKE-ARRAY" (%js-call-name (cdr nums)))
+                     (= 5 (length (cl-cc/ast:ast-call-args (cdr nums))))) :to-be-truthy)
+        (expect (higher-order-call-p "map" 1 doubled) :to-be-truthy)
+        (expect (higher-order-call-p "filter" 1 evens) :to-be-truthy)
+        (expect (higher-order-call-p "reduce" 2 sum) :to-be-truthy)))))
 
 ;;; ─── 4. Class with inheritance ────────────────────────────────────────────────
 
@@ -184,7 +220,46 @@ export function add(a, b) { return a + b; }
 export function subtract(a, b) { return a - b; }
 export const PI = 3.14159;
 ")))
-    (expect (>= (length asts) 0) :to-be-truthy)))
+    (labels ((export-info (node)
+               (let ((args (and (cl-cc/ast:ast-call-p node)
+                                (equal "%JS-EXPORT" (%js-call-name node))
+                                (cl-cc/ast:ast-call-args node))))
+                 (when (and (= 4 (length args))
+                            (cl-cc/ast:ast-quote-p (first args))
+                            (cl-cc/ast:ast-quote-p (fourth args)))
+                   (list (cl-cc/ast:ast-quote-value (first args))
+                         (cl-cc/ast:ast-quote-value (fourth args))
+                         (second args))))))
+      (let* ((infos (mapcar #'export-info asts))
+             (declarations (mapcar #'third infos)))
+        (expect (= 3 (length asts)) :to-be-truthy)
+        (expect (every #'identity infos) :to-be-truthy)
+        (expect (mapcar #'first infos) :to-equal
+                '(:declaration :declaration :declaration))
+        (expect (mapcar #'second infos) :to-equal
+                '(("add") ("subtract") ("PI")))
+        (expect (and (= 3 (length declarations))
+                     (every #'cl-cc/ast:ast-defun-p (subseq declarations 0 2)))
+                :to-be-truthy)
+        (expect (and (= 3 (length declarations))
+                     (string-equal "add"
+                                   (symbol-name (cl-cc/ast:ast-defun-name (first declarations))))
+                     (string-equal "subtract"
+                                   (symbol-name (cl-cc/ast:ast-defun-name (second declarations)))))
+                :to-be-truthy)
+        (expect (and (= 3 (length declarations))
+                     (equal (mapcar (lambda (fn)
+                                      (mapcar #'symbol-name
+                                              (cl-cc/ast:ast-defun-params fn)))
+                                    (subseq declarations 0 2))
+                            '(("a" "b") ("a" "b"))))
+                :to-be-truthy)
+        (let* ((pi-decl (third declarations))
+               (bindings (when (cl-cc/ast:ast-let-p pi-decl)
+                           (cl-cc/ast:ast-let-bindings pi-decl))))
+          (expect (and bindings
+                       (string-equal "PI" (symbol-name (caar bindings))))
+                  :to-be-truthy))))))
 
 ;;; ─── 9. Async / await simulation ─────────────────────────────────────────────
 
@@ -213,5 +288,55 @@ const city = user?.profile?.address?.city;
 const zip = user?.profile?.address?.zip ?? 'N/A';
 const upper = user?.profile?.address?.city?.toUpperCase();
 ")))
-    (expect (>= (length asts) 1) :to-be-truthy)
-    (expect (cl-cc/ast:ast-let-p (first asts)) :to-be-truthy)))
+    (labels ((binding-named (name nodes)
+               (loop for node in nodes
+                     when (cl-cc/ast:ast-let-p node)
+                       thereis
+                         (or (find name (cl-cc/ast:ast-let-bindings node)
+                                   :key (lambda (binding) (symbol-name (car binding)))
+                                   :test #'string-equal)
+                             (binding-named name (cl-cc/ast:ast-let-body node)))))
+             (optional-chain-keys (node)
+               (when (and (cl-cc/ast:ast-call-p node)
+                          (equal "%JS-OPTIONAL-CHAIN" (%js-call-name node)))
+                 (let ((args (cl-cc/ast:ast-call-args node)))
+                   (when (and (= 2 (length args))
+                              (cl-cc/ast:ast-quote-p (second args)))
+                     (append (optional-chain-keys (first args))
+                             (list (cl-cc/ast:ast-quote-value (second args))))))))
+             (call-args-named (name node)
+               (when (and (cl-cc/ast:ast-call-p node)
+                          (equal name (%js-call-name node)))
+                 (cl-cc/ast:ast-call-args node))))
+      (let* ((city (binding-named "city" asts))
+             (zip (binding-named "zip" asts))
+             (upper (binding-named "upper" asts))
+             (city-init (cdr city))
+             (zip-init (cdr zip))
+             (zip-bindings (when (cl-cc/ast:ast-let-p zip-init)
+                             (cl-cc/ast:ast-let-bindings zip-init)))
+             (zip-body (when (cl-cc/ast:ast-let-p zip-init)
+                         (cl-cc/ast:ast-let-body zip-init)))
+             (upper-call (cdr upper))
+             (upper-args (call-args-named "%JS-OPTIONAL-METHOD-CALL" upper-call)))
+        (expect city :to-be-truthy)
+        (expect zip :to-be-truthy)
+        (expect upper :to-be-truthy)
+        (expect (optional-chain-keys city-init) :to-equal
+                '("profile" "address" "city"))
+        (expect (and zip-bindings
+                     (equal (optional-chain-keys (cdar zip-bindings))
+                            '("profile" "address" "zip")))
+                :to-be-truthy)
+        (expect (and zip-body
+                     (= 1 (length zip-body))
+                     (cl-cc/ast:ast-if-p (first zip-body)))
+                :to-be-truthy)
+        (expect (and upper-args
+                     (= 2 (length upper-args))
+                     (cl-cc/ast:ast-quote-p (second upper-args))
+                     (string-equal "toUpperCase"
+                                   (cl-cc/ast:ast-quote-value (second upper-args)))
+                     (equal (optional-chain-keys (first upper-args))
+                            '("profile" "address" "city")))
+                :to-be-truthy)))))

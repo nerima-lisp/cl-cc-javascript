@@ -1,0 +1,8 @@
+# Tab-separated fields: source path and reason the file is outside ASDF test system `cl-cc-javascript/test`.
+# Counts are cl-weave test registrations after test macro expansion.
+# These files call `cl-cc:compile-string` and `cl-cc/pipeline:seed-js-runtime-globals`, which `cl-cc-javascript/test` does not depend on.
+# Keep a row until every test from that file is registered in the `cl-cc` repository's `cl-cc/test` system (`cl-cc.asd`) and that repository's CI `nix flake check` reports them passing.
+t/e2e-core-test.lisp	45 tests use `%js-run-capture` to compile JavaScript, seed runtime globals, and execute in the VM.
+t/e2e-advanced-test.lisp	45 tests call `%js-run-capture`, defined in the core file.
+t/e2e-advanced-builtins-test.lisp	61 tests call `%js-run-capture`, defined in the core file.
+t/e2e-modern-test.lisp	105 modern cases plus one async/await execution test (106 total); the parse-only async/await test is registered from `t/e2e-ast-test.lisp` in ASDF system `cl-cc-javascript/test`.
