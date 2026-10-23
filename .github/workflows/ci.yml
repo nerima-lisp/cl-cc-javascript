@@ -40,6 +40,27 @@ jobs:
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
+      - name: Confirm a registered test failure makes ASDF fail
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/asdf-control.log"
+          set +e
+          nix develop --command sbcl --noinform --non-interactive \
+            --eval '(require :asdf)' \
+            --eval '(asdf:test-system "cl-cc-javascript")' > "$log" 2>&1
+          status=$?
+          set -e
+          cat "$log"
+          if [ "$status" -eq 0 ]; then
+            echo "::error::ASDF unexpectedly accepted the intentional test failure."
+            exit 1
+          fi
+          if ! grep -Fq "cl-cc-javascript tests failed" "$log"; then
+            echo "::error::ASDF failed before the test system reported its expected failure."
+            exit 1
+          fi
+          echo "Observed the expected ASDF failure (exit $status)."
+
       # Runs the SBCL test suite (checks.default), the treefmt formatting gate
       # (checks.formatting), and the mkdocs --strict build (checks.docs).
       # Add `--all-systems` only when the flake declares more than one system.
