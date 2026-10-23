@@ -87,12 +87,12 @@ const sum = nums.reduce((acc, x) => acc + x, 0);
 ")))
     (labels ((binding-named (name nodes)
                (loop for node in nodes
-                     when (cl-cc/ast:ast-let-p node)
-                       thereis
-                         (or (find name (cl-cc/ast:ast-let-bindings node)
-                                   :key (lambda (binding) (symbol-name (car binding)))
-                                   :test #'string-equal)
-                             (binding-named name (cl-cc/ast:ast-let-body node)))))
+                     thereis
+                       (and (cl-cc/ast:ast-let-p node)
+                            (or (find name (cl-cc/ast:ast-let-bindings node)
+                                      :key (lambda (binding) (symbol-name (car binding)))
+                                      :test #'string-equal)
+                                (binding-named name (cl-cc/ast:ast-let-body node))))))
              (higher-order-call-p (method arity binding)
                (let* ((call (cdr binding))
                       (callee (and (cl-cc/ast:ast-call-p call)
@@ -290,12 +290,12 @@ const upper = user?.profile?.address?.city?.toUpperCase();
 ")))
     (labels ((binding-named (name nodes)
                (loop for node in nodes
-                     when (cl-cc/ast:ast-let-p node)
-                       thereis
-                         (or (find name (cl-cc/ast:ast-let-bindings node)
-                                   :key (lambda (binding) (symbol-name (car binding)))
-                                   :test #'string-equal)
-                             (binding-named name (cl-cc/ast:ast-let-body node)))))
+                     thereis
+                       (and (cl-cc/ast:ast-let-p node)
+                            (or (find name (cl-cc/ast:ast-let-bindings node)
+                                      :key (lambda (binding) (symbol-name (car binding)))
+                                      :test #'string-equal)
+                                (binding-named name (cl-cc/ast:ast-let-body node))))))
              (optional-chain-keys (node)
                (when (and (cl-cc/ast:ast-call-p node)
                           (equal "%JS-OPTIONAL-CHAIN" (%js-call-name node)))
