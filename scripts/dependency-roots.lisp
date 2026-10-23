@@ -14,6 +14,7 @@
     ("CL_CC_JAVASCRIPT_CL_CC_PARSE_ROOT" "cl-cc-parse")
     ("CL_CC_JAVASCRIPT_CL_CC_VM_ROOT" "cl-cc-vm")
     ("CL_CC_JAVASCRIPT_CL_CC_RUNTIME_ROOT" "cl-cc-runtime")
+    ("CL_CC_JAVASCRIPT_CL_PARSER_KIT_ROOT" "cl-parser-kit")
     ("CL_CC_JAVASCRIPT_CL_REGEX_KIT_ROOT" "cl-regex-kit")
     ("CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT" "cl-tty-kit")
     ("CL_CC_JAVASCRIPT_CL_HOST_KIT_ROOT" "cl-host-kit")

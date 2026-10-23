@@ -54,8 +54,8 @@ Unlike the dependency-free leaf packages in this org, cl-cc-javascript's ASDF sy
 directly depends on four compiler components (`cl-cc-ast`, `cl-cc-bootstrap`,
 `cl-cc-parse`, and `cl-cc-vm`). The flake pins those four and the separate
 `cl-cc-runtime` source tree as five compiler inputs, plus `nerima-lisp` sibling
-packages used by those components and this frontend. The frontend directly uses
-`cl-date-kit` for Temporal,
+packages used by those components, their toolkit dependencies, and this frontend.
+The frontend directly uses `cl-date-kit` for Temporal,
 `cl-json-kit` for JSON, `cl-concurrent-kit` for the generator runtime, and
 `cl-host-kit` to read the host `TZ` environment variable (see
 [Architecture](../reference/architecture.md)).
@@ -73,6 +73,7 @@ packages used by those components and this frontend. The frontend directly uses
 | `CL_CC_JAVASCRIPT_CL_CC_RUNTIME_ROOT` | `cl-cc-runtime` |
 | `CL_CC_JAVASCRIPT_CL_CC_VM_ROOT` | `cl-cc-vm` |
 | `CL_CC_JAVASCRIPT_CL_WEAVE_ROOT` | `cl-weave` |
+| `CL_CC_JAVASCRIPT_CL_PARSER_KIT_ROOT` | `cl-parser-kit` |
 | `CL_CC_JAVASCRIPT_CL_REGEX_KIT_ROOT` | `cl-regex-kit` |
 | `CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT` | `cl-tty-kit` |
 | `CL_CC_JAVASCRIPT_CL_HOST_KIT_ROOT` | `cl-host-kit` |

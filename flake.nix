@@ -65,6 +65,11 @@
       url = "github:nerima-lisp/cl-process-kit/1276a8b8db6120ac15a0911c255a586b3a030ca1";
       flake = false;
     };
+    # cl-regex-kit depends on cl-parser-kit.
+    cl-parser-kit = {
+      url = "github:nerima-lisp/cl-parser-kit/v1.1.1";
+      flake = false;
+    };
     cl-regex-kit = {
       url = "github:nerima-lisp/cl-regex-kit/da83905cad2bcb28518ebb28cac6628c654bb328";
       flake = false;
@@ -153,6 +158,7 @@
       cl-cc-vm,
       cl-weave,
       cl-process-kit,
+      cl-parser-kit,
       cl-regex-kit,
       cl-boundary-kit,
       cl-tty-kit,
@@ -193,6 +199,7 @@
         CL_CC_JAVASCRIPT_CL_CC_VM_ROOT = toString cl-cc-vm;
         CL_CC_JAVASCRIPT_CL_WEAVE_ROOT = toString cl-weave;
         CL_CC_JAVASCRIPT_CL_PROCESS_KIT_ROOT = toString cl-process-kit;
+        CL_CC_JAVASCRIPT_CL_PARSER_KIT_ROOT = toString cl-parser-kit;
         CL_CC_JAVASCRIPT_CL_REGEX_KIT_ROOT = toString cl-regex-kit;
         CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT = toString cl-boundary-kit;
         CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT = toString cl-tty-kit;
