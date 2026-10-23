@@ -395,6 +395,24 @@
                 touch "$out/passed"
               '';
 
+          orphan-tests =
+            pkgs.runCommand "cl-cc-javascript-orphan-tests"
+              {
+                nativeBuildInputs = [
+                  pkgs.sbcl
+                  pkgs.python3
+                ];
+              }
+              ''
+                export HOME="$TMPDIR/home"
+                mkdir -p "$HOME" "$out"
+                ${pkgs.python3}/bin/python3 ${self}/scripts/check-orphan-tests.py \
+                  --root ${self} \
+                  --sbcl ${pkgs.sbcl}/bin/sbcl \
+                  --allowlist ${self}/t/orphan-test-allowlist.tsv
+                touch "$out/passed"
+              '';
+
           # The compile gate is kept as its own check so a pure load failure is
           # distinguishable from a test failure without reading the log.
           compile = self.packages.${system}.cl-cc-javascript;
