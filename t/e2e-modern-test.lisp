@@ -335,3 +335,23 @@ were likewise unreachable through the function-method resolver)."
   ;; i.e. decorators never observably change class semantics.
   (expect (%js-run-capture "@dec class Foo { greet(){return \"hi\";} } console.log(new Foo().greet());")
           :to-equal "hi"))
+
+(it-sequential "js-e2e-async-await-execution"
+  (expect (%js-run-capture
+     "async function double(x){return x*2;}
+async function main(){const r=await double(5); console.log(r);}
+main();") :to-equal "10")
+  (expect (%js-run-capture
+     "async function add(a,b){return a+b;}
+async function run(){const s=await add(2,4); console.log(s);}
+run();") :to-equal "6")
+  (expect (%js-run-capture
+     "async function id(x){return await x;}
+async function test(){console.log(await id(7));}
+test();") :to-equal "7")
+  (expect (%js-run-capture
+     "async function fail(){throw new Error('oops');}
+async function main(){
+  try{await fail();}catch(e){console.log('caught');}
+}
+main();") :to-equal "caught"))

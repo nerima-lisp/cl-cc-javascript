@@ -6,90 +6,50 @@
     # release tests pass, so it is less likely to land a broken build.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    # cl-nix-forge is the org's Nix flake-library for building/testing Common
-    # Lisp packages -- "crane for Common Lisp". Used below for exactly two
-    # pure, dependency-graph-agnostic pieces: `fromAsdSystem` (the version
-    # single source of truth) and `mkDocsSite` (the MkDocs Material site,
-    # byte-for-byte the same `mkdocs build --strict` derivation this file
-    # used to hand-roll).
-    #
-    # Its flagship preset, `mkPackageFlake`, and the `lispDerivation`
-    # dependency-graph model it is built on (`lispDependencies`/
-    # `lispCheckDependencies` resolved into CL_SOURCE_REGISTRY) are
-    # deliberately NOT adopted for packages.cl-cc-javascript / checks.default
-    # / devShells.default below, and this is not an oversight: `lispDerivation`
-    # (lib/core/asdf-derivation.nix, read directly at this pin) builds a
-    # system with exactly `(require "asdf") (asdf:load-system "<name>")`,
-    # with no hook to run arbitrary Lisp first. cl-cc-javascript's production
-    # system `:depends-on (:cl-cc-ast :cl-cc-bootstrap :cl-cc-parse
-    # :cl-cc-vm)` -- four systems with no discoverable .asd of their own;
-    # they exist only because cl-cc.asd registers them (as an eval-when side
-    # effect) when IT is loaded. scripts/dependency-roots.lisp's
-    # `initialize-dependency-source-registry` does exactly that extra
-    # `(load ".../cl-cc.asd")` step before anything else runs -- a step
-    # `lispDerivation` has no argument to express. Forcing the main package
-    # through it would build a derivation whose own build phase cannot
-    # resolve its dependencies, so the hand-rolled buildPhase below (which
-    # runs the same dependency-roots.lisp bootstrap CI and a contributor's
-    # shell both already rely on) stays. Re-check this reasoning against
-    # lib/core/asdf-derivation.nix before revisiting it on a future
-    # cl-nix-forge upgrade.
-    #
-    # Pinned to a release tag, `inputs.nixpkgs.follows`'d like every real
-    # flake input below.
+    # cl-nix-forge supplies `fromAsdSystem` and `mkDocsSite`. Its package
+    # preset is not used: at v0.6.1, `lispDerivation` only runs
+    # `(require "asdf") (asdf:load-system "<name>")`, so it cannot set up
+    # this repository's dependency roots or run the compile/test scripts. The
+    # custom phases below handle those steps. Recheck
+    # `lib/core/asdf-derivation.nix` before replacing them after an upgrade.
     cl-nix-forge = {
       url = "github:nerima-lisp/cl-nix-forge/v0.6.1";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # cl-cc-javascript is a plugin frontend: its production system depends on
-    # cl-cc-ast/-bootstrap/-parse/-vm, which still live inside the cl-cc
-    # monorepo checkout, and cl-cc's own umbrella system transitively pulls in
-    # cl-prolog-kit/cl-parser-kit (optimize's e-graph rules), cl-boundary-kit/
-    # cl-cli/cl-tty-kit (cli/repl), and cl-log-kit (boundary-kit). cl-date-kit
-    # gives the Temporal runtime real IANA time zone support (host zone
-    # discovery and instant -> local-zone projection; see
-    # docs/src/reference/compatibility.md for what that does and does not cover).
-    # cl-json-kit replaces the JSON.parse/JSON.stringify runtime's own ad hoc
-    # parser/writer with an RFC-8259-conformant one (95/95 JSONTestSuite
-    # must-accept, 188/188 must-reject) — adopted directly through its own
-    # null-value/false-value/true-value/number-encoder hooks, not an adapter;
-    # see runtime-json.lisp for what those hooks are used for. cl-concurrent-
-    # kit's unbuffered CSP channel (SEND blocks until the matching RECV takes
-    # the value — a two-party rendezvous) replaces the generator runtime's own
-    # hand-rolled mutex+condvar+turn-tracking for its suspend/resume coroutine
-    # hand-off; see runtime-generator.lisp. cl-weave is the test framework.
+    # The compiler dependency closure includes five cl-cc component repos and
+    # their required source kits. cl-date-kit provides Temporal time-zone
+    # support, cl-json-kit backs JSON.parse/JSON.stringify, cl-concurrent-kit
+    # supplies generator channels, and cl-weave provides the test framework.
     #
     # Every one of these is consumed as a plain source tree (`flake = false`)
     # rather than as a flake, because scripts/dependency-roots.lisp locates
     # them through CL_CC_JAVASCRIPT_*_ROOT environment variables and hands the
     # paths to ASDF's source registry. Only the directory is ever needed.
     #
-    # PACKAGE_STANDARD.md asks for `inputs.nixpkgs.follows` on every input. That
-    # rule does not apply to a `flake = false` input: such an input has no
-    # sub-inputs to redirect, so the override is a no-op AND nix prints
-    # "has an override for a non-existent input 'nixpkgs'" once per input on
-    # every single command. Nine warnings on every build teach the reader to
-    # ignore warnings, which costs more than the rule buys. treefmt-nix is a
-    # real flake input and does carry `follows`.
+    # Raw source inputs have no `nixpkgs` sub-inputs to redirect. treefmt-nix is
+    # a flake input and follows nixpkgs.
     #
-    # Siblings are pinned to release tags: a bare `github:nerima-lisp/<name>`
-    # follows that repo's default branch, so an upstream push to main breaks
-    # this repo's CI without warning.
-    #
-    # cl-cc is pinned to a commit rather than a tag. Its only tag is v0.1.0,
-    # which predates the packages/ layout that :cl-cc-ast/-bootstrap/-parse/-vm
-    # are resolved from, and it cannot cut a new one yet: its own
-    # `nix flake check` fails with 55 failures and 31 errors. Those are not new
-    # — its pre-migration check only ran the cl-cc-prolog-tools sub-suite, so
-    # the main suite had never been wired to the gate at all.
-    #
-    # A commit is as immutable as a tag, which is what the pinning rule is
-    # actually for; a bare `github:nerima-lisp/cl-cc` follows the default
-    # branch and would break this repository on an unrelated upstream push.
-    # Move to `/vX.Y.Z` once cl-cc's suite is green and it releases.
-    cl-cc = {
-      url = "github:nerima-lisp/cl-cc/594456c6671356508a9393a97761be41e4ef8f1f";
+    # Source inputs use fixed commit or release references instead of
+    # following their upstream default branches.
+    cl-cc-ast = {
+      url = "github:nerima-lisp/cl-cc-ast/a45c5acecfccb91a43f6a04251e8a5d6ec3d3213";
+      flake = false;
+    };
+    cl-cc-bootstrap = {
+      url = "github:nerima-lisp/cl-cc-bootstrap/027f6c9826010c15789454e69abd2930738b50af";
+      flake = false;
+    };
+    cl-cc-parse = {
+      url = "github:nerima-lisp/cl-cc-parse/75d8699835731ec6ca44e15c82ef02601f5100fe";
+      flake = false;
+    };
+    cl-cc-runtime = {
+      url = "github:nerima-lisp/cl-cc-runtime/d23ea44512b162def39ec981426c4c8e1af4df84";
+      flake = false;
+    };
+    cl-cc-vm = {
+      url = "github:nerima-lisp/cl-cc-vm/462213fcf5e0e6cecc09992e8cb0b7ed48dbce2f";
       flake = false;
     };
     # v1.0.0 -> v1.1.0: internal reorg (org package-standard adoption, file
@@ -101,56 +61,18 @@
       url = "github:nerima-lisp/cl-weave/v1.4.0";
       flake = false;
     };
-    # v1.0.1 -> v1.1.0: internal performance work (indexed substitution,
-    # tabled-answer replay, hash-table dispatch) plus a coverage report
-    # target. No public API change — checked against cl-prolog-kit's CHANGELOG.md.
-    cl-prolog-kit = {
-      url = "github:nerima-lisp/cl-prolog-kit/v1.5.0";
+    cl-process-kit = {
+      url = "github:nerima-lisp/cl-process-kit/1276a8b8db6120ac15a0911c255a586b3a030ca1";
       flake = false;
     };
-    # Compatibility source for the currently pinned cl-cc revision, whose
-    # optimize system still depends on the pre-rename :cl-prolog name.
-    cl-prolog = {
-      url = "github:nerima-lisp/cl-prolog/v1.3.0";
+    cl-regex-kit = {
+      url = "github:nerima-lisp/cl-regex-kit/da83905cad2bcb28518ebb28cac6628c654bb328";
       flake = false;
     };
-    # v1.0.0 -> v1.0.1: org package-standard conformance only (file renames,
-    # `defpackage` designator style, test-system name). v1.0.1 -> v1.0.2: two
-    # bug fixes (a dropped :position on parse-pratt's token-limit failure
-    # path, and a decimal-literal tokenizer overflow on very long integer
-    # parts) — no public API change either way. Checked against
-    # cl-parser-kit's CHANGELOG.md both times.
-    cl-parser-kit = {
-      url = "github:nerima-lisp/cl-parser-kit/v1.1.1";
-      flake = false;
-    };
-    # v1.0.0 -> v1.1.0: additive-only `:parallel` keyword on run-pipeline/
-    # map-pipeline (default nil, backward compatible); CHANGELOG.md states
-    # "No public API changed or removed" explicitly.
-    cl-dataflow = {
-      url = "github:nerima-lisp/cl-dataflow/v1.2.0";
-      flake = false;
-    };
-    # v0.6.0 -> v1.0.0: CHANGELOG.md states "No exported symbol, protocol, or
-    # documented behavior changes from 0.6.0" — this release only adds the
-    # 1.x semver stability commitment and fixes internal build/test-harness
-    # bugs (none of which this repo's raw-source-tree consumption touches).
-    # v1.0.0 -> v2.0.0: real breaking changes (default set-fn/unset-fn/
-    # hostname-fn/username-fn/exit-fn/args-source implementations moved onto
-    # a new required `cl-host-kit` dependency; the optional process-kit/json
-    # subsystems were removed) — none of which cl-cc-javascript's own code is
-    # exposed to, since this package only needs cl-boundary-kit resolvable
-    # for cl-cc's build (see CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT below),
-    # never imports it directly. Bumped after adding cl-host-kit as a new
-    # input below to satisfy the new transitive requirement.
+    # cl-boundary-kit v2.0.0 added cl-host-kit as a required dependency. The
+    # pinned process and concurrency kits also depend on cl-boundary-kit.
     cl-boundary-kit = {
       url = "github:nerima-lisp/cl-boundary-kit/v2.3.0";
-      flake = false;
-    };
-    # v1.0.1 -> v1.1.0: CHANGELOG.md states "No behavior of the cl-cli system
-    # itself changed" — org package-standard conformance only.
-    cl-cli = {
-      url = "github:nerima-lisp/cl-cli/v1.4.0";
       flake = false;
     };
     # v1.0.0 -> v1.0.3: three bug fixes (a FORMAT directive-parsing bug in a
@@ -165,20 +87,8 @@
       url = "github:nerima-lisp/cl-codec-kit/v0.6.0";
       flake = false;
     };
-    # v1.0.0 -> v2.0.0, evaluated 2026-07-31 (a prior session deliberately left
-    # this bump for its own dedicated evaluation rather than doing it as a
-    # side effect of unblocking cl-date-kit/cl-concurrent-kit/cl-host-kit as
-    # inputs — that evaluation is this comment). v2.0.0's own BREAKING section
-    # covers dropping cl-log-kit's zero-runtime-dependency guarantee (now
-    # needs exactly those three packages) and rotating-file-handler's default
-    # rotation clock switching from local time to UTC — neither affects this
-    # repo: cl-log-kit is a transitive dependency only (cl-cc's umbrella pulls
-    # it in via cl-boundary-kit; grepped src/*.lisp and t/*.lisp for any
-    # direct reference — none), so no code here ever constructs a
-    # rotating-file-handler or otherwise observes the clock change. Version
-    # floors cl-log-kit.asd declares for the three new dependencies
-    # (cl-date-kit >= 0.2.0, cl-concurrent-kit >= 0.1.0, cl-host-kit >= 0.2.0)
-    # are already met by the pins below. Safe bump.
+    # Runtime and process systems depend on cl-log-kit; its ASDF dependencies
+    # on date, concurrency, and host kits are pinned below.
     cl-log-kit = {
       url = "github:nerima-lisp/cl-log-kit/v2.2.0";
       flake = false;
@@ -202,13 +112,9 @@
       url = "github:nerima-lisp/cl-concurrent-kit/v0.6.1";
       flake = false;
     };
-    # Now a DIRECT dependency: the Temporal runtime's host-time-zone discovery
-    # reads TZ through `host-kit:getenv` (see runtime-temporal.lisp), replacing
-    # this repo's last `uiop:` call site in src/. It was already declared here
-    # as a transitive-only input, because cl-boundary-kit v2.0.0 requires it
-    # (see cl-boundary-kit's comment above); that reason still holds too, so
-    # the pin and the CL_CC_JAVASCRIPT_CL_HOST_KIT_ROOT wiring below are
-    # unchanged -- only the justification grew.
+    # The Temporal runtime reads TZ through `host-kit:getenv` (see
+    # runtime-temporal.lisp), replacing this repo's last `uiop:` call site in
+    # src/. The VM also depends on host-kit, and boundary-kit requires it.
     cl-host-kit = {
       url = "github:nerima-lisp/cl-host-kit/v0.3.1";
       flake = false;
@@ -240,14 +146,15 @@
       self,
       nixpkgs,
       cl-nix-forge,
-      cl-cc,
+      cl-cc-ast,
+      cl-cc-bootstrap,
+      cl-cc-parse,
+      cl-cc-runtime,
+      cl-cc-vm,
       cl-weave,
-      cl-prolog-kit,
-      cl-prolog,
-      cl-parser-kit,
-      cl-dataflow,
+      cl-process-kit,
+      cl-regex-kit,
       cl-boundary-kit,
-      cl-cli,
       cl-tty-kit,
       cl-codec-kit,
       cl-log-kit,
@@ -259,18 +166,8 @@
       paredit-cli,
     }:
     let
-      # x86_64-linux is what CI gates; aarch64-darwin is the development
-      # machine. Every per-system output -- packages, checks, apps AND devShells
-      # -- comes from this one list, so leaving aarch64-darwin out takes `nix
-      # build` and `nix develop` off the development machine as well. That trade
-      # was made on 2026-08-01 and reverted on 2026-08-02; aarch64-darwin carries
-      # no CI gate, which PACKAGE_STANDARD.md's "systems" section accepts
-      # explicitly. aarch64-linux and x86_64-darwin are nobody's verification and
-      # are not declared.
-      systems = [
-        "x86_64-linux"
-        "aarch64-darwin"
-      ];
+      # CI gates this package on x86_64-linux.
+      systems = [ "x86_64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
 
       # Single source of truth for the package version: the `:version` form in
@@ -289,14 +186,15 @@
       # scripts/dependency-roots.lisp reads one environment variable per source
       # tree dependency; these are the values it expects.
       dependencyEnv = {
-        CL_CC_JAVASCRIPT_CL_CC_ROOT = toString cl-cc;
+        CL_CC_JAVASCRIPT_CL_CC_AST_ROOT = toString cl-cc-ast;
+        CL_CC_JAVASCRIPT_CL_CC_BOOTSTRAP_ROOT = toString cl-cc-bootstrap;
+        CL_CC_JAVASCRIPT_CL_CC_PARSE_ROOT = toString cl-cc-parse;
+        CL_CC_JAVASCRIPT_CL_CC_RUNTIME_ROOT = toString cl-cc-runtime;
+        CL_CC_JAVASCRIPT_CL_CC_VM_ROOT = toString cl-cc-vm;
         CL_CC_JAVASCRIPT_CL_WEAVE_ROOT = toString cl-weave;
-        CL_CC_JAVASCRIPT_CL_PROLOG_KIT_ROOT = toString cl-prolog-kit;
-        CL_CC_JAVASCRIPT_CL_PROLOG_ROOT = toString cl-prolog;
-        CL_CC_JAVASCRIPT_CL_PARSER_KIT_ROOT = toString cl-parser-kit;
-        CL_CC_JAVASCRIPT_CL_DATAFLOW_ROOT = toString cl-dataflow;
+        CL_CC_JAVASCRIPT_CL_PROCESS_KIT_ROOT = toString cl-process-kit;
+        CL_CC_JAVASCRIPT_CL_REGEX_KIT_ROOT = toString cl-regex-kit;
         CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT = toString cl-boundary-kit;
-        CL_CC_JAVASCRIPT_CL_CLI_ROOT = toString cl-cli;
         CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT = toString cl-tty-kit;
         CL_CC_JAVASCRIPT_CL_CODEC_KIT_ROOT = toString cl-codec-kit;
         CL_CC_JAVASCRIPT_CL_LOG_KIT_ROOT = toString cl-log-kit;

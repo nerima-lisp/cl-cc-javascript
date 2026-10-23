@@ -1,14 +1,14 @@
 # Architecture
 
 `src/` is flat and loaded `:serial t`, so the component order in `cl-cc-javascript.asd`
-*is* the dependency order. 94 files, about 15,900 lines.
+*is* the dependency order. 95 files, about 16,300 lines.
 
 | Group | Files | Role |
 |---|---|---|
 | `package` / `macros` | 2 | the `defpackage` form and the shared `define-*-table`-style codegen macros every group below builds on |
-| `lexer-*` | 5 | source text to token plists |
-| `parser-*` | 19 | tokens to cl-cc AST nodes |
-| `runtime-*` | 67 | the `%js-*` helpers generated code calls |
+| `lexer*.lisp` | 5 | source text to token plists |
+| `parser*.lisp` | 20 | tokens to cl-cc AST nodes |
+| `runtime*.lisp` | 67 | the `%js-*` helpers generated code calls |
 | `vm-integration` | 1 | the JS-to-VM callback direction |
 
 ## Why the runtime dominates
@@ -58,37 +58,19 @@ glue used to live in cl-cc's pipeline, which coupled the pipeline to this packag
 internals; moving it here inverted the dependency, at the cost of this one edge. The
 pipeline now runs every registered backend's installer without naming any backend.
 
-## Known issue: the duplicate definition in cl-cc
+## Compiler source boundary
 
-The cl-cc monorepo still contains `packages/javascript/`, a second system with the same
-name. The two trees have diverged further with every session: as of this checkout's
-pinned `cl-cc` commit, of the 86 files common to both, 70 differ; this checkout also has
-8 files the monorepo copy lacks entirely (`macros.lisp`, `runtime-bridge-provider.lisp`,
-`runtime-console.lisp`, `runtime-generator.lisp`, `runtime-promise.lisp`,
-`runtime-regex-combinators.lisp`, `runtime-temporal-datetime.lisp`, `vm-integration.lisp`),
-and the monorepo copy has three
-this checkout lacks: `runtime-async.lisp` (an older combined Console/Promise/Generator
-file, itself "a simplified synchronous model" per its own header comment; this checkout
-split and materially upgraded all three, replacing it — Generator, for one, now runs on
-a real second thread rather than a synchronous approximation), and `parser-pattern.lisp`/
-`parser-pattern-lower.lisp` (a whole parallel destructuring-pattern parser+lowering
-implementation, confirmed fully dead in this checkout and removed — real destructuring
-has always gone through the separate, actively-used implementation in
-`parser-stmt-binding.lisp`). The `:depends-on` lists also disagree — this repository
-declares `:cl-cc-vm`, the monorepo copy does not.
-
-This is a known design problem and is not resolved here. For anything in this
-repository, treat `cl-cc-javascript.asd` at the root of *this* checkout as authoritative.
-Which copy ASDF actually loads depends on the source registry, so a build that resolves
-to the monorepo copy will silently lack the VM integration described above and fall back
-to `runtime-async.lisp`'s weaker Generator/Promise model.
+The umbrella compiler consumes `cl-cc-javascript` as an external system from this
+repository. The child flake pins `cl-cc-ast`, `cl-cc-bootstrap`, `cl-cc-parse`,
+`cl-cc-runtime`, and `cl-cc-vm` as separate source inputs and does not depend on the
+umbrella checkout. This keeps the dependency flow one-way from the umbrella to the
+frontend and then to compiler components.
 
 ## Testing
 
-`t/` holds 32 files and about 7,700 lines, split by concern: lexer tests, parser tests
-(declarations, statements), end-to-end execution tests (core, AST-shape, advanced,
-modern), and runtime tests per builtin family, each file kept under the org's 500-line
-cap (five files that had grown past it were split along their own existing section
-boundaries; the largest is now 477 lines). End-to-end tests compile to the VM and
-compare captured `console.log` output, so they exercise the real path rather than the
-parser alone. See [Development](../project/development.md).
+`t/` holds 34 files and about 8,100 lines, split by concern: lexer, parser, AST shape,
+pipeline execution, and runtime tests per builtin family. Each file stays under the
+org's 500-line cap. The child test system runs lexer, parser, AST-shape, and runtime
+tests. Pipeline execution cases remain in their source files but are excluded from the
+child system because they require the umbrella compiler pipeline. See
+[Development](../project/development.md).

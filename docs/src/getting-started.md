@@ -18,13 +18,11 @@ cl-cc-javascript is consumed as a Nix flake input and loaded through ASDF.
 }
 ```
 
-!!! note "This input is not yet pinned to a tag"
+!!! note "Pin a release tag"
 
-    Consumers inside this org normally pin a release tag
-    (`github:nerima-lisp/cl-cc-javascript/v0.1.0`) rather than follow the default
-    branch, because an upstream push to `main` otherwise breaks downstream CI without
-    warning. cl-cc-javascript has no release tag yet, so there is nothing to pin to.
-    Pin one as soon as the first tag exists.
+    Consumers inside this org normally pin a release tag (for example,
+    `github:nerima-lisp/cl-cc-javascript/v0.2.1`) rather than follow the default branch,
+    because an upstream push to `main` otherwise breaks downstream CI without warning.
 
 ## Add the system dependency
 
@@ -39,9 +37,9 @@ two components (`runtime-bridge-provider` and `vm-integration`) self-register wi
 on. There is no separate initialisation call.
 
 Consuming the flake needs nothing else. Building or testing this repository from a
-raw checkout does: cl-cc-javascript depends on systems that still live inside the
-cl-cc checkout, plus several `nerima-lisp` siblings. `nix develop` wires all of them
-up from the pinned flake inputs; outside it, see
+raw checkout does: cl-cc-javascript depends on five separately pinned compiler source
+trees and several `nerima-lisp` siblings. `nix develop` wires all of them up from the
+pinned flake inputs; outside it, see
 [Development](project/development.md#resolving-the-source-tree-dependencies).
 
 ## Verify
@@ -50,8 +48,8 @@ up from the pinned flake inputs; outside it, see
 nix flake check --print-build-logs
 ```
 
-This runs the compile gate, the test suite, the Nix formatting gate and the docs build.
-See [Development](project/development.md).
+This runs the compile gate, test suite, Nix formatting gate, docs build, and coverage
+report check. See [Development](project/development.md).
 
 ## Run a program
 
@@ -93,8 +91,8 @@ first, which is what `cl-cc/pipeline:seed-js-runtime-globals` does.
 ;;    "
 ```
 
-This is exactly the shape of `%js-run-capture`, the helper the end-to-end test suite
-uses, so it is the path to copy.
+This follows the compile, seed, and run path used by `%js-run-capture`, the helper in the
+pipeline end-to-end tests.
 
 ## Look at the tokens
 
@@ -123,9 +121,9 @@ tree. `const x = 42` becomes an `ast-let`:
 
 ```lisp
 (let ((node (first (cl-cc/javascript:parse-js-source "const x = 42;"))))
-  (list (cl-cc:ast-let-p node)
-        (length (cl-cc:ast-let-bindings node))
-        (cl-cc:ast-int-p (cdr (first (cl-cc:ast-let-bindings node))))))
+  (list (cl-cc/ast:ast-let-p node)
+        (length (cl-cc/ast:ast-let-bindings node))
+        (cl-cc/ast:ast-int-p (cdr (first (cl-cc/ast:ast-let-bindings node))))))
 ;; => (T 1 T)
 ```
 

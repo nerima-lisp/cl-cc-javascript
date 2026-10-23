@@ -50,13 +50,15 @@ whole tree, consistent with this project's "every command execution needs a time
 
 ## Resolving the source-tree dependencies
 
-Unlike the dependency-free leaf packages in this org, cl-cc-javascript depends on
-systems that still live inside the cl-cc checkout (`cl-cc-ast`, `cl-cc-bootstrap`,
-`cl-cc-parse`, `cl-cc-vm`), everything cl-cc's umbrella system pulls in transitively, and
-a handful of `nerima-lisp` sibling packages this frontend depends on directly
-(`cl-date-kit` for Temporal, `cl-json-kit` for JSON, `cl-concurrent-kit` for the
-generator runtime, `cl-host-kit` for reading the host `TZ` environment variable —
-see [Architecture](../reference/architecture.md)).
+Unlike the dependency-free leaf packages in this org, cl-cc-javascript's ASDF system
+directly depends on four compiler components (`cl-cc-ast`, `cl-cc-bootstrap`,
+`cl-cc-parse`, and `cl-cc-vm`). The flake pins those four and the separate
+`cl-cc-runtime` source tree as five compiler inputs, plus `nerima-lisp` sibling
+packages used by those components and this frontend. The frontend directly uses
+`cl-date-kit` for Temporal,
+`cl-json-kit` for JSON, `cl-concurrent-kit` for the generator runtime, and
+`cl-host-kit` to read the host `TZ` environment variable (see
+[Architecture](../reference/architecture.md)).
 `scripts/dependency-roots.lisp` locates each of them, in this order:
 
 1. an explicit environment variable, one per dependency;
@@ -65,21 +67,24 @@ see [Architecture](../reference/architecture.md)).
 
 | Environment variable | Dependency |
 |---|---|
-| `CL_CC_JAVASCRIPT_CL_CC_ROOT` | `cl-cc` |
+| `CL_CC_JAVASCRIPT_CL_CC_AST_ROOT` | `cl-cc-ast` |
+| `CL_CC_JAVASCRIPT_CL_CC_BOOTSTRAP_ROOT` | `cl-cc-bootstrap` |
+| `CL_CC_JAVASCRIPT_CL_CC_PARSE_ROOT` | `cl-cc-parse` |
+| `CL_CC_JAVASCRIPT_CL_CC_RUNTIME_ROOT` | `cl-cc-runtime` |
+| `CL_CC_JAVASCRIPT_CL_CC_VM_ROOT` | `cl-cc-vm` |
 | `CL_CC_JAVASCRIPT_CL_WEAVE_ROOT` | `cl-weave` |
-| `CL_CC_JAVASCRIPT_CL_PROLOG_KIT_ROOT` | `cl-prolog-kit` |
-| `CL_CC_JAVASCRIPT_CL_PARSER_KIT_ROOT` | `cl-parser-kit` |
-| `CL_CC_JAVASCRIPT_CL_DATAFLOW_ROOT` | `cl-dataflow` |
-| `CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT` | `cl-boundary-kit` |
-| `CL_CC_JAVASCRIPT_CL_CLI_ROOT` | `cl-cli` |
+| `CL_CC_JAVASCRIPT_CL_REGEX_KIT_ROOT` | `cl-regex-kit` |
 | `CL_CC_JAVASCRIPT_CL_TTY_KIT_ROOT` | `cl-tty-kit` |
+| `CL_CC_JAVASCRIPT_CL_HOST_KIT_ROOT` | `cl-host-kit` |
+| `CL_CC_JAVASCRIPT_CL_PROCESS_KIT_ROOT` | `cl-process-kit` |
+| `CL_CC_JAVASCRIPT_CL_BOUNDARY_KIT_ROOT` | `cl-boundary-kit` |
 | `CL_CC_JAVASCRIPT_CL_LOG_KIT_ROOT` | `cl-log-kit` |
+| `CL_CC_JAVASCRIPT_CL_CODEC_KIT_ROOT` | `cl-codec-kit` |
+| `CL_CC_JAVASCRIPT_CL_CONCURRENT_KIT_ROOT` | `cl-concurrent-kit` |
 | `CL_CC_JAVASCRIPT_CL_DATE_KIT_ROOT` | `cl-date-kit` |
 | `CL_CC_JAVASCRIPT_CL_JSON_KIT_ROOT` | `cl-json-kit` |
-| `CL_CC_JAVASCRIPT_CL_CONCURRENT_KIT_ROOT` | `cl-concurrent-kit` |
-| `CL_CC_JAVASCRIPT_CL_HOST_KIT_ROOT` | `cl-host-kit` |
 
-`nix develop` sets all thirteen for you from the pinned flake inputs, so inside the dev
+`nix develop` sets these roots from the pinned flake inputs, so inside the dev
 shell no further configuration is needed.
 
 ## Running tests without Nix
@@ -134,9 +139,10 @@ A test file is named after the source file it covers: `src/lexer.lisp` is tested
 `t/lexer-test.lisp`. Where one source file (or one broad area, like statement parsing)
 has several concerns, the concern goes in the middle — `t/parser-decl-test.lisp`,
 `t/parser-stmt-control-flow-test.lisp`, `t/parser-stmt-module-test.lisp` and
-`t/parser-stmt-misc-test.lisp` all cover parser statement handling. The
-`t/e2e-*-test.lisp` files have no single source counterpart: they compile and run whole
-JavaScript programs through the frontend and the VM.
+`t/parser-stmt-misc-test.lisp` all cover parser statement handling. The AST tests in
+`t/e2e-ast-test.lisp` check parsed structure without running programs through the VM.
+The pipeline execution files remain in the tree, but the child test system excludes them
+because they call the umbrella compiler pipeline.
 
 ## Adding a builtin
 

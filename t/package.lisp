@@ -3,4 +3,4 @@
 (defpackage #:cl-cc-javascript/test
   (:use #:cl #:cl-weave)
   (:shadowing-import-from #:cl-weave #:describe)
-  (:import-from #:cl-cc #:make-ast-var #:make-ast-quote))
+  (:import-from #:cl-cc/ast #:make-ast-var #:make-ast-quote))

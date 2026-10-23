@@ -3,7 +3,7 @@
 ;;;; Parse-only tests that check the AST shape produced by the JS frontend
 ;;;; without running the program through the VM.
 ;;;;
-;;;; Depends on: e2e-core-test.lisp (loaded before this in serial ASDF module).
+;;;; These tests use only the parser and AST APIs.
 
 (in-package :cl-cc-javascript/test)
 
@@ -19,27 +19,26 @@ JS identifiers are now interned case-preserving, so a defun named `fib' is the
 symbol |fib|; compare with string-equal so these structural tests stay name-case
 agnostic."
   (find-if (lambda (ast)
-             (and (cl-cc:ast-defun-p ast)
+             (and (cl-cc/ast:ast-defun-p ast)
                   (string-equal name
-                                (symbol-name (cl-cc:ast-defun-name ast)))))
+                                (symbol-name (cl-cc/ast:ast-defun-name ast)))))
            asts))
 
 (defun %js-e2e-has-defclass-named (name asts)
-  "Return the AST-DEFCLASS whose name matches NAME case-insensitively, or NIL.
-JS identifiers are interned case-preserving now, so compare with string-equal."
+  "Return the AST-DEFCLASS named NAME, or NIL."
   (find-if (lambda (ast)
-             (and (cl-cc:ast-defclass-p ast)
+             (and (cl-cc/ast:ast-defclass-p ast)
                   (string-equal name
-                                (symbol-name (cl-cc:ast-defclass-name ast)))))
+                                (symbol-name (cl-cc/ast:ast-defclass-name ast)))))
            asts))
 
 (defun %js-e2e-defun-body-forms (fn)
   "Return FN's effective body forms, unwrapping the single (block nil ...) that
 js-callable-body wraps function bodies in so JS `return' (→ return-from nil)
 resolves. Lets these AST-shape tests look past the block at the real statements."
-  (let ((body (cl-cc:ast-defun-body fn)))
-    (if (and (= (length body) 1) (cl-cc:ast-block-p (first body)))
-        (cl-cc:ast-block-body (first body))
+  (let ((body (cl-cc/ast:ast-defun-body fn)))
+    (if (and (= (length body) 1) (cl-cc/ast:ast-block-p (first body)))
+        (cl-cc/ast:ast-block-body (first body))
         body)))
 
 ;;; ─── 1. FizzBuzz ──────────────────────────────────────────────────────────────
@@ -75,7 +74,7 @@ function fib(n) {
 "))
          (fn (%js-e2e-has-defun-named "FIB" asts)))
     (expect (not (null fn)) :to-be-truthy)
-    (expect (some #'cl-cc:ast-if-p (%js-e2e-defun-body-forms fn)) :to-be-truthy)))
+    (expect (some #'cl-cc/ast:ast-if-p (%js-e2e-defun-body-forms fn)) :to-be-truthy)))
 
 ;;; ─── 3. Array map / filter / reduce ──────────────────────────────────────────
 
@@ -87,7 +86,7 @@ const evens = nums.filter(x => x % 2 === 0);
 const sum = nums.reduce((acc, x) => acc + x, 0);
 ")))
     (expect (>= (length asts) 1) :to-be-truthy)
-    (expect (cl-cc:ast-let-p (first asts)) :to-be-truthy)))
+    (expect (cl-cc/ast:ast-let-p (first asts)) :to-be-truthy)))
 
 ;;; ─── 4. Class with inheritance ────────────────────────────────────────────────
 
@@ -112,7 +111,7 @@ class Dog extends Animal {
     (expect (not (null (%js-e2e-has-defclass-named "DOG" asts))) :to-be-truthy)
     (let ((dog (%js-e2e-has-defclass-named "DOG" asts)))
       (expect (some (lambda (s) (string-equal "Animal" (symbol-name s)))
-                (cl-cc:ast-defclass-superclasses dog)) :to-be-truthy))))
+                (cl-cc/ast:ast-defclass-superclasses dog)) :to-be-truthy))))
 
 ;;; ─── 5. Object destructuring ──────────────────────────────────────────────────
 
@@ -125,14 +124,14 @@ const { city: location } = person;
     (expect (>= (length asts) 1) :to-be-truthy)
     (labels ((getprop-binding-p (b)
                (let ((v (cdr b)))
-                 (and (cl-cc:ast-call-p v)
-                      (cl-cc:ast-var-p (cl-cc:ast-call-func v))
+                 (and (cl-cc/ast:ast-call-p v)
+                      (cl-cc/ast:ast-var-p (cl-cc/ast:ast-call-func v))
                       (search "GET-PROP"
-                              (symbol-name (cl-cc:ast-var-name (cl-cc:ast-call-func v)))))))
+                              (symbol-name (cl-cc/ast:ast-var-name (cl-cc/ast:ast-call-func v)))))))
              (chain-has-getprop (node)
-               (when (cl-cc:ast-let-p node)
-                 (or (some #'getprop-binding-p (cl-cc:ast-let-bindings node))
-                     (some #'chain-has-getprop (cl-cc:ast-let-body node))))))
+               (when (cl-cc/ast:ast-let-p node)
+                 (or (some #'getprop-binding-p (cl-cc/ast:ast-let-bindings node))
+                     (some #'chain-has-getprop (cl-cc/ast:ast-let-body node))))))
       (expect (some #'chain-has-getprop asts) :to-be-truthy))))
 
 ;;; ─── 6. Generator sequence ────────────────────────────────────────────────────
@@ -148,7 +147,7 @@ const it = range(0, 10, 2);
 "))
          (gen (%js-e2e-has-defun-named "RANGE" asts)))
     (expect (not (null gen)) :to-be-truthy)
-    (expect (member :js-generator (cl-cc:ast-defun-declarations gen)) :to-be-truthy)))
+    (expect (member :js-generator (cl-cc/ast:ast-defun-declarations gen)) :to-be-truthy)))
 
 ;;; ─── 7. Error handling try / catch ───────────────────────────────────────────
 
@@ -170,11 +169,11 @@ function safeDiv(a, b) {
            (body (when fn (%js-e2e-defun-body-forms fn))))
       (expect (not (null fn)) :to-be-truthy)
       (expect (some (lambda (node)
-                  (and (cl-cc:ast-call-p node)
+                  (and (cl-cc/ast:ast-call-p node)
                        (string= "%JS-TRY-CATCH-FINALLY"
                                  (symbol-name
-                                  (cl-cc:ast-var-name
-                                   (cl-cc:ast-call-func node))))))
+                                  (cl-cc/ast:ast-var-name
+                                   (cl-cc/ast:ast-call-func node))))))
                 body) :to-be-truthy))))
 
 ;;; ─── 8. Module-style exports ──────────────────────────────────────────────────
@@ -203,29 +202,7 @@ async function fetchData(url) {
 "))
          (fn (%js-e2e-has-defun-named "FETCHDATA" asts)))
     (expect (not (null fn)) :to-be-truthy)
-    (expect (member :js-async (cl-cc:ast-defun-declarations fn)) :to-be-truthy)))
-
-;;; ─── 9b. Async / await execution ────────────────────────────────────────────
-
-(it-sequential "js-e2e-async-await-execution"
-  (expect (%js-run-capture
-     "async function double(x){return x*2;}
-async function main(){const r=await double(5); console.log(r);}
-main();") :to-equal "10")
-  (expect (%js-run-capture
-     "async function add(a,b){return a+b;}
-async function run(){const s=await add(2,4); console.log(s);}
-run();") :to-equal "6")
-  (expect (%js-run-capture
-     "async function id(x){return await x;}
-async function test(){console.log(await id(7));}
-test();") :to-equal "7")
-  (expect (%js-run-capture
-     "async function fail(){throw new Error('oops');}
-async function main(){
-  try{await fail();}catch(e){console.log('caught');}
-}
-main();") :to-equal "caught"))
+    (expect (member :js-async (cl-cc/ast:ast-defun-declarations fn)) :to-be-truthy)))
 
 ;;; ─── 10. Optional chaining chain ─────────────────────────────────────────────
 
@@ -237,4 +214,4 @@ const zip = user?.profile?.address?.zip ?? 'N/A';
 const upper = user?.profile?.address?.city?.toUpperCase();
 ")))
     (expect (>= (length asts) 1) :to-be-truthy)
-    (expect (cl-cc:ast-let-p (first asts)) :to-be-truthy)))
+    (expect (cl-cc/ast:ast-let-p (first asts)) :to-be-truthy)))

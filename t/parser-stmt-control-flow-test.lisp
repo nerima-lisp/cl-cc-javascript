@@ -13,19 +13,19 @@
 
 (it-sequential "js-parser-if-stmt"
   (let ((ast (%js-first "if (x) { y; }")))
-    (expect (cl-cc:ast-if-p ast) :to-be-truthy)))
+    (expect (cl-cc/ast:ast-if-p ast) :to-be-truthy)))
 
 (it-sequential "js-parser-if-else-stmt"
   (let ((ast (%js-first "if (a) { return 1; } else { return 2; }")))
-    (expect (cl-cc:ast-if-p ast) :to-be-truthy)
-    (expect (not (cl-cc:ast-quote-p (cl-cc:ast-if-else ast))) :to-be-truthy)))
+    (expect (cl-cc/ast:ast-if-p ast) :to-be-truthy)
+    (expect (not (cl-cc/ast:ast-quote-p (cl-cc/ast:ast-if-else ast))) :to-be-truthy)))
 
 ;;; ─── While loop ───────────────────────────────────────────────────────────────
 
 (it-sequential "js-parser-while-loop"
   (let ((ast (%js-first "while (x) { }")))
-    (expect (cl-cc:ast-block-p ast) :to-be-truthy)
-    (expect (some #'cl-cc:ast-tagbody-p (cl-cc:ast-block-body ast)) :to-be-truthy)))
+    (expect (cl-cc/ast:ast-block-p ast) :to-be-truthy)
+    (expect (some #'cl-cc/ast:ast-tagbody-p (cl-cc/ast:ast-block-body ast)) :to-be-truthy)))
 
 ;;; ─── For loop ─────────────────────────────────────────────────────────────────
 
@@ -35,16 +35,16 @@
     "js-parser-for-loop-variants ~S"
     (src)
   (let ((ast (%js-first src)))
-    (expect (or (cl-cc:ast-let-p ast) (cl-cc:ast-block-p ast)
-                (cl-cc:ast-progn-p ast)) :to-be-truthy)))
+    (expect (or (cl-cc/ast:ast-let-p ast) (cl-cc/ast:ast-block-p ast)
+                (cl-cc/ast:ast-progn-p ast)) :to-be-truthy)))
 
 ;;; ─── Switch / case ────────────────────────────────────────────────────────────
 
 (it-sequential "js-parser-switch-stmt"
   (let ((ast (%js-first "switch (x) { case 1: break; default: break; }")))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy)
-    (let ((block (first (cl-cc:ast-let-body ast))))
-      (expect (cl-cc:ast-block-p block) :to-be-truthy))))
+    (expect (cl-cc/ast:ast-let-p ast) :to-be-truthy)
+    (let ((block (first (cl-cc/ast:ast-let-body ast))))
+      (expect (cl-cc/ast:ast-block-p block) :to-be-truthy))))
 
 ;;; ─── Try / catch / finally ────────────────────────────────────────────────────
 
@@ -54,7 +54,7 @@
     "js-parser-try-forms ~S"
     (src)
   (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-call-p ast) :to-be-truthy)
+    (expect (cl-cc/ast:ast-call-p ast) :to-be-truthy)
     (expect (%js-call-name ast) :to-equal "%JS-TRY-CATCH-FINALLY")))
 
 ;;; ─── Destructuring ────────────────────────────────────────────────────────────
@@ -68,31 +68,31 @@
     "js-parser-destructuring ~S"
     (src)
   (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy)))
+    (expect (cl-cc/ast:ast-let-p ast) :to-be-truthy)))
 
 ;;; ─── Spread operator ──────────────────────────────────────────────────────────
 
 (it-sequential "js-parser-spread-in-array"
   (let ((ast (%js-first "const x = [...arr];")))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy)
-    (let ((val (cdr (first (cl-cc:ast-let-bindings ast)))))
-      (expect (cl-cc:ast-apply-p val) :to-be-truthy))))
+    (expect (cl-cc/ast:ast-let-p ast) :to-be-truthy)
+    (let ((val (cdr (first (cl-cc/ast:ast-let-bindings ast)))))
+      (expect (cl-cc/ast:ast-apply-p val) :to-be-truthy))))
 
 ;;; ─── Optional chaining ────────────────────────────────────────────────────────
 
 (it-sequential "js-parser-optional-chaining"
   (let* ((ast (%js-first "const r = a?.b;"))
-         (val (cdr (first (cl-cc:ast-let-bindings ast)))))
-    (expect (cl-cc:ast-call-p val) :to-be-truthy)
+         (val (cdr (first (cl-cc/ast:ast-let-bindings ast)))))
+    (expect (cl-cc/ast:ast-call-p val) :to-be-truthy)
     (expect (%js-call-name val) :to-equal "%JS-OPTIONAL-CHAIN")))
 
 ;;; ─── Nullish coalescing ───────────────────────────────────────────────────────
 
 (it-sequential "js-parser-nullish-coalescing"
   (let* ((ast (%js-first "const r = a ?? b;"))
-         (val (cdr (first (cl-cc:ast-let-bindings ast)))))
-    (expect (or (cl-cc:ast-let-p val) (cl-cc:ast-if-p val)
-            (cl-cc:ast-call-p val)) :to-be-truthy)))
+         (val (cdr (first (cl-cc/ast:ast-let-bindings ast)))))
+    (expect (or (cl-cc/ast:ast-let-p val) (cl-cc/ast:ast-if-p val)
+            (cl-cc/ast:ast-call-p val)) :to-be-truthy)))
 
 ;;; ─── Logical assignment ───────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@
     (src)
   (let ((asts (%js-parse src)))
     (expect (= 1 (length asts)) :to-be-truthy)
-    (expect (cl-cc:ast-let-p (first asts)) :to-be-truthy)))
+    (expect (cl-cc/ast:ast-let-p (first asts)) :to-be-truthy)))
 
 ;;; ─── Template literals ────────────────────────────────────────────────────────
 
@@ -113,5 +113,5 @@
     "js-parser-template-literals ~S"
     (src)
   (let ((ast (%js-first src)))
-    (expect (cl-cc:ast-let-p ast) :to-be-truthy)
-    (expect (not (null (cdr (first (cl-cc:ast-let-bindings ast))))) :to-be-truthy)))
+    (expect (cl-cc/ast:ast-let-p ast) :to-be-truthy)
+    (expect (not (null (cdr (first (cl-cc/ast:ast-let-bindings ast))))) :to-be-truthy)))

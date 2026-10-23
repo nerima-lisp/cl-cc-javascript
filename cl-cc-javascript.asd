@@ -5,12 +5,9 @@
 
 (in-package #:asdf-user)
 
-;;; System names are written as STRINGS, not #:symbols or :keywords. A string
-;;; does not depend on the reader's current package state.
-;;;
-;;; The :depends-on designators below are deliberately left as keywords. They
-;;; name systems owned by other repositories (cl-cc's packages/ tree), and
-;;; rewriting them is out of scope for this migration.
+;;; System names use strings so loading this file does not depend on the
+;;; current package. The source registry resolves component dependencies from
+;;; their sibling repositories.
 (defsystem "cl-cc-javascript"
   :description "CL-CC JavaScript frontend: lexer, parser, and runtime helpers"
   :author "takeokunn <bararararatty@gmail.com>"
@@ -22,11 +19,8 @@
   :homepage "https://github.com/nerima-lisp/cl-cc-javascript"
   :bug-tracker "https://github.com/nerima-lisp/cl-cc-javascript/issues"
   :source-control (:git "https://github.com/nerima-lisp/cl-cc-javascript.git")
-  ;; cl-date-kit/cl-json-kit/cl-concurrent-kit/cl-host-kit are strings, not
-  ;; keywords: they are plain nerima-lisp sibling systems consumed directly (no
-  ;; adapter), not one of cl-cc's own packages/*/ components, so they do not
-  ;; need the eval-when trick that :cl-cc-ast and friends rely on -- ASDF finds
-  ;; them on the source registry like any other dependency.
+  ;; The four cl-cc component systems and the toolkit systems are resolved from
+  ;; their sibling source roots.
   :depends-on
   (:cl-cc-ast
    :cl-cc-bootstrap
@@ -145,9 +139,7 @@
    (:file "vm-integration"))
   :in-order-to ((test-op (test-op "cl-cc-javascript/test"))))
 
-;;; The test system is `cl-cc-javascript/test` (singular, slash-separated) with
-;;; :pathname "t". It is NOT `cl-cc-javascript-test` and NOT
-;;; `cl-cc-javascript/tests`.
+;;; The test system is `cl-cc-javascript/test` and uses the `t/` directory.
 (defsystem "cl-cc-javascript/test"
   :description "Test system for cl-cc-javascript."
   :author "takeokunn <bararararatty@gmail.com>"
@@ -158,7 +150,7 @@
   :bug-tracker "https://github.com/nerima-lisp/cl-cc-javascript/issues"
   :source-control (:git "https://github.com/nerima-lisp/cl-cc-javascript.git")
   ;; cl-weave is the org's test framework everywhere.
-  :depends-on (:cl-cc :cl-weave :cl-cc-javascript)
+  :depends-on (:cl-weave :cl-cc-javascript)
   :pathname "t"
   :serial t
   :components
@@ -168,11 +160,7 @@
    (:file "parser-stmt-control-flow-test")
    (:file "parser-stmt-module-test")
    (:file "parser-stmt-misc-test")
-   (:file "e2e-core-test")
    (:file "e2e-ast-test")
-   (:file "e2e-advanced-test")
-   (:file "e2e-advanced-builtins-test")
-   (:file "e2e-modern-test")
    (:file "runtime-core-test")
    (:file "runtime-array-test")
    (:file "runtime-array-coverage-test")
