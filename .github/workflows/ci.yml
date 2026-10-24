@@ -47,6 +47,8 @@ jobs:
           set +e
           nix develop --command sbcl --noinform --non-interactive \
             --eval '(require :asdf)' \
+            --eval '(load "scripts/dependency-roots.lisp")' \
+            --eval '(initialize-dependency-source-registry)' \
             --eval '(asdf:load-asd (truename "cl-cc-javascript.asd"))' \
             --eval '(asdf:test-system "cl-cc-javascript")' > "$log" 2>&1
           status=$?
