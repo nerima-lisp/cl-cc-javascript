@@ -1,4 +1,3 @@
-;;;; Tests for VM object shapes, inline method tables, mark words, and value types.
 (in-package :cl-cc-javascript/test)
 
 (it-sequential "vm-object-shape-cache-distinguishes-class-and-layout"
