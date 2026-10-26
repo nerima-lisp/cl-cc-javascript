@@ -77,6 +77,7 @@
    (:file "runtime-array-from")
    (:file "runtime-object")
    (:file "runtime-object-ops")
+   (:file "runtime-vm-objects")
    (:file "runtime-json")
    (:file "runtime-string")
    (:file "runtime-math")
@@ -183,7 +184,8 @@
    (:file "runtime-builtins-iterator-proxy-test")
    (:file "runtime-builtins-platform-object-test")
    (:file "runtime-console-test")
-   (:file "runtime-builtins-platform-test"))
+   (:file "runtime-builtins-platform-test")
+   (:file "runtime-vm-objects-test"))
   ;; Not UIOP:SYMBOL-CALL, and not a sibling-package prefix either: a .asd is
   ;; read by the plain CL reader before :depends-on is ever consulted, so any
   ;; PKG:SYMBOL token here must resolve against a package already present in
