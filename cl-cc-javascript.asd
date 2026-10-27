@@ -51,7 +51,7 @@
    (:module "statements" :serial t :components ((:file "parser-stmt") (:file "parser-stmt-binding") (:file "parser-stmt-control") (:file "parser-stmt-switch") (:file "parser-stmt-dispatch") (:file "runtime-control")))
    (:module "functions" :serial t :components ((:file "parser-arrow-params") (:file "parser-arrow") (:file "parser-expr-args") (:file "parser-stmt-fn") (:file "runtime-call") (:file "runtime-object-handlers")))
    (:module "classes" :serial t :components ((:file "parser-class-member-syntax") (:file "parser-class-lower-classify") (:file "parser-class-lower") (:file "parser-class") (:file "runtime-class")))
-   (:file "runtime-vm-objects")
+   (:module "v8-objects" :serial t :components ((:file "runtime-vm-objects")))
    (:module "proxies" :serial t :components ((:file "runtime-builtins-object") (:file "runtime-object-hooks")))
    (:module "iterators" :serial t :components ((:file "runtime-collections-iterators") (:file "runtime-collections-zip") (:file "runtime-for-of") (:file "runtime-generator") (:file "runtime-builtins-platform-atomics") (:file "runtime-object-hooks") (:file "runtime-object-generator-hooks")))
    (:module "async" :serial t :components ((:file "runtime-hooks") (:file "runtime-promise") (:file "runtime-builtins-platform-abort")))
