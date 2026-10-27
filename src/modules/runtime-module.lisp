@@ -1,6 +1,6 @@
 ;;;; packages/javascript/src/runtime-module.lisp — JS module import/export bridge
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/modules)
 
 (defun %js-module-namespace (module-name &optional with-opts)
   "Create the host module namespace object used by dynamic import."

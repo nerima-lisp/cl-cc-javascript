@@ -7,7 +7,7 @@
 ;;;;
 ;;;; Load order: after parser-stmt.lisp (needs define-js-stmt-parser macro,
 ;;;; js-parse-block, js-parse-var-decl, *js-stmt-parsers*, loop-lowering helpers).
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/functions)
 
 ;;; ─── Function Declaration Parsing ───────────────────────────────────────────
 (defun %js-parse-param-list (stream)
@@ -49,7 +49,7 @@
                         (eq (js-peek-type current) :T-OP)
                         (equal (js-peek-value current) "="))
                (setf current (cdr current))
-               (multiple-value-bind (default-ast rest2) (js-parse-expr current)
+               (multiple-value-bind (default-ast rest2) (js-call-parser-handler :expression current)
                  (push (cons sym default-ast) optionals)
                  (setf current rest2)))))))
       (when (eq (js-peek-type current) :T-COMMA)
@@ -100,7 +100,7 @@ undefined. This keeps required params as the positional prefix."
                 p
                 (or
                   (cdr (assoc p optionals :test #'eq))
-                  (make-ast-quote :value cl-cc/javascript::+js-undefined+))
+                  (make-ast-quote :value +js-undefined+))
                 nil)
               opts)
             (push p required)))
@@ -123,7 +123,7 @@ body is wrapped in a let binding REST-SYM to that list converted to a JS array
                 rest-sym
                 (make-ast-call
                   :func
-                  (make-ast-var :name 'cl-cc/javascript::%js-list-to-array)
+                  (make-ast-var :name '%js-list-to-array)
                   :args
                   (list (make-ast-var :name raw)))))
             :body
@@ -139,7 +139,7 @@ none:
   async function f(…) { … }    ->  (%js-async (lambda () ...))
 A plain function returns BODY-FORMS unchanged."
   (cond
-    (generator-p (list (%js-call '%js-make-generator
+    (generator-p (list (%js-call '%js-object-make-generator
                                   (make-ast-lambda :params nil :body body-forms))))
     (async-p (list (%js-call '%js-async
                               (make-ast-lambda :params nil :body body-forms))))
@@ -195,7 +195,7 @@ A plain function returns BODY-FORMS unchanged."
             (progn
               (setf rest (cdr rest))
               (let ((rest2 (%js-consume-expected :T-LPAREN rest)))
-                (multiple-value-bind (cond-expr rest3) (js-parse-expr rest2)
+                (multiple-value-bind (cond-expr rest3) (js-call-parser-handler :expression rest2)
                   (setf rest3 (%js-consume-expected :T-RPAREN rest3))
                   (multiple-value-bind (elseif-then rest4 elseif-else)
                       (%js-parse-if-tail rest3)
@@ -213,7 +213,7 @@ A plain function returns BODY-FORMS unchanged."
 (defun js-parse-if-stmt (stream)
   "Parse if (cond) stmt [else stmt]. Returns (values ast rest)."
   (let ((rest (%js-consume-expected :T-LPAREN stream)))
-    (multiple-value-bind (cond-expr rest2) (js-parse-expr rest)
+    (multiple-value-bind (cond-expr rest2) (js-call-parser-handler :expression rest)
       (setf rest2 (%js-consume-expected :T-RPAREN rest2))
       (multiple-value-bind (then-ast rest3 else-ast) (%js-parse-if-tail rest2)
         (values
@@ -224,7 +224,7 @@ A plain function returns BODY-FORMS unchanged."
 (defun js-parse-while-stmt (stream)
   "Parse while (cond) stmt. Returns (values ast rest)."
   (let ((rest (%js-consume-expected :T-LPAREN stream)))
-    (multiple-value-bind (cond-expr rest2) (js-parse-expr rest)
+    (multiple-value-bind (cond-expr rest2) (js-call-parser-handler :expression rest)
       (setf rest2 (%js-consume-expected :T-RPAREN rest2))
       (with-js-loop-tags
         (loop-tag end-tag "WHILE")
@@ -249,7 +249,7 @@ A plain function returns BODY-FORMS unchanged."
         (error "JS parse error: expected 'while' after do-body, got ~S" (js-peek rest)))
       (setf rest (cdr rest))           ; consume 'while'
       (setf rest (%js-consume-expected :T-LPAREN rest))
-      (multiple-value-bind (cond-expr rest2) (js-parse-expr rest)
+      (multiple-value-bind (cond-expr rest2) (js-call-parser-handler :expression rest)
         (setf rest2 (%js-consume-expected :T-RPAREN rest2))
         (setf rest2 (js-skip-semis rest2))
         (let ((body-stmts (if (ast-progn-p body-ast)
@@ -260,8 +260,23 @@ A plain function returns BODY-FORMS unchanged."
                    body-stmts
                    loop-tag end-tag)
                   rest2))))))
+;;; ─── Do-While Statement ──────────────────────────────────────────────────────
+(eval-when (:load-toplevel :execute)
+  (register-js-parser-handler :function-rest-binding (function %js-rest-binding))
+  (register-js-parser-handler :function-split-params (function %js-split-params-by-defaults)))
+;;; ─── Do-While Statement ──────────────────────────────────────────────────────
+(eval-when (:load-toplevel :execute)
+  (register-js-parser-handler '(:statement :T-FUNCTION) (function js-parse-function-decl))
+  (register-js-parser-handler
+   :statement-async-function
+   (lambda (stream) (js-parse-function-decl stream :async-p t)))
+  (register-js-parser-handler '(:statement :T-IF) (function js-parse-if-stmt))
+  (register-js-parser-handler '(:statement :T-WHILE) (function js-parse-while-stmt))
+  (register-js-parser-handler '(:statement :T-DO) (function js-parse-do-while-stmt)))
 
 ;;; ─── For Statement ───────────────────────────────────────────────────────────
 ;;; See parser-stmt-control.lisp for: for-loop lowering, switch, break/continue,
 ;;; return, throw, try/catch/finally, debugger, using, js-parse-stmt dispatcher,
 ;;; top-level list parsers, and public entry points parse-js-source/parse-js-module.
+
+(eval-when (:load-toplevel :execute) (register-js-parser-handler :function-declaration (function js-parse-function-decl)))

@@ -1,5 +1,5 @@
 ;;;; packages/javascript/src/runtime-method-resolver-tables.lisp — JS method tables
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/backend)
 
 (defparameter *js-array-method-table* (list
     (cons "push" #'%js-array-push)

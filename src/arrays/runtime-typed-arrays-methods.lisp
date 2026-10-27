@@ -5,7 +5,7 @@
 ;;;;
 ;;;; Load order: after runtime-typed-arrays.lisp (needs struct, coerce helpers,
 ;;;; %js-ta-* bulk methods defined there).
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/arrays)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Method dispatch table for TypedArrays
@@ -115,7 +115,7 @@
 (defun %js-ta-for-each (ta fn)
   "TypedArray.prototype.forEach."
   (dotimes (i (js-ta-length ta))
-    (%js-funcall fn (coerce (aref (js-ta-buffer ta) i) 'double-float) i ta))
+    (%js-object-funcall fn (coerce (aref (js-ta-buffer ta) i) 'double-float) i ta))
   +js-undefined+)
 
 (defun %js-ta-map (ta fn)
@@ -126,7 +126,7 @@
       (%js-ta-set
         result
         i
-        (%js-funcall fn (coerce (aref (js-ta-buffer ta) i) 'double-float) i ta)))
+        (%js-object-funcall fn (coerce (aref (js-ta-buffer ta) i) 'double-float) i ta)))
     result))
 
 (defun %js-ta-filter (ta fn)
@@ -134,7 +134,7 @@
   (let ((results nil))
     (dotimes (i (js-ta-length ta))
       (let ((v (coerce (aref (js-ta-buffer ta) i) 'double-float)))
-        (when (%js-truthy (%js-funcall fn v i ta))
+        (when (%js-truthy (%js-object-funcall fn v i ta))
           (push v results))))
     (let* ((filtered (nreverse results))
            (result (%js-make-typed-array (js-ta-type-name ta) (length filtered))))
@@ -151,7 +151,7 @@
       (let ((v (coerce (aref (js-ta-buffer ta) i) 'double-float)))
         (if first-p (setf acc v
                 first-p nil)
-          (setf acc (%js-funcall fn acc v i ta)))))
+          (setf acc (%js-object-funcall fn acc v i ta)))))
     acc))
 
 ;;; ES2023 non-mutating methods, iterators, and method table live in

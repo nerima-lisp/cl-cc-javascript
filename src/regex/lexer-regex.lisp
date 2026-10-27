@@ -9,7 +9,7 @@
 ;;;;   The /v (Unicode Sets) flag introduces nested character classes [[...]]
 ;;;;   which require tracking inner bracket depth inside [...].
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/regex)
 
 ;;; ---------------------------------------------------------------------------
 ;;; Flag character predicate
@@ -154,3 +154,5 @@ The u (Unicode) flag was previously omitted from the literal, rejecting /.../u."
           (t
            (vector-push-extend ch pattern-buf)
            (incf pos)))))))
+
+(eval-when (:load-toplevel :execute) (register-js-lexer-extension :slash (function js-lex-regex)))

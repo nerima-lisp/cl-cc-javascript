@@ -7,7 +7,7 @@
 ;;;; Load order: after runtime-regex.lisp (needs js-regexp struct, compiled slot,
 ;;;; %js-compile-pattern, and js-regexp-* accessors).
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/regex)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Public API — matching
@@ -148,7 +148,7 @@ values (possibly empty)."
                        (match-end (+ match-start (length match-str)))
                        (next-pos (if (= match-end pos) (1+ pos) match-end))
                        (repl (if (functionp replacement)
-                                 (%js-to-string (%js-funcall replacement match-str match-start str))
+                                 (%js-to-string (%js-object-funcall replacement match-str match-start str))
                                  (let ((r (%js-to-string replacement)))
                                    (regex-replace-placeholders r m)))))
                   (loop for i from pos below match-start

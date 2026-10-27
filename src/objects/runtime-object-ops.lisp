@@ -1,7 +1,7 @@
 ;;;; packages/javascript/src/runtime-object-ops.lisp — JS object algorithms
 ;;;;
 ;;;; Object.is / Object.groupBy / structuredClone / destructuring helpers.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/objects)
 
 (defun %js-object-is (a b)
   "Object.is — like === but handles NaN and -0."
@@ -30,17 +30,17 @@
   "Object.groupBy(iterable, keyFn): group values into a null-prototype object."
   (let ((ht (%js-object-create +js-null+))
         (index 0))
-    (%js-group-into
+    (%js-object-group-into
       (lambda (visit)
-        (%js-for-of
+        (%js-object-for-of
           iterable
           (lambda (item)
-            (funcall visit (%js-to-string (%js-funcall key-fn item index)) item)
+            (funcall visit (%js-to-string (%js-object-funcall key-fn item index)) item)
             (incf index))))
       (lambda (key)
         (multiple-value-bind (bucket found) (gethash key ht)
           (if found bucket
-            (setf (gethash key ht) (%js-make-array))))))
+            (setf (gethash key ht) (%js-object-make-array))))))
     ht))
 
 ;;; -----------------------------------------------------------------------
@@ -87,10 +87,8 @@
             (setf (gethash k clone) (%js-deep-clone v seen)))
           val)
         clone))
-    ((typep val 'js-date) (make-js-date :ms (js-date-ms val)))
-    ((js-regexp-p val)
-      (%js-make-regex (js-regexp-source val) (js-regexp-flags val)))
-    (t val)))
+    ((%js-object-date-operation :date-p val) (%js-object-date-operation :clone val))
+    (t (multiple-value-bind (clone handled-p) (%js-clone-regex-if-applicable val) (if handled-p clone val)))))
 
 (defun %js-destructure-array (arr &rest indices-and-defaults)
   "Array-destructuring rest helper."
@@ -98,7 +96,7 @@
       (= (length indices-and-defaults) 2)
       (eq (second indices-and-defaults) :rest)) (let ((idx (first indices-and-defaults))
           (len (truncate (%js-to-number (%js-get-prop arr "length")))))
-      (%js-list-to-array
+      (%js-object-list-to-array
         (loop for i from idx below len
               collect (%js-get-prop arr i))))
     (loop for (idx default) on indices-and-defaults by #'cddr
@@ -117,3 +115,12 @@
           collect (let ((v (%js-get-prop obj k)))
         (if (eq v +js-undefined+) default
           v)))))
+
+(defun %js-structured-clone (val &rest _opts)
+  "structuredClone(value[, options]): deep clone VAL (options ignored)."
+  (declare (ignore _opts))
+  (%js-deep-clone val))
+
+;;; -----------------------------------------------------------------------
+;;;  Standalone global-builtin helpers (referenced in *js-builtin-specs*)
+;;; -----------------------------------------------------------------------

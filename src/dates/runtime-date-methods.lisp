@@ -1,6 +1,6 @@
 ;;;; packages/javascript/src/runtime-date-methods.lisp — JS Date string reps and dispatch table
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/dates)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Date.prototype string representations
@@ -64,6 +64,13 @@ docs/src/reference/compatibility.md."
 
 (defun %js-date-value-of (date)
   (%js-date-get-time date))
+(defun %js-date-object-operation (operation value)
+  (ecase operation
+    (:date-p (%js-date-p value))
+    (:clone (make-js-date :ms (js-date-ms value)))
+    (:to-string (%js-date-to-string value))))
+(eval-when (:load-toplevel :execute)
+  (%js-register-object-date-handler #'%js-date-object-operation))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Date method dispatch table

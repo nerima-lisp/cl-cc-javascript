@@ -2,14 +2,14 @@
 ;;;; JS Array transforms and mutation helpers
 ;;;;
 ;;;; Load order: after runtime-array-core.lisp and before runtime-array-es2023.lisp.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/arrays)
 
 ;;; Shared sort predicate builder — used by both mutating sort and toSorted.
 ;;; Handles nil (no compareFn supplied) and +js-undefined+ (passed from JS).
 (defun %js-sort-comparator (compare-fn)
   "Build a CL sort predicate from an optional JS compareFn."
   (if (and compare-fn (not (eq compare-fn +js-undefined+))) (lambda (a b)
-      (minusp (%js-funcall compare-fn a b)))
+      (minusp (%js-object-funcall compare-fn a b)))
     (lambda (a b)
       (string< (%js-to-string a) (%js-to-string b)))))
 

@@ -1,6 +1,6 @@
 ;;;; packages/javascript/src/runtime-builtins-intl-list-format.lisp -- Intl.ListFormat
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/intl)
 
 (defun %js-list-format-items (list)
   (cond

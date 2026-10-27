@@ -8,7 +8,7 @@
 ;;;; apply where — separate from what each combinator does.
 ;;;;
 ;;;; Load order: before runtime-regex.lisp, which calls every public name here.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/regex)
 
 ;;; -----------------------------------------------------------------------
 ;;;  RegExp struct

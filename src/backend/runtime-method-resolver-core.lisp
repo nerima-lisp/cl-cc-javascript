@@ -1,5 +1,5 @@
 ;;;; packages/javascript/src/runtime-method-resolver-core.lisp — JS method resolver helpers
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/backend)
 
 (defun %js-string-char-iter (s)
   "Return a JS Iterator that yields each character of string S as a one-char string."

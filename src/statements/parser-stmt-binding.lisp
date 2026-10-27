@@ -3,19 +3,13 @@
 ;;;; Extracted from parser-stmt.lisp to isolate the binding/destructuring machinery.
 ;;;; Loaded before parser-stmt.lisp so these helpers are available to all subsequent
 ;;;; parser files (parser-stmt, parser-stmt-control, etc.).
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/statements)
 
 ;;; ─── Token Stream Helpers (needed by binding parsers) ────────────────────────
 ;;; js-peek*, js-consume, js-expect, js-at-eof-p are in parser.lisp (loads first).
 (defun %js-consume-expected (type stream)
   "Like js-expect but returns only the rest stream (discards the token)."
   (nth-value 1 (js-expect type stream)))
-
-(defun js-skip-semis (stream)
-  "Skip zero or more semicolons in a loop (unlike js-skip-semi which skips one)."
-  (loop while (and stream (eq (js-peek-type stream) :T-SEMI))
-        do (setf stream (cdr stream)))
-  stream)
 
 ;;; ─── Variable / Binding Pattern Helpers ─────────────────────────────────────
 (defun %js-binding-sym (name)
@@ -42,7 +36,7 @@ case-sensitive), so a binding and its references resolve to the same symbol."
 otherwise return (values nil stream). Used for destructuring defaults like
 [a = 1] and {a = 1}."
   (if (and stream (eq (js-peek-type stream) :T-OP) (equal (js-peek-value stream) "=")) (%js-consume-then (rest (js-consume stream))
-      (js-parse-assignment-expr rest))
+      (js-call-parser-handler :assignment-expression rest))
     (values nil stream)))
 
 (defun %js-default-access (access-expr default-ast)

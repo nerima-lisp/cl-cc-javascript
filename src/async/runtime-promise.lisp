@@ -4,7 +4,7 @@
 ;;;; time it's observable from JS, so .then/.catch/.finally run their handler
 ;;;; immediately instead of queuing a microtask.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/async)
 
 (defstruct (js-promise (:conc-name js-promise-))
   value
@@ -36,14 +36,14 @@ rejected promise propagates the rejection through the chain."
   "Execute THUNK, wrapping result/exception in a promise.
 THUNK is a VM closure so use %js-funcall (not CL:FUNCALL) to re-enter the VM."
   (handler-case
-      (%js-promise-resolve (%js-funcall thunk))
+      (%js-promise-resolve (%js-object-funcall thunk))
     (js-exception (c)
       (%js-promise-reject (js-exception-value c)))))
 
 ;;; Call HANDLER with VALUE; propagate JS exceptions as a rejected promise.
 (defun %js-promise-apply-handler (value handler)
   (handler-case
-      (%js-promise-resolve (%js-funcall handler value))
+      (%js-promise-resolve (%js-object-funcall handler value))
     (js-exception (c) (%js-promise-reject (js-exception-value c)))))
 
 (defun %js-promise-then (promise on-fulfilled &optional on-rejected)
@@ -60,7 +60,7 @@ THUNK is a VM closure so use %js-funcall (not CL:FUNCALL) to re-enter the VM."
 
 (defun %js-promises-as-vec (promises)
   "Ensure PROMISES is a JS vector (convert from iterator/array-like if needed)."
-  (if (%js-vec-p promises) promises (%js-array-from promises)))
+  (if (%js-vec-p promises) promises (%js-promise-input-as-array promises)))
 
 (defmacro %with-promise-vec ((var promises) &body body)
   "Bind VAR to (%js-promises-as-vec PROMISES) and run BODY."
@@ -106,7 +106,7 @@ already existed, tested in isolation, just never called from here)."
                    (vector-push-extend (js-promise-value p) errors)
                    (return-from %js-promise-any (%js-promise-resolve (%js-promise-unwrap p)))))
       (%js-promise-reject
-       (%js-make-aggregate-error errors "All promises were rejected")))))
+       (%js-object-make-aggregate-error errors "All promises were rejected")))))
 
 (defun %js-promise-race (promises)
   "Return the first settled promise."
@@ -127,3 +127,17 @@ already existed, tested in isolation, just never called from here)."
                          (js-promise-settled-p p) t
                          (js-promise-rejected-p p) t))))
     (%js-make-object "promise" p "resolve" resolve "reject" reject)))
+
+(defun %js-queue-microtask (fn &rest _)
+  "queueMicrotask(fn): synchronous in our single-threaded model."
+  (declare (ignore _))
+  (%js-object-funcall fn)
+  +js-undefined+)
+
+(in-package #:cl-cc/javascript/backend)
+
+(defun %js-promise-try (fn &rest args)
+  "ES2025 Promise.try: call FN with ARGS, wrapping synchronous throws."
+  (handler-case (%js-promise-resolve (apply #'%js-funcall fn args))
+    (js-exception (c)
+      (%js-promise-reject (js-exception-value c)))))

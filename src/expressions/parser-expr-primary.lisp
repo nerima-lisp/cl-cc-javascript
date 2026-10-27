@@ -10,7 +10,7 @@
 ;;;;
 ;;;; Load order: after parser-expr.lisp, before parser-stmt.lisp.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/expressions)
 
 ;;; ─── Primary Expression ──────────────────────────────────────────────────────
 
@@ -87,23 +87,23 @@ yield, await, import()."
        (js-parse-object-literal stream))
       ;; Parenthesized expression or arrow function params
       (:T-LPAREN
-       (%js-parse-paren-or-arrow stream))
+       (js-call-parser-handler :function-paren-or-arrow stream))
       ;; function expression
       (:T-FUNCTION
        (%js-consume-then (rest (js-consume stream))
          (js-parse-function-expr rest)))
       ;; async function / async arrow
       (:T-ASYNC
-       (%js-parse-async-expr stream))
+       (js-call-parser-handler :function-async-expression stream))
       ;; class expression
       (:T-CLASS
-       (%js-parse-class-expr stream))
+       (js-call-parser-handler :function-class-expression stream))
       ;; new expression (including new.target)
       (:T-NEW
        (js-parse-new-expr stream))
       ;; import() dynamic import
       (:T-IMPORT
-       (%js-parse-import-expr stream))
+       (js-call-parser-handler :function-import-expression stream))
       ;; yield as expression (when used as identifier-like)
       (:T-YIELD
        (%js-parse-yield-expr stream))
@@ -116,7 +116,7 @@ yield, await, import()."
       (:T-IDENT
        (%js-consume-then (rest (js-consume stream))
          (if (eq (js-peek-type rest) :T-ARROW)
-             (%js-finish-arrow-function (list (js-ident-sym val)) rest)
+             (js-call-parser-handler :function-finish-arrow (list (js-ident-sym val)) rest)
              (values (make-ast-var :name (js-ident-sym val)) rest))))
       ;; Private field identifier #name — as standalone (for #name in obj)
       (:T-PRIVATE-IDENT
@@ -245,6 +245,9 @@ assignment (right-assoc), ternary, binary ops, and comma."
   "Like js-parse-expr but stops at comma (min-prec = 2).
 Use for function arguments and array/object elements."
   (js-parse-expr stream 2))
+(eval-when (:load-toplevel :execute)
+  (register-js-parser-handler :expression (function js-parse-expr))
+  (register-js-parser-handler :assignment-expression (function js-parse-assignment-expr)))
 
 ;;; ─── Entry Point Helpers ─────────────────────────────────────────────────────
 

@@ -5,9 +5,9 @@
 ;;;; ES2024: Array.of, Array.prototype.group, Array.prototype.groupToMap.
 ;;;;
 ;;;; Load order: after runtime-array.lisp (needs %js-array-flat, %js-make-vec,
-;;;; %js-make-ht, %js-make-map, %js-map-get, %js-map-set, %js-funcall, %js-truthy,
+;;;; %js-make-ht, %js-make-map, %js-map-get, %js-map-set, %js-object-funcall, %js-truthy,
 ;;;; %js-to-string, +js-undefined+).
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/arrays)
 
 ;;; -----------------------------------------------------------------------
 ;;;  ES2023 non-mutating array methods (return copies)
@@ -92,11 +92,11 @@
 (defun %js-array-group (arr key-fn)
   "Array.prototype.group(keyFn) → {key: [values...]} object (ES2024)."
   (let ((result (%js-make-ht)))
-    (%js-group-into
+    (%js-object-group-into
       (lambda (visit)
         (loop for i below (length arr)
               for el = (aref arr i)
-              do (funcall visit (%js-to-string (%js-funcall key-fn el i arr)) el)))
+              do (funcall visit (%js-to-string (%js-object-funcall key-fn el i arr)) el)))
       (lambda (key)
         (or
           (gethash key result)
@@ -106,11 +106,11 @@
 (defun %js-array-group-to-map (arr key-fn)
   "Array.prototype.groupToMap(keyFn) → Map<key, [values...]> (ES2024)."
   (let ((result (%js-make-map)))
-    (%js-group-into
+    (%js-object-group-into
       (lambda (visit)
         (loop for i below (length arr)
               for el = (aref arr i)
-              do (funcall visit (%js-funcall key-fn el i arr) el)))
+              do (funcall visit (%js-object-funcall key-fn el i arr) el)))
       (lambda (key)
         (let ((bucket (%js-map-get result key)))
           (if (eq bucket +js-undefined+) (let ((fresh (%js-make-array)))

@@ -3,7 +3,7 @@
 ;;;; Separated from runtime-temporal.lisp so parsing concerns do not inflate the
 ;;;; core constructor file.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/dates)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Parse helpers

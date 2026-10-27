@@ -22,7 +22,7 @@
 ;;;; The js-regexp struct, escape-sequence tables, character-class matcher,
 ;;;; and matcher-closure combinators this compiler assembles into a compiled
 ;;;; pattern live in the sibling runtime-regex-combinators.lisp.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/regex)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Pattern compilation — translate JS regex to a CL matcher function

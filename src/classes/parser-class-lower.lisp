@@ -7,7 +7,7 @@
 ;;;; Load order: after parser-class-lower-classify.lisp (needs its
 ;;;; %js-class-*-slots predicates and %js-class-member-key-ast/
 ;;;; %js-slot-to-method-lambda/%js-wrap-method-super helpers).
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/classes)
 
 ;;; ─── %js-lower-class-to-ast: per-role lowering ──────────────────────────────
 (defun %js-lower-class-field-inits (field-slots)
@@ -218,3 +218,27 @@ by %js-lower-class-to-ast."
     (multiple-value-bind (members rest) (%js-parse-class-body current class-name)
       (values (%js-lower-class-to-ast class-name super-expr members decorators)
               rest))))
+;;; ─── js-parse-class-decl (public entry point) ───────────────────────────────
+(eval-when (:load-toplevel :execute)
+  (register-js-parser-handler
+   '(:statement :T-CLASS)
+   (lambda (stream)
+     (multiple-value-bind (ast-list rest) (js-parse-class-decl stream)
+       (values (if (and (consp ast-list) (= (length ast-list) 1))
+                   (first ast-list)
+                   (make-ast-progn :forms ast-list))
+               rest))))
+  (register-js-parser-handler
+   :statement-decorated-class
+   (lambda (stream)
+     (multiple-value-bind (decorators rest) (%js-parse-decorators stream)
+       (unless (eq (js-peek-type rest) :T-CLASS)
+         (error "JS parse error: decorators must precede a class declaration"))
+       (multiple-value-bind (ast-list rest2)
+           (js-parse-class-decl (cdr rest) :decorators decorators)
+         (values (if (and (consp ast-list) (= (length ast-list) 1))
+                     (first ast-list)
+                     (make-ast-progn :forms ast-list))
+                 rest2))))))
+
+(eval-when (:load-toplevel :execute) (register-js-parser-handler :class-declaration (function js-parse-class-decl)))

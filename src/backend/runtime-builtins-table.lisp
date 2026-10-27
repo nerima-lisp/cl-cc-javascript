@@ -3,7 +3,7 @@
 ;;;; *js-builtin-specs* now lives in runtime-builtins-table-specs.lisp.
 ;;;; This file only builds *js-builtin-map* from the shared dispatch table.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/backend)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Built-in dispatch table

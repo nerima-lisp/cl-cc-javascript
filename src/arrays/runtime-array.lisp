@@ -2,4 +2,4 @@
 ;;;;
 ;;;; This file is intentionally small; the implementation lives in split files.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/arrays)

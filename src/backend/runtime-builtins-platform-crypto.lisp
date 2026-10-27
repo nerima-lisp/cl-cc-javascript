@@ -1,6 +1,6 @@
 ;;;; packages/javascript/src/runtime-builtins-platform-crypto.lisp — Crypto helpers
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/backend)
 
 (defun %js-crypto-random-bytes (count)
   "Return COUNT bytes from the host CSPRNG, with a non-crypto fallback."

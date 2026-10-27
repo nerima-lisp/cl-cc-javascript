@@ -2,7 +2,7 @@
 ;;;;
 ;;;; These helpers are referenced by runtime-builtins-table.lisp and must be
 ;;;; loaded before it.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/proxies)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Reflect / Object property-descriptor helpers (for runtime-builtins-table.lisp)

@@ -2,14 +2,14 @@
 ;;;;
 ;;;; Load order: after runtime-array-core.lisp.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/arrays)
 
 (defun %js-array-from-map-fn-p (map-fn)
   (and map-fn (not (eq map-fn +js-undefined+)) (not (eq map-fn +js-null+))))
 
 (defun %js-array-from-map-value (map-fn this-arg value index)
   (if (%js-array-from-map-fn-p map-fn)
-      (%js-call-with-this this-arg map-fn (list value index))
+      (%js-object-call-with-this this-arg map-fn (list value index))
       value))
 
 (defun %js-array-to-length (value)
@@ -35,7 +35,7 @@
   (let ((result (%js-make-vec))
         (index 0))
     (if (%js-array-iterable-p items)
-        (%js-for-of
+        (%js-object-for-of
          items
          (lambda (el)
            (vector-push-extend
@@ -55,7 +55,7 @@
       (let ((result (%js-make-vec))
             (index 0))
         (if (%js-array-iterable-p items)
-            (%js-for-of
+            (%js-object-for-of
              items
              (lambda (el)
                (let* ((value (%js-await el))

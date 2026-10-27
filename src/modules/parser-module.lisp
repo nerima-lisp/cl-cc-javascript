@@ -28,7 +28,7 @@
 ;;;;   module specifier and the specifier list as quoted data so that the
 ;;;;   VM's %js-import / %js-export host-bridge functions can interpret them
 ;;;;   at runtime.  This mirrors how the PHP parser lowers require/include.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/modules)
 
 ;;; ─── Token stream helpers (re-used from parser-class.lisp) ──────────────────
 ;;;
@@ -270,5 +270,7 @@ Returns (values ast rest)."
       ((eq (js-peek-type current) :T-IDENT) (%js-parse-import-default-form current))
       (t
         (error "JS parse error: malformed import declaration near ~S" (js-peek current))))))
+(eval-when (:load-toplevel :execute)
+  (register-js-parser-handler '(:statement :T-IMPORT) (function js-parse-import-decl)))
 
 ;;; Export declarations → see parser-module-export.lisp

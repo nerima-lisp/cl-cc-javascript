@@ -7,7 +7,7 @@
 ;;;; loads before this file. The separation allows scanning the full built-in
 ;;;; roster at a glance without wading through implementation code.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/backend)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Built-in dispatch table

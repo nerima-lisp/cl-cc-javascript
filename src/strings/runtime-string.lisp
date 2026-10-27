@@ -1,7 +1,7 @@
 ;;;; packages/javascript/src/runtime-string.lisp — JS String, Number, Regex, Math built-ins
 ;;;;
 ;;;; String methods, numeric helpers, regex stubs, and Math functions.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/strings)
 
 ;;; -----------------------------------------------------------------------
 ;;;  String methods

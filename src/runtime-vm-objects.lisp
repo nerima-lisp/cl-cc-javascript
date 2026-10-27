@@ -1,5 +1,5 @@
 ;;;; Runtime structures used by the VM's object and dispatch paths.
-(in-package #:cl-cc/javascript)
+(in-package #:cl-cc/javascript/v8-objects)
 
 ;;; Hidden classes / object shapes
 (defstruct object-shape
@@ -125,9 +125,3 @@
                                 :total-size ,(length fields)))
      ',name))
 
-(export '(object-shape make-object-shape *shape-registry*
-          find-or-create-shape shape-slot-offset
-          +imt-size+ imt-entry make-imt-entry
-          inline-method-table make-inline-method-table imt-insert imt-lookup
-          make-mark-word mark-word-gc-color
-          defvalue-type value-type-def *value-types*))

@@ -7,7 +7,7 @@
 ;;;;             skip-js-whitespace-and-comments, lex-js-string, lex-js-identifier,
 ;;;;             lex-js-private-ident, js-regex-follows-p).
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/syntax)
 
 ;;; Operator lexer
 
@@ -61,29 +61,6 @@ Returns (values token new-pos)."
 
 ;;; Main tokenizer
 
-(defun %js-lex-template-fallback-scan (source pos)
-  "Scan raw template-literal content starting at POS (just past the opening
-backtick) until the closing backtick, honoring simple backslash escapes. Used
-only when js-lex-template (lexer-template.lisp) is not loaded.
-Returns (values content new-pos) where NEW-POS is just past the closing
-backtick."
-  (let ((len (length source))
-        (buf (make-array 64 :element-type 'character
-                         :fill-pointer 0 :adjustable t)))
-    (loop
-      (when (>= pos len)
-        (error "JS lex error: unterminated template literal"))
-      (let ((tc (char source pos)))
-        (cond
-          ((char= tc #\`)
-           (return (values (copy-seq buf) (1+ pos))))
-          ((and (char= tc #\\) (< (1+ pos) len))
-           (vector-push-extend (char source (1+ pos)) buf)
-           (incf pos 2))
-          (t
-           (vector-push-extend tc buf)
-           (incf pos)))))))
-
 (defun %js-lex-hash-token (source pos)
   "Handle a '#' at POS: a mid-source hashbang comment (#!...), a private
 identifier (#name), or a lex error. Returns (values tok new-pos); TOK is nil
@@ -108,8 +85,8 @@ Returns (values tok new-pos new-prev-token-type)."
       ;; (1+ pos) — otherwise it sees the opening slash as an empty pattern's
       ;; closing slash and reads the pattern body as flags ("/ab+c/gi" ->
       ;; unknown flag 'a').
-      (if (fboundp 'js-lex-regex)
-          (multiple-value-bind (tok new-pos) (js-lex-regex source (1+ pos))
+      (if (js-lexer-extension-handler :slash)
+          (multiple-value-bind (tok new-pos) (funcall (js-lexer-extension-handler :slash) source (1+ pos))
             (values tok new-pos :T-REGEX))
           (values (make-js-token :T-OP "/") (1+ pos) :T-OP))
       (multiple-value-bind (tok new-pos) (lex-js-operator source pos)
@@ -153,34 +130,14 @@ identifiers, and hashbang comments at position 0."
                      pos new-pos))))
           ;; Template literal: backtick
           ((char= ch #\`)
-           (cond
-             ;; If js-lex-template is available (defined in lexer-template.lisp), use it
-             ((fboundp 'js-lex-template)
-              ;; js-lex-template returns a SINGLE token (:T-STRING for a simple
-              ;; template, or :T-TEMPLATE-PARTS for an interpolated one) — push it
-              ;; as one token, not as a list of its plist elements.
-              (multiple-value-bind (tok new-pos)
-                  (js-lex-template source (1+ pos))
-                (push tok tokens)
-                (setf prev-token-type (getf tok :type)
-                      pos new-pos)))
-             ;; Otherwise emit :T-TEMPLATE-START and scan inline to closing backtick
-             (t
-              (let ((tok (make-js-token :T-TEMPLATE-START "`")))
-                (push tok tokens)
-                (setf prev-token-type :T-TEMPLATE-START)
-                (incf pos)
-                (multiple-value-bind (content new-pos)
-                    (%js-lex-template-fallback-scan source pos)
-                  (push (make-js-token :T-STRING content) tokens)
-                  (setf prev-token-type :T-STRING
-                        pos new-pos))))))
-          ;; Number
-          ((js-digit-p ch)
-           (multiple-value-bind (tok new-pos) (lex-js-number source pos)
+           (multiple-value-bind (tok new-pos)
+               (js-call-lexer-extension :backtick source (1+ pos))
              (push tok tokens)
              (setf prev-token-type (getf tok :type)
                    pos new-pos)))
+          ;; Number
+          ((js-digit-p ch)
+           (multiple-value-bind (tok new-pos) (js-call-lexer-extension :digit source pos) (push tok tokens) (setf prev-token-type (getf tok :type) pos new-pos)))
           ;; Identifier or keyword
           ((js-id-start-p ch)
            (multiple-value-bind (tok new-pos) (lex-js-identifier source pos)

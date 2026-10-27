@@ -1,7 +1,7 @@
 ;;;; packages/javascript/src/runtime-object.lisp — JS Object built-ins + destructuring
 ;;;;
 ;;;; Object representation: CL hash tables (:test #'equal), key is string.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/objects)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Objects
@@ -77,8 +77,8 @@ order after them."
                 (setf (gethash property-name seen) t)
                 (vector-push-extend property-name result))))))
       (cond
-        ((%js-proxy-object-p obj)
-          (dolist (key (%js-proxy-key-list (%js-proxy-own-keys obj)))
+        ((%js-object-proxy-p obj)
+          (dolist (key (%js-object-proxy-key-list (%js-object-proxy-own-keys obj)))
             (add-key key)))
         ((%js-ht-p obj)
           (maphash
@@ -122,8 +122,8 @@ order after them."
               (setf (gethash (%js-symbol-as-key sym) seen) t)
               (vector-push-extend sym result)))))
       (cond
-        ((%js-proxy-object-p obj)
-          (dolist (key (%js-proxy-key-list (%js-proxy-own-keys obj)))
+        ((%js-object-proxy-p obj)
+          (dolist (key (%js-object-proxy-key-list (%js-object-proxy-own-keys obj)))
             (add-symbol-key key)))
         ((%js-ht-p obj)
           (maphash
@@ -146,14 +146,14 @@ order after them."
 ;;; Internal: iterate non-internal properties of OBJ, collecting (select-fn k v)
 ;;; into a fresh adjustable vector. Returns an empty array when OBJ is not a HT.
 (defun %js-object-collect (obj select-fn)
-  (if (or (%js-proxy-object-p obj) (%js-ht-p obj)) (let ((result (make-array 0 :element-type t :adjustable t :fill-pointer 0)))
+  (if (or (%js-object-proxy-p obj) (%js-ht-p obj)) (let ((result (make-array 0 :element-type t :adjustable t :fill-pointer 0)))
       (map
         nil
         (lambda (k)
           (vector-push-extend (funcall select-fn k (%js-get-prop obj k)) result))
         (%js-object-own-string-property-keys obj))
       result)
-    (%js-make-array)))
+    (%js-object-make-array)))
 
 (defun %js-object-keys (obj)
   (%js-object-collect
@@ -173,7 +173,7 @@ order after them."
   (%js-object-collect
     obj
     (lambda (k v)
-      (%js-make-array k v))))
+      (%js-object-make-array k v))))
 
 (defun %js-object-own-keys (obj)
   (%js-object-own-property-keys obj))
@@ -187,7 +187,7 @@ order after them."
 (defun %js-object-assign (target &rest sources)
   "Copy all enumerable own properties from SOURCES to TARGET."
   (dolist (src sources)
-    (when (or (%js-proxy-object-p src) (%js-ht-p src))
+    (when (or (%js-object-proxy-p src) (%js-ht-p src))
       (map
         nil
         (lambda (key)
@@ -279,15 +279,15 @@ hash-table, and can't hold arbitrary string keys directly."
 (defun %js-object-has-own (obj key)
   "True if OBJ has own property KEY."
   (cond
-    ((%js-proxy-object-p obj)
-      (not (eq (%js-proxy-get-own-property-descriptor obj key) +js-undefined+)))
-    ((%js-ht-p obj) (%js-object-own-property-or-accessor-present-p obj key))
+    ((%js-object-proxy-p obj)
+      (not (eq (%js-object-proxy-get-own-property-descriptor obj key) +js-undefined+)))
+    ((%js-ht-p obj) (%js-object-proxy-own-property-or-accessor-present-p obj key))
     (t nil)))
 
 (defun %js-object-from-entries (iterable)
   "Create object from [key, value] iterable."
   (let ((ht (%js-make-ht)))
-    (%js-for-of
+    (%js-object-for-of
       iterable
       (lambda (entry)
         (let ((k (%js-get-prop entry 0))
@@ -295,4 +295,3 @@ hash-table, and can't hold arbitrary string keys directly."
           (%js-set-prop ht k v))))
     ht))
 
-;;; Object algorithms and structured clone live in runtime-object-ops.lisp.

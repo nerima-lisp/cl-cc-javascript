@@ -9,7 +9,7 @@
 ;;;;
 ;;;; This is why :cl-cc/javascript depends on :cl-cc-vm.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/backend)
 
 (defun %install-js-vm-integration ()
   "Install the JS↔VM closure integration into the JS runtime specials."

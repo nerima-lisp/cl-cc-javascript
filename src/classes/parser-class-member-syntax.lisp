@@ -1,9 +1,9 @@
-;;;; packages/javascript/src/parser-class-helpers.lisp — ES2026 class parser helpers
+;;;; packages/javascript/src/classes/parser-class-member-syntax.lisp — ES2026 class member parsing
 ;;;;
 ;;;; Shared helper routines for class decorators, member names, accessors, and
 ;;;; member metadata.  Kept separate from parser-class.lisp so the latter can
 ;;;; focus on class-body lowering and stay below the giant-file threshold.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/classes)
 
 ;;; ─── Symbol helpers ──────────────────────────────────────────────────────────
 ;;; js-tok-type, js-tok-value, js-peek*, js-consume, js-expect, js-at-eof-p,
@@ -111,7 +111,7 @@ distinguishes a computed name from a plain/private member name via
 (symbolp name): a computed name is an AST node, never a symbol."
   (multiple-value-bind (tok rest) (js-consume stream)
     (declare (ignore tok))
-    (multiple-value-bind (expr-ast rest2) (js-parse-assignment-expr rest)
+    (multiple-value-bind (expr-ast rest2) (js-call-parser-handler :assignment-expression rest)
       (multiple-value-bind (tok2 rest3) (js-expect :T-RBRACKET rest2)
         (declare (ignore tok2))
         (values expr-ast rest3)))))
@@ -227,7 +227,7 @@ via js-parse-stmt-list (the real statement parser) so methods execute normally."
       ;; by js-parse-block and js-parse-function-body.
       (multiple-value-bind (_ rest3) (js-expect :T-LBRACE rest2)
         (declare (ignore _))
-        (multiple-value-bind (body-stmts rest4) (js-parse-stmt-list rest3)
+        (multiple-value-bind (body-stmts rest4) (js-call-parser-handler :statement-list rest3)
           (let ((body-ast (make-ast-progn :forms (%js-callable-body body-stmts))))
             (values (nreverse params) body-ast rest4)))))))
 

@@ -1,6 +1,6 @@
 ;;;; packages/javascript/src/runtime-builtins-platform-url.lisp — URL / URLSearchParams helpers
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/strings)
 
 (defun %js-split-string-on-char (str char)
   (let ((start 0)

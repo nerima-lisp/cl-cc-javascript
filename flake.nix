@@ -7,13 +7,13 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     # cl-nix-forge supplies `fromAsdSystem` and `mkDocsSite`. Its package
-    # preset is not used: at v0.6.1, `lispDerivation` only runs
+    # preset is not used: at v0.7.4, `lispDerivation` only runs
     # `(require "asdf") (asdf:load-system "<name>")`, so it cannot set up
     # this repository's dependency roots or run the compile/test scripts. The
     # custom phases below handle those steps. Recheck
     # `lib/core/asdf-derivation.nix` before replacing them after an upgrade.
     cl-nix-forge = {
-      url = "github:nerima-lisp/cl-nix-forge/v0.6.1";
+      url = "github:nerima-lisp/cl-nix-forge/950a8224940539a97c112a6b872f0ae5b6c115db";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -366,6 +366,7 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          cl = cl-nix-forge.lib.${system};
           # The Temporal time-zone tests read real IANA data through
           # cl-date-kit's TZDIR/zoneinfo lookup (see docs/src/reference/compatibility.md),
           # so the Nix sandbox needs its own zoneinfo tree: nixpkgs' `tzdata`
@@ -413,6 +414,65 @@
                 touch "$out/passed"
               '';
 
+          file-length =
+            pkgs.runCommand "cl-cc-javascript-file-length" { nativeBuildInputs = [ pkgs.python3 ]; }
+              ''
+                ${pkgs.python3}/bin/python3 - ${self} <<PY
+                import pathlib
+                import sys
+
+                root = pathlib.Path(sys.argv[1])
+                files = sorted(
+                    path
+                    for directory in (root / "src", root / "t")
+                    for path in directory.rglob("*.lisp")
+                )
+                violations = []
+                maximum_source = 0
+                maximum_tests = 0
+                for path in files:
+                    line_count = len(path.read_text().splitlines())
+                    if path.relative_to(root).parts[0] == "src":
+                        maximum_source = max(maximum_source, line_count)
+                        limit = 300
+                    else:
+                        maximum_tests = max(maximum_tests, line_count)
+                        limit = 500
+                    if line_count > limit:
+                        violations.append((path, line_count, limit))
+                if violations:
+                    for path, line_count, limit in violations:
+                        print(f"{path.relative_to(root)}: {line_count} lines (limit {limit})")
+                    sys.exit(1)
+                print(
+                    f"checked {len(files)} Lisp files; maximum source {maximum_source} lines "
+                    f"(limit 300), tests {maximum_tests} lines (limit 500)"
+                )
+                PY
+                touch "$out"
+              '';
+
+          feature-lint = cl.mkFeatureLintCheck {
+            src = ./.;
+            featureDefinitions = "nix/feature-dependencies.sexp";
+            glossary = "docs/src/reference/glossary.md";
+            glossaryHeadingPrefix = "## ";
+            exportSurface = "t/export-surface.txt";
+            mode = "transition";
+            legacyInternalRefs = "t/legacy-internal-refs.sexp";
+            forbiddenNames = [
+              "phases"
+              "misc"
+              "utils"
+              "helpers"
+            ];
+            numberedPrefixes = [
+              "FR-"
+              "W"
+            ];
+            packagePrefix = "cl-cc/javascript/";
+            infraSuffix = "/infra";
+          };
           # The compile gate is kept as its own check so a pure load failure is
           # distinguishable from a test failure without reading the log.
           compile = self.packages.${system}.cl-cc-javascript;

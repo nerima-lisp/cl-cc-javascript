@@ -1,6 +1,6 @@
 ;;;; packages/javascript/src/runtime-weak-collections.lisp
 ;;;; JS WeakMap, WeakSet, WeakRef, FinalizationRegistry
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/objects)
 
 (defmacro define-js-weak-membership-ops (accessor &key has delete)
   "Define the HAS and DELETE operations for a weak collection whose backing

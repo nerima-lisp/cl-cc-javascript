@@ -4,7 +4,7 @@
 ;;;; "literal expression" layer that builds compound primary expressions.
 ;;;; Load order: after parser-expr-args.lisp (needs js-parse-params, %js-call),
 ;;;;             before parser-expr-primary.lisp (calls these parsers).
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/expressions)
 
 ;;; ─── Array Literal ───────────────────────────────────────────────────────────
 (defun js-parse-array-literal (stream)
@@ -227,12 +227,12 @@ generator wrapping, and (if NAME) its letrec self-recursion binding. Split
 out of JS-PARSE-FUNCTION-EXPR so that function's own multiple-value-bind
 chain only threads stream state through parsing, instead of also nesting
 this AST-building logic at its deepest, hardest-to-read level."
-  (multiple-value-bind (required opts) (%js-split-params-by-defaults params optionals)
+  (multiple-value-bind (required opts) (js-call-parser-handler :function-split-params params optionals)
     ;; Wrap in (block nil ...) so `return' (which lowers to return-from nil)
     ;; works — a function-expression body was previously used raw, so any
     ;; `return value' silently produced nothing.
     (multiple-value-bind (rest-param wrapped-body)
-        (%js-rest-binding rest-sym (%js-callable-body body-forms))
+        (js-call-parser-handler :function-rest-binding rest-sym (%js-callable-body body-forms))
       (let* ((lambda-ast (make-ast-lambda :params required
                                           :optional-params opts
                                           :rest-param rest-param
@@ -283,7 +283,7 @@ Returns (values ast rest)."
               current rest)))
     ;; Parameter list
     (multiple-value-bind (params optionals rest-sym rest2)
-        (js-parse-params current)
+        (js-call-parser-handler :function-params current)
       ;; Body: { stmts... }
       (%js-consume-then (rest3 (js-expect :T-LBRACE rest2))
         (multiple-value-bind (body-forms rest4)
@@ -294,4 +294,4 @@ Returns (values ast rest)."
 
 (defun js-parse-function-body (stream)
   "Parse statements inside { } until matching }."
-  (js-parse-stmt-list stream))
+  (js-call-parser-handler :statement-list stream))

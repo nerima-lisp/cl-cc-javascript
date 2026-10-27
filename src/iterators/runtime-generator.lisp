@@ -3,7 +3,7 @@
 ;;;;
 ;;;; Load order: after runtime-promise.lisp (%js-make-async calls
 ;;;; %js-promise-resolve/-reject).
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/iterators)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Async / generator wrappers
@@ -11,7 +11,7 @@
 (defun %js-make-async (fn)
   "Wrap FN as an async function: invoking it returns a resolved/rejected promise."
   (lambda (&rest args)
-    (handler-case (%js-promise-resolve (funcall *js-apply-fn* fn args))
+    (handler-case (%js-promise-resolve (%js-object-apply-fn fn args))
       (js-exception (c)
         (%js-promise-reject (js-exception-value c))))))
 
@@ -99,7 +99,7 @@ value) would write to this thread's own default *standard-output*/
          (*standard-output* stdout)
          (*error-output* stderr)
          (outcome (catch '%js-generator-return
-                    (handler-case (list :done (%js-funcall body-fn))
+                    (handler-case (list :done (%js-object-funcall body-fn))
                       (js-exception (c) (list :error c))
                       ;; Match the prior eager model's tolerance: an
                       ;; unexpected non-JS condition ends the generator as
@@ -168,7 +168,7 @@ never iterated never spawns one."
 (defun %js-generator-next (gen &optional (value +js-undefined+))
   "Advance GEN by one step (delegates to its 'next' method)."
   (let ((next-fn (and (%js-ht-p gen) (gethash "next" gen))))
-    (if next-fn (%js-funcall next-fn value)
+    (if next-fn (%js-object-funcall next-fn value)
       (%js-make-object "value" +js-undefined+ "done" t))))
 
 (defun %js-wrap-generator-body (body-fn)

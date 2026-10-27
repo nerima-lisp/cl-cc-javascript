@@ -3,7 +3,7 @@
 ;;;; Separated from runtime-temporal.lisp so the core datetime constructors stay
 ;;;; focused on the immutable Temporal types themselves.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/dates)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Temporal.Duration

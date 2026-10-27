@@ -1,6 +1,6 @@
 ;;;; packages/javascript/src/runtime-builtins-intl-core.lisp -- Intl shared helpers
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/intl)
 
 (defun %js-intl-option (options name default)
   (if (hash-table-p options)

@@ -5,7 +5,7 @@
 ;;;;
 ;;;; Load order: after parser-stmt.lisp and parser-stmt-control.lisp.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/disposables)
 
 ;;; ─── Break / Continue ────────────────────────────────────────────────────────
 
@@ -63,7 +63,7 @@
           (eq (js-peek-type stream) :T-RBRACE))
       (values (make-ast-return-from :name nil :value (make-ast-quote :value nil))
               (js-skip-semis stream))
-      (multiple-value-bind (expr rest) (js-parse-expr stream)
+      (multiple-value-bind (expr rest) (js-call-parser-handler :expression stream)
         (values (make-ast-return-from :name nil :value expr)
                 (js-skip-semis rest)))))
 
@@ -71,7 +71,7 @@
 
 (defun js-parse-throw-stmt (stream)
   "Parse throw expr; -> (values (%js-throw expr) rest)."
-  (multiple-value-bind (expr rest) (js-parse-expr stream)
+  (multiple-value-bind (expr rest) (js-call-parser-handler :expression stream)
     (values (make-ast-call :func (make-ast-var :name '%js-throw)
                            :args (list expr))
             (js-skip-semis rest))))
@@ -175,7 +175,7 @@ case."
         (error "JS parse error: expected '=' after identifier in using declaration, got ~S"
                (js-peek rest)))
       (let ((rest2 (cdr rest)))
-        (multiple-value-bind (init-expr rest3) (js-parse-expr rest2)
+        (multiple-value-bind (init-expr rest3) (js-call-parser-handler :expression rest2)
           (values
            (make-ast-let
             :bindings (list (cons var-sym
@@ -185,5 +185,15 @@ case."
             :declarations (list :js-using)
             :body nil)
            (js-skip-semis rest3)))))))
+;;; ─── Using Declaration (ES2025 Explicit Resource Management) ─────────────────
+
+(eval-when (:load-toplevel :execute)
+  (register-js-parser-handler '(:statement :T-BREAK) (function js-parse-break-stmt))
+  (register-js-parser-handler '(:statement :T-CONTINUE) (function js-parse-continue-stmt))
+  (register-js-parser-handler '(:statement :T-RETURN) (function js-parse-return-stmt))
+  (register-js-parser-handler '(:statement :T-THROW) (function js-parse-throw-stmt))
+  (register-js-parser-handler '(:statement :T-TRY) (function js-parse-try-stmt))
+  (register-js-parser-handler '(:statement :T-DEBUGGER) (function js-parse-debugger-stmt))
+  (register-js-parser-handler '(:statement :T-USING) (function js-parse-using-decl)))
 
 ;;; Flow-control statement parsers live here; the main dispatcher is in parser-stmt-dispatch.lisp.

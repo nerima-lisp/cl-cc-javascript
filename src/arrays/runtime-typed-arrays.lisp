@@ -7,7 +7,7 @@
 ;;;;            BigInt64Array, BigUint64Array.
 ;;;;
 ;;;; Each TypedArray is a struct wrapping a CL array + a type tag.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/arrays)
 
 ;;; -----------------------------------------------------------------------
 ;;;  TypedArray struct
@@ -148,3 +148,8 @@ ARG can be: length (integer), another TypedArray, an array, or an iterable."
 
 ;;; Prototype methods and ES2023/ES2025 methods live in
 ;;; runtime-typed-arrays-methods.lisp.
+
+(defun %js-make-typed-array-ctor (type-name)
+  "Return a constructor lambda for the named TypedArray TYPE-NAME."
+  (lambda (&optional arg)
+    (%js-make-typed-array type-name arg)))

@@ -5,7 +5,7 @@
 ;;;; operations canonicalize through the insertion-order values because
 ;;;; ECMAScript membership uses SameValueZero, which CL hash-table tests cannot
 ;;;; express exactly for NaN.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/objects)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Set built-ins (ES2025)
@@ -67,7 +67,7 @@
 
 (defun %js-set-for-each (s fn)
   (dolist (x (js-set-order s))
-    (%js-funcall fn x x s))
+    (%js-object-funcall fn x x s))
   +js-undefined+)
 
 (defun %js-set-like-has (obj value)
@@ -75,7 +75,7 @@
     ((js-set-p obj) (%js-set-has obj value))
     ((%js-ht-p obj)
       (let ((has (gethash "has" obj)))
-        (and has (%js-truthy (%js-funcall has value)))))))
+        (and has (%js-truthy (%js-object-funcall has value)))))))
 
 (defun %js-set-like-keys-result-to-list (keys)
   (cond
@@ -90,7 +90,7 @@
     ((%js-ht-p obj)
       (let ((keys (gethash "keys" obj)))
         (when keys
-          (%js-set-like-keys-result-to-list (%js-funcall keys)))))))
+          (%js-set-like-keys-result-to-list (%js-object-funcall keys)))))))
 
 ;;; JS Set ops with duck-typed right-hand side (Set or Map-like table)
 (defmacro define-js-set-predicate (name stop-condition result-if-stopped default-result)
@@ -144,3 +144,13 @@
   (dolist (k (%js-set-like-keys b) t)
     (unless (%js-set-has a k)
       (return-from %js-set-is-superset-of))))
+
+(defun %js-make-set-from-iterable (&optional (iter +js-undefined+))
+  "Build a new JS Set, optionally seeded from ITER."
+  (let ((s (%js-make-set)))
+    (unless (or (eq iter +js-undefined+) (eq iter +js-null+))
+      (%js-object-for-of
+        iter
+        (lambda (v)
+          (%js-set-add s v))))
+    s))

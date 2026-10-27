@@ -1,7 +1,7 @@
 ;;;; packages/javascript/src/runtime-class.lisp — JS Class/OOP, nullish coalesce, misc
 ;;;;
 ;;;; Class instantiation, private fields, and miscellaneous JS operators.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/classes)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Class / OOP
@@ -57,7 +57,7 @@ When KLASS defines no constructor, forward to __super__."
       (ctor
        ;; Bind %js-this to the new instance (host + VM global) so the constructor
        ;; can access it via `this.x = ...'.
-       (%js-call-with-this obj ctor args))
+       (%js-object-call-with-this obj ctor args))
       ((and (%js-ht-p klass) (gethash "__super__" klass))
        (%js-run-constructor (gethash "__super__" klass) obj args)))))
 
@@ -100,7 +100,7 @@ this = the new instance."
   (let ((arglist (if (listp args) args (coerce args 'list))))
     (cond
       ((and (%js-ht-p constructor) (gethash "__new__" constructor))
-       (apply #'%js-funcall (gethash "__new__" constructor) arglist))
+       (apply #'%js-object-funcall (gethash "__new__" constructor) arglist))
       ((or (functionp constructor) (%js-vm-closure-p constructor))
        ;; A plain function used as a constructor — either a host CL function
        ;; or a compiled-JS closure (old-style `function F(){this.x = ...}`
@@ -126,7 +126,7 @@ this = the new instance."
        ;; themselves as distinct defstructs, not hash-tables, hence the
        ;; STRUCTURE-OBJECT check alongside %js-ht-p/%js-vec-p.
        (let* ((obj (%js-make-ht))
-              (result (%js-call-with-this obj constructor arglist)))
+              (result (%js-object-call-with-this obj constructor arglist)))
          (if (%js-composite-value-p result)
              result
              obj)))
@@ -222,6 +222,8 @@ Covers both the base Error and all subclasses."
 (defparameter *js-error-class* (%js-make-error-class "Error" nil)
   "The root JS Error class object.")
 
+(eval-when (:load-toplevel :execute) (%js-register-object-error-class *js-error-class*))
+
 (defmacro define-js-error-subclasses (&rest name-var-pairs)
   "Define Error subclasses from (js-name var-base) pairs, all extending *js-error-class*.
 Example: (define-js-error-subclasses (\"TypeError\" type-error)  ...)
@@ -232,7 +234,7 @@ Example: (define-js-error-subclasses (\"TypeError\" type-error)  ...)
           (let* ((js-name (first pair))
                  (base (second pair))
                  (var
-                  (intern (format nil "*JS-~A-CLASS*" (string-upcase base)) :cl-cc/javascript)))
+                  (intern (format nil "*JS-~A-CLASS*" (string-upcase base)) :cl-cc/javascript/classes)))
             `(defparameter ,var (%js-make-error-class ,js-name *js-error-class*))))
         name-var-pairs)))
 
@@ -253,7 +255,7 @@ Example: (define-js-error-subclasses (\"TypeError\" type-error)  ...)
         (setf (gethash "message" %js-this) msg
               (gethash "name" %js-this) "AggregateError"
               (gethash "stack" %js-this) (format nil "AggregateError: ~A" msg)
-              (gethash "errors" %js-this) (or errors (%js-make-array)))
+              (gethash "errors" %js-this) (or errors (%js-make-vec)))
         (when (%js-ht-p opts)
           (multiple-value-bind (cause present-p) (gethash "cause" opts)
             (when present-p
@@ -262,6 +264,8 @@ Example: (define-js-error-subclasses (\"TypeError\" type-error)  ...)
 (defun %js-make-aggregate-error (errors message &optional opts)
   "Create an AggregateError instance with errors, message, and optional cause."
   (%js-new *js-aggregate-error-class* (list errors message opts)))
+  (eval-when (:load-toplevel :execute)
+    (%js-register-object-aggregate-error-factory #'%js-make-aggregate-error))
 
 (defun %js-make-error-instance (class msg)
   "Create an Error instance with the given CLASS and message MSG."
@@ -276,4 +280,6 @@ Example: (define-js-error-subclasses (\"TypeError\" type-error)  ...)
 
 (defun %js-spread (iterable)
   "Expand iterable into a CL list (for use with apply)."
-  (%js-iter-values iterable))
+  (let ((acc nil))
+    (%js-object-for-of iterable (lambda (element) (push element acc)))
+    (nreverse acc)))

@@ -1,5 +1,5 @@
 ;;;; packages/javascript/src/runtime-map.lisp — JS Map core
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/objects)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Map (ES2015+)
@@ -29,7 +29,7 @@
   "Create a JS Map, optionally seeded from an iterable of [key,val] pairs."
   (let ((m (make-js-map)))
     (when (and pairs (not (eq pairs +js-undefined+)) (not (eq pairs +js-null+)))
-      (%js-for-of
+      (%js-object-for-of
         pairs
         (lambda (pair)
           (let ((k (%js-get-prop pair 0))
@@ -70,7 +70,7 @@ with M, KEY, and V (the value to store) bound, stores the entry."
        "Return existing value at KEY, or compute and insert a default value."
        (multiple-value-bind (existing found-p) ,fetch-form
          (if found-p existing
-           (let ((v (%js-funcall callback ,key)))
+           (let ((v (%js-object-funcall callback ,key)))
              (multiple-value-bind (existing-after found-after) ,fetch-form
                (if found-after existing-after
                  (progn
@@ -113,8 +113,7 @@ with M, KEY, and V (the value to store) bound, stores the entry."
     (let ((keys (copy-list (js-map-order m)))
           (ht (js-map-ht m))
           (i 0))
-      (%js-make-cl-iterator
-        (lambda ()
+      (%js-object-make-iterator (lambda ()
           (if (>= i (length keys)) :done
             (let* ((k (nth i keys))
                    (v (gethash k ht +js-undefined+)))
@@ -135,10 +134,10 @@ with M, KEY, and V (the value to store) bound, stores the entry."
 (%define-js-map-iterator
   %js-map-entries
   "Return an iterator over Map M's [key,value] pairs in insertion order."
-  (%js-make-array k v))
+  (%js-object-make-array k v))
 
 (defun %js-map-for-each (m fn)
   "Call FN(value, key, map) for each entry in insertion order."
   (dolist (k (js-map-order m))
-    (%js-funcall fn (gethash k (js-map-ht m) +js-undefined+) k m))
+    (%js-object-funcall fn (gethash k (js-map-ht m) +js-undefined+) k m))
   +js-undefined+)

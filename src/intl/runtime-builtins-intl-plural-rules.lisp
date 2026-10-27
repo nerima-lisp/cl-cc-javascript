@@ -1,6 +1,6 @@
 ;;;; packages/javascript/src/runtime-builtins-intl-plural-rules.lisp -- Intl.PluralRules
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/intl)
 
 (defun %js-plural-rules-ordinal-category (n)
   (let* ((integer (truncate (abs n)))

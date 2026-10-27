@@ -7,7 +7,7 @@
 ;;;; Load order: after runtime-temporal.lisp (needs all %js-temporal-* constructors
 ;;;; and %temporal-* helpers).
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/dates)
 
 ;;; -----------------------------------------------------------------------
 ;;;  The Temporal global object

@@ -5,7 +5,7 @@
 ;;;;
 ;;;; Load order: after runtime-typed-arrays.lisp, before runtime-typed-arrays-methods.lisp.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/arrays)
 
 (defparameter +%js-base64-alphabet+
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"

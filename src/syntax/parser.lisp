@@ -15,7 +15,7 @@
 ;;;; pattern parsing lives in parser-stmt-binding.lisp
 ;;;; (%js-parse-binding-pattern and friends).
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/syntax)
 
 ;;; ─── Token Accessors ────────────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ parser-class.lisp copy."
 
 ;;; ─── Forward Reference Declarations ────────────────────────────────────────
 
-(declaim (ftype (function (t) (values list t)) %js-parse-all-stmts))
+(declaim (ftype (function (t) (values list t)) js-parse-source-tokens))
 
 ;;; ─── Top-Level Entry Points ─────────────────────────────────────────────────
 ;;;
@@ -135,7 +135,7 @@ parser-class.lisp copy."
 (defun parse-js-source (source)
   "Parse a JavaScript SOURCE string and return a list of top-level AST nodes."
   (let ((tokens (tokenize-js-source source)))
-    (multiple-value-bind (stmts rest) (%js-parse-all-stmts tokens)
+    (multiple-value-bind (stmts rest) (js-parse-source-tokens tokens)
       (declare (ignore rest))
       stmts)))
 
@@ -181,3 +181,16 @@ function'. A NIL/empty body passes through unchanged."
   (if body-stmts
       (list (make-ast-block :name nil :body body-stmts))
       body-stmts))
+
+(defun js-skip-semis (stream)
+  "Skip zero or more semicolons in a loop (unlike js-skip-semi which skips one)."
+  (loop while (and stream (eq (js-peek-type stream) :T-SEMI))
+        do (setf stream (cdr stream)))
+  stream)
+
+(in-package #:cl-cc/javascript/syntax)
+
+(defun %js-call (name &rest args)
+  "Build an AST call to a JS runtime helper NAME with ARGS."
+  (make-ast-call :func (make-ast-var :name name)
+                 :args args))

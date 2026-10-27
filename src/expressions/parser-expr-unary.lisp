@@ -7,7 +7,7 @@
 ;;;; Load order: after parser-expr-postfix.lisp (needs js-parse-postfix,
 ;;;; %js-place-get-prop-p, %js-lower-place-incdec).
 ;;;; js-parse-primary is forward-referenced (defined in parser-expr-primary.lisp).
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/expressions)
 
 ;;; ─── Template Literal ────────────────────────────────────────────────────────
 (defun %js-template-parts-and-rest (stream)

@@ -8,7 +8,7 @@
 ;;;; Depends on lexer.lisp for token types and tokenize-js-source.
 ;;;; Load order: after lexer.lisp, before any statement parser.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/expressions)
 
 ;;; ─── Pratt Precedence Table ──────────────────────────────────────────────────
 ;;;
@@ -95,11 +95,6 @@ Precedence levels: 1=comma 2=assign 4=ternary 5=?? 6=|| 7=&& 8=| 9=^ 10=&
   ("<<"  '%js-shift-left)   (">>"  '%js-shift-right)
   (">>>" '%js-unsigned-shift-right)
   ("instanceof" '%js-instanceof)  ("in" '%js-in))
-
-(defun %js-call (name &rest args)
-  "Build an AST call to a JS runtime helper NAME with ARGS."
-  (make-ast-call :func (make-ast-var :name name)
-                 :args args))
 
 (defun %js-not (ast)
   "Build an AST call wrapping AST in CL NOT.  JS `!x', `a !== b' and `a != b'

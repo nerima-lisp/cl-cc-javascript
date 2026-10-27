@@ -3,7 +3,7 @@
 ;;;; Non-mutating methods, iterator helpers, and the TypedArray method dispatch
 ;;;; table live here so runtime-typed-arrays-methods.lisp can stay focused on the
 ;;;; core prototype operations.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/arrays)
 
 ;;; ─── ES2023 non-mutating TypedArray methods ──────────────────────────────────
 (defun %js-ta-to-reversed (ta)
@@ -22,7 +22,7 @@
         (sort
           (coerce (copy-seq (js-ta-buffer ta)) 'list)
           (if compare-fn (lambda (a b)
-              (minusp (%js-to-number (%js-funcall compare-fn a b))))
+              (minusp (%js-to-number (%js-object-funcall compare-fn a b))))
             #'<))))
     (loop for v in sorted
           for i from 0
@@ -62,11 +62,11 @@ to also return the found value (find/findLast return elements, not indices)."
          (loop-clause
         (if (eq direction :forward) `(dotimes (i (js-ta-length ta) ,not-found)
             (let ((v (coerce (aref (js-ta-buffer ta) i) 'double-float)))
-              (when (%js-truthy (%js-funcall fn v i ta))
+              (when (%js-truthy (%js-object-funcall fn v i ta))
                 (return ,found-form))))
           `(loop for i from (1- (js-ta-length ta)) downto 0
                 do (let ((v (coerce (aref (js-ta-buffer ta) i) 'double-float)))
-              (when (%js-truthy (%js-funcall fn v i ta))
+              (when (%js-truthy (%js-object-funcall fn v i ta))
                 (return ,found-form)))
                 finally (return ,not-found)))))
     `(defun ,name (ta fn)
@@ -99,7 +99,7 @@ pattern — the TypedArray analogue of DEFINE-JS-ARRAY-PREDICATE-TEST."
   `(defun ,name (ta fn)
     ,docstring
     (loop for i below (js-ta-length ta)
-          for element = (coerce (aref (js-ta-buffer ta) i) 'double-float) ,clause (%js-truthy (%js-funcall fn element i ta))
+          for element = (coerce (aref (js-ta-buffer ta) i) 'double-float) ,clause (%js-truthy (%js-object-funcall fn element i ta))
           return ,early-result
           finally (return ,final-result))))
 
@@ -132,7 +132,7 @@ pattern — the TypedArray analogue of DEFINE-JS-ARRAY-PREDICATE-TEST."
         (if compare-fn (sort
             (coerce (js-ta-buffer ta) 'list)
             (lambda (a b)
-              (minusp (%js-to-number (%js-funcall compare-fn a b)))))
+              (minusp (%js-to-number (%js-object-funcall compare-fn a b)))))
           (sort (coerce (js-ta-buffer ta) 'list) #'<))))
     (loop for v in sorted
           for i from 0

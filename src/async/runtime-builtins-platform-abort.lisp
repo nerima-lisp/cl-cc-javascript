@@ -1,7 +1,7 @@
 ;;;; packages/javascript/src/runtime-builtins-platform-abort.lisp
 ;;;; AbortController / AbortSignal helpers
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/async)
 
 (defun %js-abort-reason-object (name message)
   "Create a small DOMException-like abort reason object."
@@ -28,11 +28,11 @@
 
 (defun %js-abort-call-listener (listener event signal)
   (cond
-    ((or (funcall *js-callable-p* listener)
+    ((or (%js-object-callable-p listener)
          (and (%js-ht-p listener) (gethash "__call__" listener)))
-     (%js-call-with-this signal listener (list event)))
+     (%js-object-call-with-this signal listener (list event)))
     ((and (%js-ht-p listener) (gethash "handleEvent" listener))
-     (%js-call-with-this listener (gethash "handleEvent" listener) (list event)))))
+     (%js-object-call-with-this listener (gethash "handleEvent" listener) (list event)))))
 
 (defun %js-abort-signal-dispatch-abort (signal)
   (let ((event (%js-abort-event signal))
@@ -122,14 +122,14 @@
                (%js-abort-signal-abort
                 combined
                 (gethash "reason" signal (%js-abort-default-reason)))))
-      (%js-for-of signals
+      (%js-object-for-of signals
         (lambda (signal)
           (when (%js-ht-p signal)
             (if (gethash "aborted" signal)
                 (abort-from signal)
                 (let ((add-listener (gethash "addEventListener" signal)))
                   (when (functionp add-listener)
-                    (%js-call-with-this
+                    (%js-object-call-with-this
                      signal add-listener
                      (list "abort"
                            (lambda (&rest _)

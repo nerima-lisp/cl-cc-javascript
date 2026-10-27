@@ -1,6 +1,6 @@
 ;;;; packages/javascript/src/runtime-builtins-table-globals.lisp -- JS constructor globals
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/backend)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Prelude constructor globals for Map and RegExp

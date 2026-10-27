@@ -11,7 +11,7 @@
 ;;;;        js-parse-function-stmt, js-parse-class-decl.
 ;;;; Load order: after parser-module.lisp.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/modules)
 
 ;;; ─── Export lowering helper ──────────────────────────────────────────────────
 
@@ -75,11 +75,11 @@ FROM-MODULE is the re-export source string or NIL."
 
 (defun %js-parse-export-function-decl (stream async-p)
   "Parse a function declaration in export context."
-  (js-parse-function-decl stream :async-p async-p))
+  (js-call-parser-handler :function-declaration stream :async-p async-p))
 
 (defun %js-parse-export-lexical-decl (stream kind)
   "Parse const/let/var bindings in export context."
-  (js-parse-var-decl stream kind))
+  (js-call-parser-handler :var-declaration stream kind))
 
 ;;; ─── js-parse-export-decl: one sub-parser per export form ──────────────────
 
@@ -101,11 +101,11 @@ FROM-MODULE is the re-export source string or NIL."
     ;; export default class [Name] {}
     ((eq (js-peek-type current) :T-CLASS)
      (multiple-value-bind (class-nodes rest)
-         (js-parse-class-decl (cdr current) :expression-p t)
+         (js-call-parser-handler :class-declaration (cdr current) :expression-p t)
        (values (%js-lower-export :default (first class-nodes)) rest)))
     ;; export default expr;
     (t
-     (multiple-value-bind (expr-ast rest) (js-parse-expr current)
+     (multiple-value-bind (expr-ast rest) (js-call-parser-handler :expression current)
        (values (%js-lower-export :default expr-ast)
                (js-skip-semis rest))))))
 
@@ -158,7 +158,7 @@ FROM-MODULE is the re-export source string or NIL."
 (defun %js-parse-export-class-form (current)
   "export class Name {} — CURRENT points past 'class'."
   (multiple-value-bind (class-nodes rest)
-      (js-parse-class-decl current :expression-p nil)
+      (js-call-parser-handler :class-declaration current :expression-p nil)
     (values (%js-lower-export :declaration (first class-nodes)) rest)))
 
 (defun js-parse-export-decl (stream)
@@ -203,3 +203,5 @@ Returns (values ast rest)."
       (t
        (error "JS parse error: malformed export declaration near ~S"
               (js-peek current))))))
+(eval-when (:load-toplevel :execute)
+  (register-js-parser-handler '(:statement :T-EXPORT) (function js-parse-export-decl)))

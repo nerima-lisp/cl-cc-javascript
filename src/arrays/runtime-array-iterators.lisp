@@ -1,7 +1,7 @@
 ;;;; packages/javascript/src/runtime-array-iterators.lisp — JS Array iterator helpers
 ;;;;
 ;;;; Load order: after runtime-array-core.lisp.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/arrays)
 
 (defmacro define-js-array-iterator (name docstring value-form)
   `(defun ,name (arr)

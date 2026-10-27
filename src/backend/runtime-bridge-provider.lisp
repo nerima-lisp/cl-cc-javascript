@@ -11,7 +11,7 @@
 ;;;; global seeding remain installed by the pipeline for now — that two-way
 ;;;; coupling is a separate step (§5-1).
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/backend)
 
 (defun %js-host-bridge-entries ()
   "Return (symbol . function) pairs for every fbound, non-macro %JS-* function

@@ -5,7 +5,7 @@
 ;;;; description). In CL we represent symbols as a struct wrapping a gensym so
 ;;;; identity equality works naturally.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/objects)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Symbol struct

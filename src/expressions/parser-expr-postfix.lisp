@@ -6,7 +6,7 @@
 ;;;; Depends on parser-expr.lisp (defines %js-call, %js-place-get-prop-p, etc.)
 ;;;; Load order: after parser-expr.lisp, before parser-expr-primary.lisp.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/expressions)
 
 ;;; ─── New Expression ──────────────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@
     (multiple-value-bind (ctor-ast rest2) (js-parse-member-expr rest)
       ;; Optional argument list
       (if (eq (js-peek-type rest2) :T-LPAREN)
-          (multiple-value-bind (args rest3) (js-parse-arguments rest2)
+          (multiple-value-bind (args rest3) (js-call-parser-handler :function-arguments rest2)
             (values (%js-call '%js-new ctor-ast
                               (make-ast-call :func (make-ast-var :name '%js-make-array)
                                              :args args))
@@ -74,7 +74,7 @@ recognizable follows, matching the original inline loop-exit (return)."
      (multiple-value-bind (prop-tok rest3) (js-consume stream)
        (let ((key (make-ast-quote :value (js-tok-value prop-tok))))
          (if (eq (js-peek-type rest3) :T-LPAREN)
-             (multiple-value-bind (args rest4) (js-parse-arguments rest3)
+             (multiple-value-bind (args rest4) (js-call-parser-handler :function-arguments rest3)
                (values (make-ast-call :func (make-ast-var :name '%js-optional-method-call)
                                       :args (list* ast key args))
                        rest4 t))
@@ -119,80 +119,6 @@ Returns (values ast rest)."
           (t (return)))))
     (values ast rest)))
 
-;;; ─── Increment / decrement on places (obj.x / arr[i]) ────────────────────────
-
-(defun %js-place-get-prop-p (ast)
-  "True when AST is an assignable property place — either a public property
-access (%js-get-prop OBJ KEY) or a private field access
-(%js-class-private-field-get OBJ KEY)."
-  (and (ast-call-p ast)
-       (ast-var-p (ast-call-func ast))
-       (member (ast-var-name (ast-call-func ast))
-               '(%js-get-prop %js-class-private-field-get))
-       (= (length (ast-call-args ast)) 2)))
-
-(defun %js-lower-place-incdec (place op return-new-p)
-  "Lower ++/-- applied to a property/element PLACE.
-PLACE may be a public (%js-get-prop) or private (%js-class-private-field-get) access.
-OP is '+ or '-. RETURN-NEW-P true means prefix (yields updated value); false
-means postfix (yields original). OBJ and KEY are captured in temps so the place
-expression is evaluated exactly once."
-  (let* ((obj     (first  (ast-call-args place)))
-         (key     (second (ast-call-args place)))
-         (get-fn  (ast-var-name (ast-call-func place)))
-         (set-fn  (if (eq get-fn '%js-class-private-field-get)
-                      '%js-class-private-field-set
-                      '%js-set-prop))
-         (obj-tmp (gensym "JS-OBJ-"))
-         (key-tmp (gensym "JS-KEY-"))
-         (old-tmp (gensym "JS-OLD-")))
-    (flet ((bumped ()
-             (make-ast-binop :op op
-                             :lhs (make-ast-var :name old-tmp)
-                             :rhs (make-ast-int :value 1))))
-      (make-ast-let
-       :bindings (list (cons obj-tmp obj) (cons key-tmp key))
-       :body
-       (list
-        (make-ast-let
-         :bindings (list (cons old-tmp (%js-call get-fn
-                                                 (make-ast-var :name obj-tmp)
-                                                 (make-ast-var :name key-tmp))))
-         :body (list (%js-call set-fn
-                               (make-ast-var :name obj-tmp)
-                               (make-ast-var :name key-tmp)
-                               (bumped))
-                     (if return-new-p (bumped) (make-ast-var :name old-tmp)))))))))
-
-(defun %js-incdec-setq (var-sym op-sym)
-  "The (setq VAR-SYM (OP-SYM VAR-SYM 1)) AST shared by ++/--'s plain-variable
-prefix and postfix lowering below."
-  (make-ast-setq :var var-sym
-                 :value (make-ast-binop :op op-sym
-                                        :lhs (make-ast-var :name var-sym)
-                                        :rhs (make-ast-int :value 1))))
-
-(defun %js-lower-incdec (expr op-sym prefix-p fallback-helper)
-  "Lower a ++/-- application to EXPR (OP-SYM is '+ or '-), shared by prefix
-and postfix parsing. A plain variable rewrites to a direct setq (prefix:
-yields the updated value; postfix: binds the original to a temp and yields
-that). A property/element place delegates to %js-lower-place-incdec, which
-already knows prefix vs postfix. Anything else falls back to FALLBACK-HELPER
-\(%js-prefix-inc / %js-postfix-inc / -dec at the call site)."
-  (cond
-    ((ast-var-p expr)
-     (let ((var-sym (ast-var-name expr)))
-       (if prefix-p
-           (%js-incdec-setq var-sym op-sym)
-           (let ((tmp (gensym "JS-POSTFIX-")))
-             (make-ast-let
-              :bindings (list (cons tmp (make-ast-var :name var-sym)))
-              :body (list (%js-incdec-setq var-sym op-sym)
-                          (make-ast-var :name tmp)))))))
-    ((%js-place-get-prop-p expr)
-     (%js-lower-place-incdec expr op-sym prefix-p))
-    (t (%js-call fallback-helper expr))))
-
 ;;; ─── Postfix ─────────────────────────────────────────────────────────────────
 
 (defun %js-parse-postfix-dot (ast stream)
@@ -216,7 +142,7 @@ already knows prefix vs postfix. Anything else falls back to FALLBACK-HELPER
 
 (defun %js-parse-postfix-call (ast stream)
   "fn(args) — STREAM points at '('."
-  (multiple-value-bind (args rest) (js-parse-arguments stream)
+  (multiple-value-bind (args rest) (js-call-parser-handler :function-arguments stream)
     (values (cond
               ((%js-items-have-spread-p args)
                (make-ast-apply :func ast :args (list (%js-spread-list-expr args))))
@@ -237,7 +163,7 @@ recognizable follows, matching the original inline loop-exit (return)."
      (multiple-value-bind (prop-tok rest2) (js-consume stream)
        (let ((key (make-ast-quote :value (js-tok-value prop-tok))))
          (if (eq (js-peek-type rest2) :T-LPAREN)
-             (multiple-value-bind (args rest3) (js-parse-arguments rest2)
+             (multiple-value-bind (args rest3) (js-call-parser-handler :function-arguments rest2)
                (values (make-ast-call :func (make-ast-var :name '%js-optional-method-call)
                                       :args (list* ast key args))
                        rest3 t))
@@ -256,7 +182,7 @@ recognizable follows, matching the original inline loop-exit (return)."
                    rest4 t)))))
     ;; ?.(args)
     ((eq (js-peek-type stream) :T-LPAREN)
-     (multiple-value-bind (args rest2) (js-parse-arguments stream)
+     (multiple-value-bind (args rest2) (js-call-parser-handler :function-arguments stream)
        (values (make-ast-call :func (make-ast-var :name '%js-optional-call)
                               :args (cons ast args))
                rest2 t)))

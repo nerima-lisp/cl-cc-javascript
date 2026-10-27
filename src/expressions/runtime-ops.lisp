@@ -1,5 +1,5 @@
 ;;;; packages/javascript/src/runtime-ops.lisp — JS operator runtime helpers
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/expressions)
 
 ;;; ─── 32-bit integer coercion helpers ─────────────────────────────────────────
 (defun %js-to-int32 (x)

@@ -8,7 +8,7 @@
 ;;;; symbolic :while/:for calls, because the compiler resolves the pre-built
 ;;;; AST directly without a macro expansion pass for frontend ASTs.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/statements)
 
 ;;; ─── Token Stream Helpers ────────────────────────────────────────────────────
 ;;; %js-consume-expected and js-skip-semis are in parser-stmt-binding.lisp.
@@ -76,27 +76,8 @@ picks its own prefix per call (see %js-parse-for-in-of-stmt)."
 (define-js-stmt-parser :T-VAR      (s) (js-parse-var-decl s :var))
 (define-js-stmt-parser :T-LET      (s) (js-parse-var-decl s :let))
 (define-js-stmt-parser :T-CONST    (s) (js-parse-var-decl s :const))
-(define-js-stmt-parser :T-FUNCTION (s) (js-parse-function-decl s))
-(define-js-stmt-parser :T-CLASS    (s)
-  (multiple-value-bind (ast-list rest) (js-parse-class-decl s)
-    (values (if (and (consp ast-list) (= (length ast-list) 1))
-                (first ast-list)
-                (make-ast-progn :forms ast-list))
-            rest)))
-(define-js-stmt-parser :T-IMPORT   (s) (js-parse-import-decl s))
-(define-js-stmt-parser :T-EXPORT   (s) (js-parse-export-decl s))
-(define-js-stmt-parser :T-IF       (s) (js-parse-if-stmt s))
-(define-js-stmt-parser :T-WHILE    (s) (js-parse-while-stmt s))
-(define-js-stmt-parser :T-DO       (s) (js-parse-do-while-stmt s))
 (define-js-stmt-parser :T-FOR      (s) (js-parse-for-stmt s))
 (define-js-stmt-parser :T-SWITCH   (s) (js-parse-switch-stmt s))
-(define-js-stmt-parser :T-RETURN   (s) (js-parse-return-stmt s))
-(define-js-stmt-parser :T-BREAK    (s) (js-parse-break-stmt s))
-(define-js-stmt-parser :T-CONTINUE (s) (js-parse-continue-stmt s))
-(define-js-stmt-parser :T-THROW    (s) (js-parse-throw-stmt s))
-(define-js-stmt-parser :T-TRY      (s) (js-parse-try-stmt s))
-(define-js-stmt-parser :T-DEBUGGER (s) (js-parse-debugger-stmt s))
-
 ;;; ─── Loop Lowering Helpers ───────────────────────────────────────────────────
 
 (defun %js-make-tagbody (items)
@@ -212,7 +193,7 @@ picks its own prefix per call (see %js-parse-for-in-of-stmt)."
             ;; Use assignment-expr (NOT js-parse-expr) so the initializer stops at
             ;; the comma separating declarators — otherwise `const a = 1, b = 2`
             ;; parses `1, b = 2` as one comma-expression and drops the b binding.
-            (multiple-value-bind (expr rest2) (js-parse-assignment-expr current)
+            (multiple-value-bind (expr rest2) (js-call-parser-handler :assignment-expression current)
               (setf init-expr expr
                     current rest2)))
           ;; Expand binding into bindings list
@@ -238,3 +219,5 @@ picks its own prefix per call (see %js-parse-for-in-of-stmt)."
 
 
 ;;; Function declaration + if/while/do-while parsers -> see parser-stmt-fn.lisp
+
+(eval-when (:load-toplevel :execute) (register-js-parser-handler :var-declaration (function js-parse-var-decl)))

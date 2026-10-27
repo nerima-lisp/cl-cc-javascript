@@ -6,16 +6,11 @@
 ;;;;
 ;;;; Load order: after runtime.lisp (needs type predicates and constants),
 ;;;;             before runtime-property.lisp (used by %js-get-prop / %js-set-prop).
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/functions)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Callback invocation
 ;;; -----------------------------------------------------------------------
-(defvar %js-this +js-undefined+
-  "Dynamically bound to the receiver when a JS method is called.
-JS source `this.x' compiles to (%js-get-prop %js-this \"x\").
-Methods are called via %js-funcall-with-this which establishes this binding.")
-
 (defvar *js-apply-fn*
   (lambda (fn args)
     ;; A callable JS object (e.g. `super', Intl/Symbol stubs) carries its

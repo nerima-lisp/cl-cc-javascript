@@ -1,5 +1,5 @@
 ;;;; packages/javascript/src/runtime-collections-zip.lisp — Iterator.zip helpers
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/iterators)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Iterator.zip / Iterator.zipKeyed built-ins
@@ -29,7 +29,7 @@
           (let ((iter-fn (gethash "@@iterator" value)))
             (unless (functionp iter-fn)
               (%js-zip-type-error "Iterator.zip expects iterable objects"))
-            (%js-zip-normalize-iterable (%js-funcall iter-fn))))
+            (%js-zip-normalize-iterable (%js-object-funcall iter-fn))))
         (t (%js-zip-type-error "Iterator.zip expects iterable objects"))))
     ((listp value) (%js-vec-to-iter (coerce value 'vector)))
     (t (%js-zip-type-error "Iterator.zip expects iterable objects"))))

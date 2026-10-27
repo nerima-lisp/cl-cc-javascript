@@ -6,4 +6,4 @@
 ;;;; - runtime-builtins-platform-crypto.lisp
 ;;;; - runtime-builtins-platform-atomics.lisp
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/backend)

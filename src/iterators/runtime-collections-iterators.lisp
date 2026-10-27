@@ -1,5 +1,5 @@
 ;;;; packages/javascript/src/runtime-collections-iterators.lisp — iterator helpers
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/iterators)
 
 ;;; ─── Iterator primitives ─────────────────────────────────────────────────
 (defun %js-iter-next (iter)
@@ -42,7 +42,7 @@
     (lambda ()
       (multiple-value-bind (val done) (%js-iter-next iter)
         (if done :done
-          (list (%js-funcall fn val)))))))
+          (list (%js-object-funcall fn val)))))))
 
 (defun %js-iterator-filter (iter fn)
   (%js-make-cl-iterator
@@ -50,7 +50,7 @@
       (loop (multiple-value-bind (val done) (%js-iter-next iter)
           (when done
             (return :done))
-          (when (%js-truthy (%js-funcall fn val))
+          (when (%js-truthy (%js-object-funcall fn val))
             (return (list val))))))))
 
 ;;; ─── Stateful transformers (carry extra mutable state in closure) ─────────────
@@ -92,7 +92,7 @@
               (setf inner nil))) (multiple-value-bind (val done) (%js-iter-next iter)
             (when done
               (return :done))
-            (let ((mapped (%js-funcall fn val)))
+            (let ((mapped (%js-object-funcall fn val)))
               (setf inner (if (%js-vec-p mapped) (%js-vec-to-iter mapped)
                   mapped)))))))))
 
@@ -113,31 +113,31 @@ BODY runs for each element; DONE-RESULT is returned when the iterator exhausts."
       (val iter acc)
       (if first-p (setf acc val
               first-p nil)
-        (setf acc (%js-funcall fn acc val))))))
+        (setf acc (%js-object-funcall fn acc val))))))
 
 (defun %js-iterator-to-array (iter)
   (let ((result (make-array 0 :element-type t :adjustable t :fill-pointer 0)))
     (%js-doiter (val iter result) (vector-push-extend val result))))
 
 (defun %js-iterator-for-each (iter fn)
-  (%js-doiter (val iter +js-undefined+) (%js-funcall fn val)))
+  (%js-doiter (val iter +js-undefined+) (%js-object-funcall fn val)))
 
 (defun %js-iterator-some (iter fn)
   (%js-doiter
     (val iter nil)
-    (when (%js-truthy (%js-funcall fn val))
+    (when (%js-truthy (%js-object-funcall fn val))
       (return t))))
 
 (defun %js-iterator-every (iter fn)
   (%js-doiter
     (val iter t)
-    (unless (%js-truthy (%js-funcall fn val))
+    (unless (%js-truthy (%js-object-funcall fn val))
       (return))))
 
 (defun %js-iterator-find (iter fn)
   (%js-doiter
     (val iter +js-undefined+)
-    (when (%js-truthy (%js-funcall fn val))
+    (when (%js-truthy (%js-object-funcall fn val))
       (return val))))
 
 (defun %js-iterator-concat (&rest items)
@@ -184,3 +184,31 @@ Binding logic is uniform: each method dispatches through *%js-iterator-method-na
           (lambda (&rest args)
             (apply impl self args))))))
   it)
+
+(defun %js-iterator-from-iterable (iterable)
+  "Iterator.from(iterable): wrap any iterable/iterator in the Iterator protocol."
+  (%js-add-iterator-helpers!
+    (cond
+      ((typep iterable 'js-map) (%js-map-entries iterable))
+      ((typep iterable 'js-set)
+        (%js-vec-to-iter (coerce (%js-set-keys iterable) 'vector)))
+      ((and (%js-ht-p iterable) (gethash "next" iterable)) iterable)
+      ((and (%js-ht-p iterable) (gethash "@@iterator" iterable))
+        (%js-object-funcall (gethash "@@iterator" iterable)))
+      ((%js-vec-p iterable)
+        (%js-make-generator
+          (lambda ()
+            (loop for i below (length iterable)
+                  do (%js-yield (aref iterable i))))))
+      ((stringp iterable)
+        (%js-make-generator
+          (lambda ()
+            (loop for ch across iterable
+                  do (%js-yield (string ch))))))
+      (t
+        (%js-make-object
+          "next"
+          (lambda ()
+            (%js-make-object "value" +js-undefined+ "done" t)))))))
+
+(in-package #:cl-cc/javascript/backend)

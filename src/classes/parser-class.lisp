@@ -20,7 +20,7 @@
 ;;;;       where each method slot has its ast-defun in :initform
 ;;;;       and public/private/static metadata is encoded in :imports
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/classes)
 
 ;;; ─── Class body member parser ────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ parsed. The slot's own gensym name becomes an unreferenced property on the
 class object; nothing reads it, only the initform's side effects matter.
 Returns (values slot rest)."
   (let ((rest (cdr stream)))            ; consume '{'
-    (multiple-value-bind (body-stmts rest2) (js-parse-stmt-list rest)
+    (multiple-value-bind (body-stmts rest2) (js-call-parser-handler :statement-list rest)
       (let* ((body-ast (make-ast-progn :forms body-stmts))
              (slot (make-ast-slot-def
                     :name (gensym "JS-STATIC-INIT-")
@@ -107,7 +107,7 @@ the member name (at '=', ';', or '}'). Returns (values slot rest)."
         ;; were previously wrapped in an unresolved %JS-FIELD-INIT
         ;; placeholder, so field initializers never actually ran.)
         (setf initform
-              (nth-value 0 (js-parse-assignment-expr (nreverse expr-toks))))))
+              (nth-value 0 (js-call-parser-handler :assignment-expression (nreverse expr-toks))))))
     (let* ((computed-p (not (symbolp name)))
            (sym (if computed-p (gensym "JS-FIELD-") name)))
       (values (make-ast-slot-def

@@ -22,7 +22,7 @@
 ;;;; (%js-string-replace-all) — both referenced here before those files load;
 ;;;; resolved at call time, the same forward-reference pattern
 ;;;; runtime-array-es2023.lisp already uses for *js-range-error-class*.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/json)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Raw JSON wrapper (JSON.rawJSON / JSON.isRawJSON, ES2024)

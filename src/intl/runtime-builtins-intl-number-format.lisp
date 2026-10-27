@@ -1,5 +1,5 @@
 ;;;; packages/javascript/src/runtime-builtins-intl-number-format.lisp -- Intl.NumberFormat
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/intl)
 
 (defun %js-number-format-option-integer (options name default)
   (%js-intl-coerced-option

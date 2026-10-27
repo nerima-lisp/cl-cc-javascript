@@ -1,6 +1,6 @@
 ;;;; packages/javascript/src/runtime-builtins-intl-date-time-format.lisp -- Intl.DateTimeFormat
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/intl)
 
 (defparameter +js-date-time-format-month-long-names+
   #("January" "February" "March" "April" "May" "June"

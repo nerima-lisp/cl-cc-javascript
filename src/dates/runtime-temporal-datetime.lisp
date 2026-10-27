@@ -11,7 +11,7 @@
 ;;;;
 ;;;; Load order: after runtime-temporal.lisp.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/dates)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Temporal.PlainTime

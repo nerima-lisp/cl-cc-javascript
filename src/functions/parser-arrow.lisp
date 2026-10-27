@@ -11,89 +11,7 @@
 ;;;; Load order: after parser-expr-args.lisp and parser-expr-primary.lisp
 ;;;; (CL resolves calls at runtime, so the forward-reference from
 ;;;; js-parse-primary to these helpers is fine).
-(in-package :cl-cc/javascript)
-
-;;; ─── Parenthesized Expression / Arrow Function ───────────────────────────────
-(defun %js-call-callee-name (ast)
-  "If AST is (ast-call (ast-var NAME) …), return NAME; else NIL."
-  (when (and (ast-call-p ast) (ast-var-p (ast-call-func ast)))
-    (ast-var-name (ast-call-func ast))))
-
-(defun %js-spread-array-elements (expr)
-  "If EXPR is the spread lowering of an array literal — (apply #'%js-make-array
-(append (list e1) (%js-spread r) …)) — return the original element ASTs (a plain
-element, or a (%js-spread …) marker for ...rest), else NIL.  Reverses
-%js-spread-list-expr so [a,...r] arrow params can be recovered."
-  (when (and (ast-apply-p expr) (eq (ast-apply-func expr) '%js-make-array))
-    (let ((append-call (first (ast-apply-args expr))))
-      (when (eq (%js-call-callee-name append-call) 'append)
-        (mapcar (lambda (item)
-                  (if (%js-spread-marker-p item)
-                      item                              ; keep ...rest marker
-                      (first (ast-call-args item))))    ; (list e) -> e
-                (ast-call-args append-call))))))
-
-(defun %js-object-fold-fields (expr)
-  "Recover object-pattern fields from the spread-fold lowering of {…, ...rest}:
-a left-nested chain of (%js-object-spread-set acc key val) / (%js-object-assign
-acc src) over (%js-make-object).  Returns the fields in source order
-((key local nil) … (:rest sym)), or :fail if EXPR is not such a chain."
-  (let ((callee (%js-call-callee-name expr)))
-    (cond
-      ((eq callee '%js-make-object) nil)
-      ((member callee '(%js-object-spread-set %js-object-assign))
-        (let* ((args (ast-call-args expr))
-               (prefix (%js-object-fold-fields (first args))))
-          (if (eq prefix :fail) :fail
-            (append
-              prefix
-              (list
-                (if (eq callee '%js-object-spread-set) (list
-                    (and (ast-quote-p (second args)) (ast-quote-value (second args)))
-                    (%js-expr-to-binding-pattern (third args))
-                    nil)
-                  (list :rest (%js-expr-to-binding-pattern (second args)))))))))
-      (t :fail))))
-
-(defun %js-expr-to-binding-pattern (expr)
-  "Convert an arrow CoverGrammar parameter EXPR — already parsed as an expression
-— into a destructuring binding pattern for %js-emit-destructure-bindings, or NIL
-if EXPR is not a pattern.  A plain var becomes its symbol; an array literal
-(%js-make-array …, or its (apply #'%js-make-array (append …)) spread form) becomes
-an :array-pattern (holes/spread/nesting preserved); an object literal
-(%js-make-object k v …, or its spread-fold chain) becomes an :object-pattern.
-This is how ([a,b])=>…, ([a,...r])=>… and ({x,...rest})=>… recover their patterns,
-since the paren contents were parsed as a literal before the => was seen."
-  (cond
-    ((ast-var-p expr) (ast-var-name expr))
-    ;; array literal, with or without spread
-    ((or (eq (%js-call-callee-name expr) '%js-make-array)
-         (and (ast-apply-p expr) (eq (ast-apply-func expr) '%js-make-array)))
-     (let ((els (if (ast-apply-p expr)
-                    (%js-spread-array-elements expr)
-                    (ast-call-args expr))))
-       (list :array-pattern (gensym "ARR-DEST-")
-             (mapcar
-              (lambda (el)
-                (cond
-                  ((and (ast-quote-p el) (eq (ast-quote-value el) :js-hole)) :hole)
-                  ((%js-spread-marker-p el)
-                   (list :rest (%js-expr-to-binding-pattern (first (ast-call-args el)))))
-                  (t (%js-expr-to-binding-pattern el))))
-              els))))
-    ;; object literal without spread
-    ((eq (%js-call-callee-name expr) '%js-make-object)
-     (list :object-pattern (gensym "OBJ-DEST-")
-           (loop for (k v) on (ast-call-args expr) by #'cddr
-                 collect (list (and (ast-quote-p k) (ast-quote-value k))
-                               (%js-expr-to-binding-pattern v)
-                               nil))))
-    ;; object literal with spread (...rest) — recovered from the fold chain
-    ((member (%js-call-callee-name expr) '(%js-object-spread-set %js-object-assign))
-     (let ((fields (%js-object-fold-fields expr)))
-       (unless (eq fields :fail)
-         (list :object-pattern (gensym "OBJ-DEST-") fields))))
-    (t nil)))
+(in-package #:cl-cc/javascript/functions)
 
 (defun %js-parse-arrow-or-paren-item (current)
   "Parse one non-rest item in a parenthesized-expression/arrow-param list at
@@ -105,7 +23,7 @@ arrow-candidate-p): PARAM-SYM/OPTIONAL-PAIR/PATTERN-PAIR are NIL when not
 applicable to this item; EXPR-FORM is always this item's expression-position
 AST (the non-arrow fallback); ARROW-CANDIDATE-P is NIL only when this item
 rules out the whole list being arrow params."
-  (multiple-value-bind (expr rest2) (js-parse-assignment-expr current)
+  (multiple-value-bind (expr rest2) (js-call-parser-handler :assignment-expression current)
     (setf current rest2)
     ;; Default parameter: `var = default'.  js-parse-assignment-expr
     ;; stops at the `=' here (it is not an assignment operator in this
@@ -115,7 +33,7 @@ rules out the whole list being arrow params."
         (multiple-value-bind (eq-tok rest3) (js-consume current)
           (declare (ignore eq-tok))
           (multiple-value-bind (default-expr rest4)
-              (js-parse-assignment-expr rest3)
+              (js-call-parser-handler :assignment-expression rest3)
             (values rest4
                     ;; non-arrow fallback: a parenthesized assignment expr
                     (make-ast-setq :var (ast-var-name expr) :value default-expr)
@@ -238,7 +156,7 @@ body-prologue let, exactly as for named functions).  Returns (values ast rest)."
                 (finish (%js-callable-body body-forms) rest3)))
             ;; Concise body: => expr. The lambda yields EXPR directly as its value;
             ;; no return-from/block is needed (and a bare lambda binds no block nil).
-            (multiple-value-bind (expr rest2) (js-parse-assignment-expr rest)
+            (multiple-value-bind (expr rest2) (js-call-parser-handler :assignment-expression rest)
               (finish (list expr) rest2)))))))
 
 ;;; ─── Async Expression ────────────────────────────────────────────────────────
@@ -291,11 +209,11 @@ Returns (values ast rest)."
               (declare (ignore tok2))
               (multiple-value-bind (body-forms rest3) (js-parse-function-body rest2)
                 (list (%js-callable-body body-forms) rest3)))
-            (multiple-value-bind (expr rest2) (js-parse-assignment-expr rest)
+            (multiple-value-bind (expr rest2) (js-call-parser-handler :assignment-expression rest)
               (list (list expr) rest2)))))
       (values
         (%js-call
-          '%js-make-async
+          '%js-object-make-async
           (make-ast-lambda :params params :body (car body-and-rest)))
         (cadr body-and-rest)))))
 
@@ -311,7 +229,7 @@ arity-2 %js-parse-class-body, so the old 1-arg call here crashed every class
 expression. Routing through js-parse-class-decl removes the duplication."
   (multiple-value-bind (tok rest) (js-consume stream) ; consume 'class'
     (declare (ignore tok))
-    (multiple-value-bind (ast-list rest2) (js-parse-class-decl rest :expression-p t)
+    (multiple-value-bind (ast-list rest2) (js-call-parser-handler :class-declaration rest :expression-p t)
       (values (if (and (consp ast-list) (= (length ast-list) 1))
                   (first ast-list)
                   (make-ast-progn :forms ast-list))
@@ -334,9 +252,16 @@ Returns (values ast rest)."
       ((eq (js-peek-type rest) :T-LPAREN)
        (multiple-value-bind (tok2 rest2) (js-consume rest)
          (declare (ignore tok2))
-         (multiple-value-bind (spec-ast rest3) (js-parse-assignment-expr rest2)
+         (multiple-value-bind (spec-ast rest3) (js-call-parser-handler :assignment-expression rest2)
            (multiple-value-bind (tok3 rest4) (js-expect :T-RPAREN rest3)
              (declare (ignore tok3))
              (values (%js-call '%js-import spec-ast) rest4)))))
       (t
        (error "JS parse error: unexpected token after 'import': ~S" (js-peek rest))))))
+;;; ─── import() Dynamic Import ─────────────────────────────────────────────────
+(eval-when (:load-toplevel :execute)
+  (register-js-parser-handler :function-paren-or-arrow (function %js-parse-paren-or-arrow))
+  (register-js-parser-handler :function-finish-arrow (function %js-finish-arrow-function))
+  (register-js-parser-handler :function-async-expression (function %js-parse-async-expr))
+  (register-js-parser-handler :function-class-expression (function %js-parse-class-expr))
+  (register-js-parser-handler :function-import-expression (function %js-parse-import-expr)))

@@ -6,7 +6,7 @@
 ;;;;
 ;;;; Load order: after runtime.lisp (needs type predicates, method-resolver vars,
 ;;;;             proto-lookup helpers defined there).
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/objects)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Property access
@@ -114,7 +114,7 @@ plain own property."
          ;; An own extra property (arr.foo = 1) shadows an inherited
          ;; Array.prototype method of the same name, same as real JS.
          (t (multiple-value-bind (val found) (%js-array-extra-prop-get obj k)
-              (if found val (%js-method-ref obj k))))))
+              (if found val (%js-object-method-ref obj k))))))
       ((stringp obj)
        (cond
          ((string= k "length") (length obj))
@@ -123,32 +123,32 @@ plain own property."
             (if (< idx (length obj))
                 (string (char obj idx))
                 +js-undefined+)))
-         (t (%js-method-ref obj k))))
+         (t (%js-object-method-ref obj k))))
       ((%js-ht-p obj)
-       (if (%js-proxy-object-p obj)
-           (%js-proxy-get obj k obj)
+       (if (%js-object-proxy-p obj)
+           (%js-object-proxy-get obj k obj)
            (let ((getter (gethash (concatenate 'string "__get_" k) obj)))
              (if getter
                  ;; Accessor property (get v(){...} / Object.defineProperty getter):
                  ;; invoke the getter with `this' = OBJ and return its result.
-                 (%js-call-with-this obj getter nil)
+                 (%js-object-call-with-this obj getter nil)
                  (multiple-value-bind (val found) (gethash k obj)
                    (cond
                      ;; An own callable property is a method: return it bound to OBJ so
                      ;; `this' inside an object-literal method (let o={m(){return this.x}})
                      ;; resolves to the receiver, matching o.m() semantics.
-                     ((and found (funcall *js-callable-p* val))
+                     ((and found (%js-object-callable-p val))
                       (let ((method val) (receiver obj))
-                        (lambda (&rest args) (%js-call-with-this receiver method args))))
+                        (lambda (&rest args) (%js-object-call-with-this receiver method args))))
                      (found val)
-                     (t (%js-proto-method-lookup obj k))))))))
+                     (t (%js-object-proto-method-lookup obj k))))))))
       ((eq obj +js-null+) (error "JS TypeError: Cannot read properties of null"))
       ((eq obj +js-undefined+) (error "JS TypeError: Cannot read properties of undefined"))
       ;; All remaining types (Number/Symbol/Promise/Map/WeakMap/WeakSet/etc.)
       ;; delegate to the method resolver.  Struct types like js-promise, js-map,
       ;; js-weak-map returned +js-undefined+ before this fix — so promise.then /
       ;; map.get / weakmap.set all failed at the call site.
-      (t (%js-method-ref obj k)))))
+      (t (%js-object-method-ref obj k)))))
 
 (defun %js-set-prop (obj key value)
   "Set property KEY on JS object/array."
@@ -187,8 +187,8 @@ plain own property."
               (%js-array-extra-prop-set obj k value))))))
       ((%js-ht-p obj)
        (cond
-         ((%js-proxy-object-p obj)
-          (%js-proxy-set obj k value obj))
+         ((%js-object-proxy-p obj)
+          (%js-object-proxy-set obj k value obj))
          ;; Defining an accessor (object-literal get/set, or assignment of an
          ;; accessor descriptor): route the fn to __get_K/__set_K so a getter and
          ;; setter on the same key coexist instead of overwriting each other.
@@ -198,9 +198,9 @@ plain own property."
          ;; class prototype): invoke it with `this' = OBJ.
          (t
           (let ((setter (or (gethash (concatenate 'string "__set_" k) obj)
-                            (%js-proto-accessor-lookup obj (concatenate 'string "__set_" k)))))
+                            (%js-object-proto-accessor-lookup obj (concatenate 'string "__set_" k)))))
             (if setter
-                (%js-call-with-this obj setter (list value))
+                (%js-object-call-with-this obj setter (list value))
                 (multiple-value-bind (_old present-p) (gethash k obj)
                   (declare (ignore _old))
                   (unless (or (%js-object-frozen-p obj)
@@ -213,7 +213,7 @@ plain own property."
   "JS delete operator."
   (let ((k (%js-to-property-key key)))
     (cond
-      ((%js-proxy-object-p obj) (%js-proxy-delete-property obj k))
+      ((%js-object-proxy-p obj) (%js-object-proxy-delete-property obj k))
       ((%js-ht-p obj)
         (unless (and
             (or (%js-object-sealed-p obj) (%js-object-frozen-p obj))
@@ -226,7 +226,7 @@ plain own property."
   "JS 'key in obj'."
   (let ((k (%js-to-property-key key)))
     (cond
-      ((%js-proxy-object-p obj) (%js-proxy-has obj k))
+      ((%js-object-proxy-p obj) (%js-object-proxy-has obj k))
       ((%js-ht-p obj) (nth-value 1 (gethash k obj)))
       ((%js-vec-p obj)
         (or
@@ -248,94 +248,12 @@ plain own property."
 (defun %js-optional-method-call (obj key &rest args)
   "obj?.method(args) — short-circuit to undefined when OBJ is null/undefined."
   (if (%js-not-nullish obj) (let ((method (%js-get-prop obj key)))
-      (apply #'%js-funcall method args))
+      (apply #'%js-object-funcall method args))
     +js-undefined+))
-
-;;; -----------------------------------------------------------------------
-;;;  String / Template
-;;; -----------------------------------------------------------------------
-(defun %js-add (a b)
-  "JS `+' operator: string concatenation when either operand is a string,
-otherwise numeric addition. Models the common ECMAScript number|string cases of
-ToPrimitive + — `1 + 2' => 3, `\"a\" + \"b\"' => \"ab\", `\"n=\" + 5' => \"n=5\".
-JS `+' is polymorphic, so it cannot lower to the numeric-only make-vm-add; it
-routes here via *js-binop-runtime-helpers*."
-  (if (or (stringp a) (stringp b)) (concatenate 'string (%js-to-string a) (%js-to-string b))
-    (+ (%js-to-number a) (%js-to-number b))))
-
-(defun %js-mod (a b)
-  "JS `%' remainder operator. Like CL REM, the result takes the sign of the
-dividend (5 % 3 => 2, -5 % 3 => -2), matching ECMAScript; division by zero => NaN."
-  (if (and (numberp b) (zerop b)) :js-nan
-    (rem a b)))
-
-(defun %js-divide (a b)
-  "JS `/' operator. JS numbers are IEEE doubles, so division always yields a float
-(5/2 => 2.5, 6/2 => 3.0 which prints as `3'); the CL `/' alone would return the
-rational 5/2. Division by zero gives +/-Infinity (or NaN for 0/0), per ECMAScript."
-  (let ((na (%js-to-number a))
-        (nb (%js-to-number b)))
-    (cond
-      ((not (and (numberp na) (numberp nb))) *js-nan-float*)
-      ((zerop nb)
-        (cond
-          ((zerop na) *js-nan-float*)
-          ((plusp na) *js-inf-float*)
-          (t *js-neg-inf-float*)))
-      (t (/ (coerce na 'double-float) (coerce nb 'double-float))))))
-
-(defun %js-pow (a b)
-  "JS `**' exponentiation operator (Math.pow / a ** b)."
-  (expt a b))
-
-(defun %js-to-string (x)
-  "JS ToString coercion."
-  (cond
-    ((stringp x)             x)
-    ((eq x +js-undefined+)  "undefined")
-    ((eq x +js-null+)       "null")
-    ((eq x t)               "true")
-    ((null x)             "false")
-    ((eq x :js-nan)         "NaN")
-    ((eq x :js-infinity)    "Infinity")
-    ((eq x :js-neg-infinity) "-Infinity")
-    ((integerp x)           (format nil "~D" x))
-    ((floatp x)
-     (if (%js-float-nan-p x)
-         "NaN"
-         (if (%js-float-infinity-p x)
-             (if (plusp x) "Infinity" "-Infinity")
-             (let ((s (format nil "~F" x)))
-               ;; JS prints an integer-valued float without a decimal: 7.0 -> "7".
-               ;; Trim trailing zeros FIRST, then a now-trailing dot. (The reverse
-               ;; order left "7." because "7.0" does not end in ".".)
-               (string-right-trim "." (string-right-trim "0" s))))))
-    ((numberp x)            (princ-to-string x))
-    ((typep x 'js-symbol)   (%js-symbol-as-key x))
-    ;; Date — forward-referenced (runtime-date-methods.lisp loads later),
-    ;; not yet defined when this file loads, but never called before the
-    ;; whole system finishes loading. Without this, String(date)/`${date}`/
-    ;; string concatenation of a Date fell through to the catch-all
-    ;; PRINC-TO-STRING below, dumping the raw #S(JS-DATE :MS ...) struct
-    ;; instead of calling toString() -- found and fixed 2026-07-31 as a
-    ;; side effect of adding Invalid Date test coverage (see the release notes).
-    ((%js-date-p x)         (%js-date-to-string x))
-    ((%js-ht-p x)           "[object Object]")
-    ((%js-vec-p x)
-     (let ((parts (loop for i below (length x)
-                        collect (%js-to-string (aref x i)))))
-       (format nil "~{~A~^,~}" parts)))
-    ;; BigInt — defined in runtime-ops.lisp (loaded later)
-    ((typep x 'js-bigint)   (format nil "~D" (js-bigint-value x)))
-    (t (princ-to-string x))))
-
-(defun %js-template-string (parts)
-  "Concatenate template literal parts (already evaluated)."
-  (apply #'concatenate 'string (mapcar #'%js-to-string parts)))
 
 ;;; -----------------------------------------------------------------------
 ;;;  Control flow / exceptions and iteration protocol
 ;;; -----------------------------------------------------------------------
-;;; js-exception, %js-throw, %js-try-catch-finally, %js-for-in,
-;;; %js-advance-iterator, %js-advance-cl-iterator, %js-for-of,
-;;; %js-iter-values, and %js-iter-keys are in runtime-control.lisp.
+;;; js-exception and %js-throw are in errors/runtime-exception.lisp.
+;;; %js-try-catch-finally, %js-for-in, and %js-iter-keys are in statements/runtime-control.lisp.
+;;; %js-for-of, %js-iter-values, and iterator-drain helpers are in iterators/runtime-for-of.lisp.

@@ -1,7 +1,7 @@
 ;;;; packages/javascript/src/runtime-array-core.lisp — JS Array core built-ins
 ;;;;
 ;;;; Load order: after runtime-array.lisp and before runtime-array-es2023.lisp.
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/arrays)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Arrays
@@ -14,6 +14,8 @@
           for i from 0
           do (setf (aref arr i) el))
     arr))
+
+(%js-register-object-array-factory #'%js-make-array)
 
 (defun %js-list-to-array (list)
   "Create a JS array (adjustable vector) from a Common Lisp LIST. Used to turn a
@@ -31,35 +33,6 @@ table, see *js-array-extra-properties* in runtime-property.lisp), not a
 copy, so identity-sensitive tag functions still see one object."
   (%js-array-extra-prop-set cooked-array "raw" raw-array)
   cooked-array)
-
-(defun %js-group-into (iterate-fn get-bucket)
-  "Shared get-or-create-then-push logic behind Array.prototype.group,
-Array.prototype.groupToMap, Object.groupBy, and Map.groupBy — each walks its
-own source with its own key-fn arity/coercion (a plain index loop with a
-3-arg key-fn for the two Array methods vs %js-for-of with a 1- or 2-arg
-key-fn for the other two) and stores buckets in its own kind of container
-(hash-table vs js-map), but every one of them reduces to \"find or lazily
-create this key's bucket array, then push the item into it\" — that part is
-what this unifies.
-
-ITERATE-FN is called with one argument, a two-argument VISIT continuation;
-ITERATE-FN must call (funcall visit key item) once per source element, with
-KEY already computed however that caller's JS method defines it. GET-BUCKET,
-given a key, returns that key's bucket array — creating and storing an empty
-one first if this is the key's first item."
-  (funcall
-    iterate-fn
-    (lambda (key item)
-      (vector-push-extend item (funcall get-bucket key)))))
-
-(defun %js-array-push (arr val)
-  "Append VAL to ARR; return new length. Growing the array adds a new
-index, so a no-op while frozen or sealed/non-extensible (see
-%js-object-extensible-p) -- same guard %js-set-prop applies to a bare
-`arr[arr.length] = val'."
-  (unless (or (%js-object-frozen-p arr) (not (%js-object-extensible-p arr)))
-    (vector-push-extend val arr))
-  (length arr))
 
 (defun %js-array-pop (arr)
   "Remove and return last element, or undefined. Removing an element needs
@@ -142,7 +115,7 @@ indices, so a no-op while frozen or sealed/non-extensible, same as
 
 (defmacro %js-array-callback (fn element index array)
   "Call a JS array callback with the standard (element, index, array) shape."
-  `(%js-funcall ,fn ,element ,index ,array))
+  `(%js-object-funcall ,fn ,element ,index ,array))
 
 (defun %js-array-map (arr fn)
   "Map FN over ARR, returning new array."
@@ -177,9 +150,9 @@ indices, so a no-op while frozen or sealed/non-extensible, same as
           '(1- i)))
         (loop-clause
         (if (eq direction :forward) '(loop for i from start below (length arr)
-                do (setf acc (%js-funcall fn acc (aref arr i) i arr)))
+                do (setf acc (%js-object-funcall fn acc (aref arr i) i arr)))
           '(loop for i from start downto 0
-                do (setf acc (%js-funcall fn acc (aref arr i) i arr))))))
+                do (setf acc (%js-object-funcall fn acc (aref arr i) i arr))))))
     `(defun ,name (arr fn &optional (init +js-undefined+))
       ,docstring
       (let ((acc init)
@@ -310,3 +283,12 @@ indices, so a no-op while frozen or sealed/non-extensible, same as
           for j from 0
           do (setf (aref result j) (aref arr i)))
     result))
+
+(defun %js-array-push (arr val)
+  "Append VAL to ARR; return new length. Growing the array adds a new
+index, so a no-op while frozen or sealed/non-extensible (see
+%js-object-extensible-p) -- same guard %js-set-prop applies to a bare
+`arr[arr.length] = val'."
+  (unless (or (%js-object-frozen-p arr) (not (%js-object-extensible-p arr)))
+    (vector-push-extend val arr))
+  (length arr))

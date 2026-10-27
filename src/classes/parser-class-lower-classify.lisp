@@ -10,7 +10,7 @@
 ;;;; file only answers "which slot is this."
 ;;;; Load order: after parser-class.lisp (needs %js-parse-class-body's slot
 ;;;; shape), before parser-class-lower.lisp (which calls these predicates).
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/classes)
 
 ;;; ─── slot/key accessor helpers ───────────────────────────────────────────────
 ;;; Accessor shorthands — ast-slot-def uses (:conc-name ast-slot-) so slots

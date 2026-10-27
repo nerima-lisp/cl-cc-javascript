@@ -11,7 +11,7 @@
 ;;;; one) live in the sibling runtime-temporal-datetime.lisp, loaded right
 ;;;; after this file.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/dates)
 
 ;;; -----------------------------------------------------------------------
 ;;;  Shared helpers

@@ -6,7 +6,7 @@
 ;;;;
 ;;;; Load order: immediately after package.lisp, before everything else.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/syntax)
 
 ;;; ─── Dispatch tables ─────────────────────────────────────────────────────────
 ;;;

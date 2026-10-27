@@ -22,13 +22,9 @@
 ;;;;   \u{XXXXXX} -> unicode codepoint (variable hex digits)
 ;;;;   \xXX       -> hex escape (2 hex digits)
 ;;;;   other      -> character as-is (permissive template tagged literal support)
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/strings)
 
 ;;; ─── Character helpers ───────────────────────────────────────────────────────
-(defun js-hex-digit-p (ch)
-  "Return true if CH is a hexadecimal digit character."
-  (and ch (or (char<= #\0 ch #\9) (char<= #\a ch #\f) (char<= #\A ch #\F))))
-
 (defun js-hex-digit-value (ch)
   "Return the numeric value of hex digit character CH."
   (cond
@@ -253,3 +249,5 @@ Returns (values token-list pos-after-closing-brace)."
                (js-lex-template-inner-tokens source end-pos)
              (push (list :template-expr inner-tokens) parts)
              (setf pos expr-end-pos))))))))
+
+(eval-when (:load-toplevel :execute) (register-js-lexer-extension :backtick (function js-lex-template)))

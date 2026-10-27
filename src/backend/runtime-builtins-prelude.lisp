@@ -7,7 +7,7 @@
 ;;;; Load order: after runtime-builtins-table.lisp (needs *js-builtin-specs*,
 ;;;; %js-builtin-ref, and all the %js-make-* / *js-* symbols).
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/backend)
 
 ;;; -----------------------------------------------------------------------
 ;;;  JS program prelude — declarative global binding table

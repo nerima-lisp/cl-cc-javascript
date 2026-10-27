@@ -1,6 +1,6 @@
 ;;;; packages/javascript/src/runtime-console.lisp — JS `console' global object
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/objects)
 
 ;;; Data table: (stream prefix) for each console output function.
 (defmacro define-js-console-output (name stream &optional prefix)

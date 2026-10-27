@@ -4,7 +4,7 @@
 ;;;;
 ;;;; Load order: after parser-stmt-flow.lisp.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/statements)
 
 ;;; ─── Main Statement Dispatcher ───────────────────────────────────────────────
 ;;;
@@ -25,27 +25,19 @@
       ;; async function / async arrow — requires 2-token lookahead
       ((and (eq type :T-ASYNC)
             (eq (js-peek-type (cdr stream)) :T-FUNCTION))
-       (js-parse-function-decl (cddr stream) :async-p t))
+       (js-call-parser-handler :statement-async-function (cddr stream)))
       ;; decorated class declaration — requires parsing decorators first
       ((eq type :T-AT)
-       (multiple-value-bind (decorators rest) (%js-parse-decorators stream)
-         (unless (eq (js-peek-type rest) :T-CLASS)
-           (error "JS parse error: decorators must precede a class declaration"))
-         (multiple-value-bind (ast-list rest2)
-             (js-parse-class-decl (cdr rest) :decorators decorators)
-           (values (if (and (consp ast-list) (= (length ast-list) 1))
-                       (first ast-list)
-                       (make-ast-progn :forms ast-list))
-                   rest2))))
+       (js-call-parser-handler :statement-decorated-class stream))
       ;; using x = expr (ES2025 contextual keyword) — requires ident lookahead
       ((and (eq type :T-USING)
             (eq (js-peek-type (cdr stream)) :T-IDENT))
-       (js-parse-using-decl (cdr stream)))
+       (js-call-parser-handler (list :statement :T-USING) (cdr stream)))
       ;; import(...) and import.meta are expressions even at statement start.
       ;; Other leading import forms remain module import declarations.
       ((and (eq type :T-IMPORT)
             (member (js-peek-type (cdr stream)) '(:T-LPAREN :T-DOT)))
-       (multiple-value-bind (expr rest) (js-parse-expr stream)
+       (multiple-value-bind (expr rest) (js-call-parser-handler :expression stream)
          (values expr (js-skip-semis rest))))
       ;; Labelled statement: ident : stmt — requires colon lookahead
       ;; break LABEL → (return-from label-block); continue LABEL → (go continue-tag)
@@ -70,11 +62,12 @@
            (remhash label-name *js-label-continue-targets*))))
       ;; Table-driven dispatch: token-type → registered parser
       (t
-       (let ((parser (gethash type *js-stmt-parsers*)))
+       (let ((parser (or (gethash type *js-stmt-parsers*)
+                          (js-parser-handler (list :statement type)))))
          (if parser
              (funcall parser (cdr stream))    ; pass stream after keyword
              ;; Expression statement (assignments, calls, etc.)
-             (multiple-value-bind (expr rest) (js-parse-expr stream)
+             (multiple-value-bind (expr rest) (js-call-parser-handler :expression stream)
                (values expr (js-skip-semis rest)))))))))
 
 ;;; ─── Top-Level Statement List Parser ────────────────────────────────────────
@@ -120,3 +113,7 @@ via fboundp."
     (multiple-value-bind (_ rest) (js-expect :T-RBRACE current)
       (declare (ignore _))
       (values (%js-finish-let-bindings (nreverse stmts)) rest))))
+
+(eval-when (:load-toplevel :execute)
+  (register-js-source-parser (function %js-parse-all-stmts))
+  (register-js-parser-handler :statement-list (function js-parse-stmt-list)))

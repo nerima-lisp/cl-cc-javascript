@@ -3,7 +3,7 @@
 ;;;; Separated from runtime-ops.lisp so the core operator helpers remain focused
 ;;;; on arithmetic, bitwise, bigint, and control-flow-adjacent primitives.
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/strings)
 
 ;;; ─── URI encoding/decoding ───────────────────────────────────────────────────
 ;;;

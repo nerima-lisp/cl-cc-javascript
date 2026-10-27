@@ -1,6 +1,6 @@
 ;;;; packages/javascript/src/runtime-builtins-intl-collator.lisp -- Intl.Collator
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/intl)
 
 (defun %js-collator-strip-basic-accents (string)
   "Strip the common Latin-1 accents that matter for our lightweight collator."

@@ -6,7 +6,7 @@
 ;;;; Load order: after parser-expr.lisp, before parser-expr-literal.lisp and
 ;;;; parser-arrow.lisp (both call these helpers).
 
-(in-package :cl-cc/javascript)
+(in-package #:cl-cc/javascript/functions)
 
 ;;; ─── Parameter / Argument Parsers ────────────────────────────────────────────
 
@@ -61,7 +61,7 @@ Returns (values param-syms optional-specs rest-sym new-stream) where
                 (when (js-at-op-p current "=")
                   (%js-consume-then (rest3 (js-consume current))
                     (multiple-value-bind (default-expr rest4)
-                        (js-parse-assignment-expr rest3)
+                        (js-call-parser-handler :assignment-expression rest3)
                       (push (cons sym default-expr) optionals)
                       (setf current rest4))))))
             ;; Continue on comma, stop otherwise
@@ -87,10 +87,10 @@ Returns (values arg-list rest)."
             ;; Spread argument: ...expr
             (if (eq (js-peek-type current) :T-ELLIPSIS)
                 (%js-consume-then (rest2 (js-consume current))
-                  (multiple-value-bind (expr rest3) (js-parse-assignment-expr rest2)
+                  (multiple-value-bind (expr rest3) (js-call-parser-handler :assignment-expression rest2)
                     (push (%js-call '%js-spread expr) args)
                     (setf current rest3)))
-                (multiple-value-bind (expr rest2) (js-parse-assignment-expr current)
+                (multiple-value-bind (expr rest2) (js-call-parser-handler :assignment-expression current)
                   (push expr args)
                   (setf current rest2)))
             (multiple-value-bind (next-stream more-p) (%js-comma-list-step current :T-RPAREN)
@@ -98,3 +98,6 @@ Returns (values arg-list rest)."
               (unless more-p (return))))
           (%js-consume-then (rest2 (js-expect :T-RPAREN current))
             (values (nreverse args) rest2))))))
+(eval-when (:load-toplevel :execute)
+  (register-js-parser-handler :function-arguments (function js-parse-arguments))
+  (register-js-parser-handler :function-params (function js-parse-params)))
