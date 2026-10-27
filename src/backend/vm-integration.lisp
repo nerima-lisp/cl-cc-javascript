@@ -18,8 +18,8 @@
   (setf *js-apply-fn*
         (labels ((invoke (fn args)
                    (cond
-                     ((cl-cc/vm::%vm-closure-object-p fn)
-                      (cl-cc/vm::%vm-call-closure-sync fn cl-cc/vm:*vm-state* args))
+                     ((cl-cc/vm:%vm-closure-object-p fn)
+                      (cl-cc/vm:%vm-call-closure-sync fn cl-cc/vm:*vm-state* args))
                      ;; A callable JS object (e.g. `super', Intl/Symbol stubs)
                      ;; carries its implementation under __call__.
                      ((and (hash-table-p fn) (gethash "__call__" fn))
@@ -28,7 +28,7 @@
           #'invoke))
   ;; Recognize a compiled-JS method (a vm-closure) as callable.
   (setf *js-callable-p*
-        (lambda (x) (or (functionp x) (cl-cc/vm::%vm-closure-object-p x))))
+        (lambda (x) (or (functionp x) (cl-cc/vm:%vm-closure-object-p x))))
   ;; Bind `this' for a method/constructor call in BOTH the host special and the
   ;; VM-global %js-this (a compiled-JS body reads `this' via vm-get-global).
   ;; Save/restore around the call so nested method calls restore the receiver.
