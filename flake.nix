@@ -49,7 +49,7 @@
       flake = false;
     };
     cl-cc-vm = {
-      url = "github:nerima-lisp/cl-cc-vm/462213fcf5e0e6cecc09992e8cb0b7ed48dbce2f";
+      url = "github:nerima-lisp/cl-cc-vm/99f814e44e5bc83f578e433090b5014bb441db06";
       flake = false;
     };
     # v1.0.0 -> v1.1.0: internal reorg (org package-standard adoption, file
