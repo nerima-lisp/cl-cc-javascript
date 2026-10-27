@@ -1,0 +1,6 @@
+(defpackage #:cl-cc/javascript/strings/test
+  (:use #:cl)
+  (:import-from #:cl-cc/javascript/objects #:%js-get-prop #:+js-null+ #:+js-undefined+)
+  (:import-from #:cl-cc/javascript/strings #:%js-string-at #:%js-string-char-at #:%js-string-char-code-at #:%js-string-code-point-at #:%js-string-concat #:%js-string-ends-with #:%js-string-from-char-code #:%js-string-from-code-point #:%js-string-includes #:%js-string-index-of #:%js-string-is-well-formed #:%js-string-last-index-of #:%js-string-length #:%js-string-locale-compare #:%js-string-match #:%js-string-match-all #:%js-string-normalize #:%js-string-pad-end #:%js-string-pad-start #:%js-string-raw #:%js-string-repeat #:%js-string-replace #:%js-string-replace-all #:%js-string-search #:%js-string-slice #:%js-string-split #:%js-string-starts-with #:%js-string-substring #:%js-string-to-locale-lower-case #:%js-string-to-locale-upper-case #:%js-string-to-lower-case #:%js-string-to-upper-case #:%js-string-to-well-formed #:%js-string-trim #:%js-string-trim-end #:%js-string-trim-start #:js-lex-template-escape #:%js-make-url)
+  (:import-from #:cl-weave #:describe-concurrent #:describe-sequential #:expect #:gen-string #:it #:it-property #:it-sequential #:it-sequential-each #:with-soft-assertions #:signals)
+  (:import-from #:cl-cc-javascript/test #:%jr-arr #:%jr-list))

@@ -1,0 +1,190 @@
+;;;; t/lexer-test.lisp — ES2026 JavaScript Lexer Tests
+;;;;
+;;;; Token format: (:type :T-XXX :value val)
+
+(in-package #:cl-cc/javascript/syntax/test)
+
+;;; ─── Helpers ──────────────────────────────────────────────────────────────────
+
+(defun %js-lex (src)
+  "Tokenize SRC and return the token list (including :T-EOF)."
+  (cl-cc/javascript:tokenize-js-source src))
+
+(defun %js-lex-types (src)
+  "Return only the :type field of each token produced from SRC."
+  (mapcar (lambda (tok) (getf tok :type)) (%js-lex src)))
+
+(defun %js-first-token (src)
+  "Return the first token produced from SRC."
+  (first (%js-lex src)))
+
+(defun %js-first-type (src)
+  "Return the :type of the first token produced from SRC."
+  (getf (%js-first-token src) :type))
+
+(defun %js-first-value (src)
+  "Return the :value of the first token produced from SRC."
+  (getf (%js-first-token src) :value))
+
+(defun %js-signals-error-p (thunk)
+  "True if calling THUNK (a zero-arg function) signals an error."
+  (handler-case (progn (funcall thunk) nil)
+    (error () t)))
+
+;;; ─── Numeric literals ─────────────────────────────────────────────────────────
+
+(defun %register-syntax-lexer-tests () (it-sequential-each (("42" 42) ("0" 0) ("255" 255) ("0xFF" 255)
+                     ("0o777" 511) ("0b1010" 10) ("1_000_000" 1000000))
+    "lex-integer-literal ~A"
+    (src expected)
+  (expect (%js-first-type src) :to-be :T-NUMBER)
+  (expect (= expected (%js-first-value src)) :to-be-truthy)) (it-sequential "lex-float-pi"
+  (expect (%js-first-type "3.14") :to-be :T-NUMBER)
+  (expect (typep (%js-first-value "3.14") 'double-float) :to-be-truthy)
+  (expect (< (abs (- 3.14d0 (%js-first-value "3.14"))) 1.0d-10) :to-be-truthy)) (it-sequential "lex-float-scientific"
+  (expect (%js-first-type "1.5e-3") :to-be :T-NUMBER)
+  (expect (< (abs (- 1.5d-3 (%js-first-value "1.5e-3"))) 1.0d-15) :to-be-truthy)) (it-sequential "lex-bigint-literal"
+  (expect (%js-first-type "42n") :to-be :T-BIGINT)
+  (expect (= 42 (%js-first-value "42n")) :to-be-truthy)) (it-sequential-each (("'hello'" "hello") ("\"world\"" "world"))
+    "lex-string-literal ~A"
+    (src expected)
+  (expect (%js-first-type src) :to-be :T-STRING)
+  (expect (%js-first-value src) :to-equal expected)) (it-sequential-each (("if" :T-IF) ("for" :T-FOR) ("class" :T-CLASS)
+                     ("async" :T-ASYNC) ("await" :T-AWAIT) ("using" :T-USING)
+                     ("true" :T-TRUE) ("false" :T-FALSE) ("null" :T-NULL)
+                     ("undefined" :T-UNDEFINED))
+    "lex-keyword ~A"
+    (src expected-type)
+  (expect (%js-first-type src) :to-be expected-type)) (it-sequential-each (("foo" "foo") ("_bar" "_bar") ("$baz" "$baz")
+                     ("camelCase" "camelCase"))
+    "lex-identifier ~A"
+    (src expected)
+  (expect (%js-first-type src) :to-be :T-IDENT)
+  (expect (%js-first-value src) :to-equal expected)) (it-sequential-each (("#field" "field") ("#privateMethod" "privateMethod"))
+    "lex-private-identifier ~A"
+    (src expected)
+  (expect (%js-first-type src) :to-be :T-PRIVATE-IDENT)
+  (expect (%js-first-value src) :to-equal expected)) (it-sequential "lex-decorator-at"
+  (let ((types (%js-lex-types "@decorator")))
+    (expect (first  types) :to-be :T-AT)
+    (expect (second types) :to-be :T-IDENT))) (it-sequential-each (("===" "===") ("!==" "!==") ("??" "??") ("?." "?.")
+                     ("&&=" "&&=") ("||=" "||=") ("??=" "??=") ("**=" "**="))
+    "lex-operator ~A"
+    (src expected)
+  (expect (%js-first-type src) :to-be :T-OP)
+  (expect (%js-first-value src) :to-equal expected)) (it-sequential "lex-ellipsis"
+  (expect (%js-first-type "...") :to-be :T-ELLIPSIS)
+  (expect (%js-first-value "...") :to-equal "...")) (it-sequential "lex-arrow"
+  (expect (%js-first-type "=>") :to-be :T-ARROW)
+  (expect (%js-first-value "=>") :to-equal "=>")) (it-sequential "lex-line-comment-skipped"
+  (let ((types (%js-lex-types "// this is a comment")))
+    (expect (= 1 (length types)) :to-be-truthy)
+    (expect (first types) :to-be :T-EOF))) (it-sequential "lex-line-comment-newline-consumed"
+  (let ((tokens (%js-lex (format nil "// comment~%foo"))))
+    (expect (getf (first tokens) :type) :to-be :T-IDENT)
+    (expect (getf (first tokens) :value) :to-equal "foo"))) (it-sequential "lex-block-comment-skipped"
+  (let ((tokens (%js-lex "/* skip me */ foo")))
+    (expect (getf (first tokens) :type) :to-be :T-IDENT)
+    (expect (getf (first tokens) :value) :to-equal "foo"))) (it-sequential "lex-block-comment-unterminated"
+  (expect (%js-signals-error-p (lambda () (%js-lex "/* unterminated"))) :to-be-truthy)) (it-sequential "lex-hashbang-skipped-at-start"
+  (let ((tokens (%js-lex (format nil "#!/usr/bin/env js~%foo"))))
+    (expect (getf (first tokens) :type) :to-be :T-IDENT)
+    (expect (getf (first tokens) :value) :to-equal "foo"))) (it-sequential-each (("\\n\\r\\t\\\\\\'\\\"\\0z'"
+                      #.(coerce (list #\Newline #\Return #\Tab #\\ #\' #\" #\Null #\z) 'string))
+                     ("\\u0041'" "A")
+                     ("\\u{263A}'" #.(string (code-char #x263A)))
+                     ("\\x41'" "A")
+                     ("abc'" "abc"))
+    "lex-string-escape-branches ~S"
+    (src expected)
+  (multiple-value-bind (value new-pos) (cl-cc/javascript/syntax:lex-js-string src 0 #\')
+    (expect value :to-equal expected)
+    (expect (= (length src) new-pos) :to-be-truthy))) (it-sequential-each (("\\") (#.(format nil "line1~%line2'")) ("abc"))
+    "lex-string-error-branches ~S"
+    (src)
+  (expect (%js-signals-error-p (lambda () (cl-cc/javascript/syntax:lex-js-string src 0 #\')))
+          :to-be-truthy)) (it-sequential "lex-const-statement-sequence"
+  (expect (%js-lex-types "const x = 42 + y;") :to-equal '(:T-CONST :T-IDENT :T-OP :T-NUMBER :T-OP :T-IDENT :T-SEMI :T-EOF))) (it-sequential-each (("/ab+c/gi" "ab+c" "gi")
+                     ("/hello/" "hello" "")
+                     ("/[a-z]+/" "[a-z]+" "")
+                     ("/x/dgimsuy" "x" "dgimsuy"))
+    "lex-regex-pattern ~S"
+    (src expected-pattern expected-flags)
+  (let* ((tok (first (%js-lex src)))
+         (val (getf tok :value)))
+    (expect (getf tok :type) :to-be :T-REGEX)
+    (expect (second val) :to-equal expected-pattern)
+    (expect (third  val) :to-equal expected-flags))) (it-sequential "lex-division-not-regex"
+  (let ((types (%js-lex-types "a / b")))
+    (expect (member :T-OP    types) :to-be-truthy)
+    (expect (member :T-REGEX types) :to-be-falsy))) (it-sequential "lex-template-simple"
+  (let* ((tok (first (%js-lex "`hello`")))
+         (parts (getf tok :value)))
+    (expect (getf tok :type) :to-be :T-TEMPLATE-PARTS)
+    (expect parts :to-equal '((:text "hello" "hello"))))
+  (let ((handler (lambda (source pos) (values source pos))))
+    (register-js-lexer-extension :idempotent-test handler)
+    (register-js-lexer-extension :idempotent-test handler)
+    (expect (eq handler (js-lexer-extension-handler :idempotent-test)) :to-be-truthy))) (it-sequential "lex-template-escaped-cook"
+  (let* ((tok (first (%js-lex "`a\\n\\r\\t\\\\\\`\\$\\0z`")))
+         (parts (getf tok :value))
+         (cooked (coerce (list #\a #\Newline #\Return #\Tab #\\ #\` #\$ #\Null #\z)
+                         'string))
+         ;; The raw (as-written) text is the source slice between the
+         ;; backticks, escapes untouched -- see js-lex-template-text-part.
+         (raw "a\\n\\r\\t\\\\\\`\\$\\0z"))
+    (expect (getf tok :type) :to-be :T-TEMPLATE-PARTS)
+    (expect parts :to-equal (list (list :text cooked raw))))) (it-sequential "lex-template-interpolated"
+  (let* ((tok (first (%js-lex "`hi ${name + 1}!`")))
+         (parts (getf tok :value))
+         (expr-part (second parts))
+         (inner (second expr-part))
+         (inner-types (mapcar (lambda (tk) (getf tk :type))
+                              inner)))
+    (expect (getf tok :type) :to-be :T-TEMPLATE-PARTS)
+    (expect (first parts) :to-equal '(:text "hi " "hi "))
+    (expect (and (consp expr-part)
+                      (eq (first expr-part) :template-expr)) :to-be-truthy)
+    (expect (third parts) :to-equal '(:text "!" "!"))
+    (expect inner-types :to-equal '(:T-IDENT :T-OP :T-NUMBER)))) (it-sequential "lex-template-nested-interpolation"
+  (let* ((tok (first (%js-lex "`a ${\"{\" + `inner ${x}` + \"}\"} b`")))
+         (parts (getf tok :value))
+         (inner (second (second parts)))
+         (inner-types (mapcar (lambda (tk) (getf tk :type)) inner)))
+    (expect (getf tok :type) :to-be :T-TEMPLATE-PARTS)
+    (expect (first parts) :to-equal '(:text "a " "a "))
+    (expect (third parts) :to-equal '(:text " b" " b"))
+    (expect (member :T-TEMPLATE-PARTS inner-types) :to-be-truthy))))
+
+;;; ─── String literals ──────────────────────────────────────────────────────────
+
+
+;;; ─── Keyword tokens ───────────────────────────────────────────────────────────
+
+
+;;; ─── Identifiers ──────────────────────────────────────────────────────────────
+
+
+;;; ─── Private identifiers ──────────────────────────────────────────────────────
+
+
+;;; ─── Decorator ────────────────────────────────────────────────────────────────
+
+
+;;; ─── Multi-character operators ────────────────────────────────────────────────
+
+
+;;; ─── Special punctuation ──────────────────────────────────────────────────────
+
+
+;;; ─── Comments ─────────────────────────────────────────────────────────────────
+
+
+;;; ─── Multi-token sequence ─────────────────────────────────────────────────────
+
+
+;;; ─── Regex literals ───────────────────────────────────────────────────────────
+
+
+;;; ─── Template literals ───────────────────────────────────────────────────────
+

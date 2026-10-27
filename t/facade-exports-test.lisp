@@ -1,0 +1,120 @@
+(in-package #:cl-cc-javascript/test)
+
+(defun %facade-export-package (name)
+  (find name (list-all-packages) :key #'package-name :test #'string-equal))
+
+(defun %facade-export-entry-identity-p (entry)
+  (and (listp entry)
+       (eq (first entry) :symbol)
+       (or (eq (second entry) :keep) (eq (second entry) :add))
+       (= (length entry) (if (eq (second entry) :keep) 6 7))
+       (every (function stringp) (cddr entry))
+       (let* ((facade-package (%facade-export-package (third entry)))
+              (owner-package (%facade-export-package (fourth entry)))
+              (home-package (%facade-export-package (fifth entry)))
+              (symbol-name (sixth entry)))
+         (and facade-package owner-package home-package
+              (multiple-value-bind (facade-symbol facade-status)
+                  (find-symbol symbol-name facade-package)
+                (multiple-value-bind (owner-symbol owner-status)
+                    (find-symbol symbol-name owner-package)
+                  (and facade-symbol owner-symbol
+                       (eq facade-status :external)
+                       (eq owner-status :external)
+                       (eq facade-symbol owner-symbol)
+                       (eq (symbol-package facade-symbol) home-package)
+                       (eq (symbol-package owner-symbol) home-package))))))))
+
+(defun %read-facade-export-surface ()
+  (with-open-file
+      (input (asdf:system-relative-pathname "cl-cc-javascript/test" "t/export-surface.txt"))
+    (let ((*read-eval* nil)
+          (*package* (find-package :cl-user)))
+      (let ((surface (read input nil :eof)))
+        (unless (and (listp surface)
+                     (eq (read input nil :eof) :eof))
+          (error "Expected one top-level export surface list."))
+        surface))))
+
+(defun %check-facade-export-snapshot ()
+  (let ((entries (%read-facade-export-surface)))
+    (labels ((entry-shape-p (entry)
+               (and (listp entry)
+                    (eq (first entry) :symbol)
+                    (or (and (eq (second entry) :keep)
+                             (= (length entry) 6)
+                             (every (function stringp) (cddr entry)))
+                        (and (or (eq (second entry) :add)
+                                 (eq (second entry) :remove))
+                             (= (length entry) 7)
+                             (every (function stringp) (cddr entry))))))
+             (external-symbol-names (package)
+               (let ((names nil))
+                 (do-external-symbols (symbol package)
+                   (push (symbol-name symbol) names))
+                 names)) (heading-slug (line)
+               (let* ((trimmed (string-left-trim (list #\Space #\Tab) line))
+                      (heading-start
+                        (position-if-not
+                         (lambda (character) (char= character #\#))
+                         trimmed)))
+                 (when (and heading-start
+                            (<= 1 heading-start 6)
+                            (< heading-start (length trimmed))
+                            (member (char trimmed heading-start)
+                                    (list #\Space #\Tab)))
+                   (substitute #\- #\Space
+                               (string-downcase
+                                (string-trim (list #\Space #\Tab #\#)
+                                             (subseq trimmed heading-start))))))) (anchor-resolves-p (reference)
+               (let ((separator (and (stringp reference)
+                                     (position #\# reference))))
+                 (and separator
+                      (plusp separator)
+                      (< (1+ separator) (length reference))
+                      (let* ((file (subseq reference 0 separator))
+                             (anchor (subseq reference (1+ separator)))
+                             (pathname
+                               (asdf:system-relative-pathname
+                                "cl-cc-javascript" file)))
+                        (and (probe-file pathname)
+                             (with-open-file (input pathname)
+                               (loop for line = (read-line input nil nil)
+                                     while line
+                                     thereis
+                                     (let ((slug (heading-slug line)))
+                                       (and slug (string-equal slug anchor)))))))))))
+      (assert (every (function entry-shape-p) entries))
+      (assert (= (count :keep entries :key (function second)) 314))
+      (assert (= (count :add entries :key (function second)) 17))
+      (dolist (entry entries)
+        (when (or (eq (second entry) :keep)
+                  (eq (second entry) :add))
+          (assert (%facade-export-entry-identity-p entry))))
+      (dolist (facade-name
+               (remove-duplicates (mapcar (function third) entries)
+                                  :test (function string-equal)))
+        (let* ((facade-package (%facade-export-package facade-name))
+               (expected-names
+                 (loop for entry in entries
+                       when (and (string-equal facade-name (third entry))
+                                 (or (eq (second entry) :keep)
+                                     (eq (second entry) :add)))
+                         collect (sixth entry))))
+          (assert (and facade-package
+                (equal (sort (copy-list expected-names) (function string<))
+                       (sort (external-symbol-names facade-package)
+                             (function string<)))))))
+      (dolist (entry entries)
+        (when (eq (second entry) :remove)
+          (let ((facade-package (%facade-export-package (third entry))))
+            (assert (and facade-package
+                  (multiple-value-bind (symbol status)
+                      (find-symbol (sixth entry) facade-package)
+                    (declare (ignore symbol))
+                    (not (eq status :external))))))
+        (when (or (eq (second entry) :add)
+                  (eq (second entry) :remove))
+          (assert (anchor-resolves-p (seventh entry)))))))))
+
+(describe "Facade export snapshot" (before-all (%check-facade-export-snapshot)))

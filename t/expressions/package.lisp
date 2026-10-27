@@ -1,0 +1,12 @@
+(defpackage #:cl-cc/javascript/expressions/test
+  (:use #:cl)
+  (:import-from #:cl-cc/javascript/arrays #:%js-make-array)
+  (:import-from #:cl-cc/javascript/classes #:%js-make-aggregate-error #:%js-make-class #:%js-new #:*js-aggregate-error-class*)
+  (:import-from #:cl-cc/javascript/expressions #:%js-accessor #:%js-bigint #:%js-bigint-compare #:%js-bigint-div #:%js-bigint-lshift #:%js-bigint-mod #:%js-bigint-negate #:%js-bigint-rshift #:%js-bigint-to-string #:%js-bitwise-and #:%js-bitwise-not #:%js-bitwise-or #:%js-bitwise-xor #:%js-ge #:%js-gt #:%js-instanceof #:%js-le #:%js-loose-eq #:%js-lt #:%js-new-target #:%js-postfix-dec #:%js-postfix-inc #:%js-prefix-dec #:%js-prefix-inc #:%js-shift-left #:%js-shift-right #:%js-sign-extend32 #:%js-strict-eq #:%js-to-int32 #:%js-to-number #:%js-truthy #:%js-typeof #:%js-unary-plus #:%js-unsigned-shift-right #:%js-using-register)
+  (:import-from #:cl-cc/javascript/objects #:%js-accessor-descriptor-p #:%js-add #:%js-delete #:%js-divide #:%js-get-prop #:%js-in #:%js-make-object #:%js-make-set #:%js-mod #:%js-object-keys #:%js-object-put-entry #:%js-object-values #:%js-optional-call #:%js-optional-chain #:%js-optional-method-call #:%js-pow #:%js-set-add #:%js-to-string #:%js-make-ht #:%js-ht-p #:%js-vec-p #:%js-float-infinity-p #:%js-nan-p #:+js-nan+ #:+js-null+ #:+js-undefined+)
+  (:import-from #:cl-cc/javascript/statements #:%js-for-in)
+  (:import-from #:cl-cc/javascript/iterators #:%js-for-of)
+  (:import-from #:cl-cc/javascript/strings #:%js-decode-uri-component #:%js-encode-uri-component)
+  (:import-from #:cl-cc/javascript/syntax #:parse-js-module #:parse-js-source)
+  (:import-from #:cl-weave #:defmatcher #:describe-concurrent #:describe-sequential #:expect #:it #:it-sequential #:it-sequential-each)
+  (:import-from #:cl-cc-javascript/test #:%jr-arr #:%jr-list #:%js-call-name))

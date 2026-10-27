@@ -1,0 +1,8 @@
+;;;; packages/javascript/src/runtime-builtins-platform-atomics.lisp — Atomics helpers
+
+(in-package #:cl-cc/javascript/iterators)
+
+(defun %js-make-atomics ()
+  "Atomics global object (pause)."
+  (%js-make-object
+   "pause" (constantly +js-undefined+)))
