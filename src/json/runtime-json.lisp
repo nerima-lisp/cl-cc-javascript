@@ -27,7 +27,8 @@
 ;;; -----------------------------------------------------------------------
 ;;;  Raw JSON wrapper (JSON.rawJSON / JSON.isRawJSON, ES2024)
 ;;; -----------------------------------------------------------------------
-(defstruct (js-raw-json (:constructor %js-make-raw-json (text)) (:conc-name js-raw-json-)) text)
+(defstruct (js-raw-json (:constructor %js-make-raw-json (text)) (:conc-name js-raw-json-))
+  text)
 
 (defun %js-json-raw-json-p (val)
   "True when VAL is a JSON.rawJSON wrapper."
@@ -41,8 +42,11 @@
 (json-kit:parse itself rejects trailing data, so no separate check is
 needed)."
   (and (stringp str)
-       (handler-case (progn (parse str) t)
-         (json-parse-error () nil))))
+       (handler-case (progn
+                       (parse str)
+                       t)
+         (json-parse-error ()
+           nil))))
 
 (defun %js-json-raw-json (str)
   "Wrap STR as a raw JSON fragment after validating it."
@@ -109,7 +113,7 @@ entirely, by simply never adding it to the rebuilt hash table below."
      ;; accessor FUNCTION, and its key was `__get_X`, already filtered out
      ;; as an "internal" key rather than recognized as a property).
      (let ((result (%js-make-ht)))
-       (loop for k across (%js-object-own-string-property-keys val)
+       (loop for k across (%js-object-own-string-property-keys val t)
              for v = (%js-get-prop val k)
              unless (%js-json-unrepresentable-p v)
                do (setf (gethash k result) (%js-json-stringify-normalize v fragments)))
@@ -133,10 +137,14 @@ see docs/src/reference/compatibility.md."
       +js-undefined+
       (let ((fragments (make-array 0 :adjustable t :fill-pointer 0)))
         (%js-json-splice-raw-fragments
-          (stringify (%js-json-stringify-normalize val fragments)
-                     :null-value +js-null+ :false-value nil
-                     :number-encoder #'%js-json-number-encoder)
-          fragments))))
+         (stringify (%js-json-stringify-normalize val fragments)
+                    :null-value
+                    +js-null+
+                    :false-value
+                    nil
+                    :number-encoder
+                    #'%js-json-number-encoder)
+         fragments))))
 
 ;;; -----------------------------------------------------------------------
 ;;;  JSON.parse
@@ -147,10 +155,10 @@ null/false/true value mapping applied directly through its own parser hooks.
 Invalid JSON raises a real JS SyntaxError (the hand-rolled parser this
 replaced silently returned `undefined` instead, which is not what JSON.parse
 does)."
-  (handler-case
-      (parse (%js-to-string str) :null-value +js-null+ :false-value nil :true-value t)
+  (handler-case (parse (%js-to-string str) :null-value +js-null+ :false-value nil :true-value t)
     (json-parse-error (e)
       (%js-throw
-        (%js-make-error-instance *js-syntax-error-class*
-                                  (format nil "Unexpected token in JSON at position ~D"
-                                          (json-parse-error-position e)))))))
+       (%js-make-error-instance *js-syntax-error-class*
+                                (format nil
+                                        "Unexpected token in JSON at position ~D"
+                                        (json-parse-error-position e)))))))

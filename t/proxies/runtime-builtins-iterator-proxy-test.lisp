@@ -226,17 +226,17 @@
   (it-sequential "js-rt-object-values-reads-accessor"
     (let* ((obj (cl-cc/javascript/objects:%js-make-object))
            (getter (lambda () 123))
-           (desc (cl-cc/javascript/objects:%js-make-object "get" getter)))
+           (desc (cl-cc/javascript/objects:%js-make-object "get" getter "enumerable" t)))
       (cl-cc/javascript/proxies:%js-object-define-property obj "answer" desc)
-      (let ((values (coerce (cl-cc/javascript/objects:%js-object-values obj) 'list)))
-        (expect values :to-equal '(123)))))
+      (let ((values (coerce (cl-cc/javascript/objects:%js-object-values obj) (quote list))))
+        (expect values :to-equal (quote (123))))))
   (it-sequential "js-rt-object-keys-includes-accessor-property-name"
     (let* ((obj (cl-cc/javascript/objects:%js-make-object))
            (getter (lambda () 42))
-           (desc (cl-cc/javascript/objects:%js-make-object "get" getter)))
+           (desc (cl-cc/javascript/objects:%js-make-object "get" getter "enumerable" t)))
       (cl-cc/javascript/proxies:%js-object-define-property obj "answer" desc)
-      (let ((keys (coerce (cl-cc/javascript/objects:%js-object-keys obj) 'list)))
-        (expect keys :to-equal '("answer")))))
+      (let ((keys (coerce (cl-cc/javascript/objects:%js-object-keys obj) (quote list))))
+        (expect keys :to-equal (quote ("answer"))))))
   (it-sequential "js-rt-object-extensibility-seal-freeze"
     (let* ((proto (cl-cc/javascript/objects:%js-make-object "p" 1))
            (obj   (cl-cc/javascript/objects:%js-object-create proto)))
@@ -251,3 +251,182 @@
         (expect (cl-cc/javascript/proxies:%js-reflect-set-prototype-of obj next-proto) :to-be-falsy)
         (expect (cl-cc/javascript/objects:%js-object-get-prototype-of obj) :to-be proto))))
 )
+
+(in-package #:cl-cc/javascript/proxies/test)
+
+(defun %register-proxies-runtime-object-closure-integrity-tests ()
+  (labels ((make-closure ()
+             (let ((closure
+                     (make-instance (quote cl-cc/vm:vm-closure-object)
+                                    :entry-label "closure"
+                                    :params nil)))
+               (cl-cc/javascript/objects:%js-set-property-descriptor
+                closure "length"
+                (list :value 2 :writable nil :enumerable nil :configurable t))
+               (cl-cc/javascript/objects:%js-set-property-descriptor
+                closure "name"
+                (list :value "closure" :writable nil :enumerable nil :configurable t))
+               (cl-cc/javascript/objects:%js-set-property-descriptor
+                closure "prototype"
+                (list :value (%js-make-object)
+                      :writable t :enumerable nil :configurable nil))
+               closure)))
+    (it-sequential "js-rt-vm-closure-prevent-extensions-blocks-new-properties"
+      (let* ((closure (make-closure))
+             (descriptor (%js-make-object "value" 1)))
+        (expect
+         (cl-cc/javascript/proxies:%js-reflect-prevent-extensions closure)
+         :to-equal t)
+        (expect (%js-object-extensible-p closure) :to-equal nil)
+        (expect (%js-object-sealed-p closure) :to-equal nil)
+        (expect (%js-object-frozen-p closure) :to-equal nil)
+        (expect
+         (cl-cc/javascript/proxies:%js-reflect-define-property
+          closure "added" descriptor)
+         :to-equal nil)
+        (expect
+         (handler-case
+             (progn
+               (cl-cc/javascript/proxies:%js-object-define-property
+                closure "added" descriptor)
+               nil)
+           (error () t))
+         :to-be-truthy)
+        (expect
+         (nth-value 1
+                    (cl-cc/javascript/objects:%js-property-descriptor
+                     closure "added"))
+         :to-equal nil)))
+    (it-sequential "js-rt-vm-closure-assignment-and-symbol-own-keys"
+      (let* ((closure (make-closure))
+             (value 23)
+             (symbol-key (cl-cc/javascript/objects:%js-make-symbol "extra"))
+             (symbol-storage-key
+               (cl-cc/javascript/objects:%js-symbol-as-key symbol-key))
+             (hidden-symbol (cl-cc/javascript/objects:%js-make-symbol "hidden")))
+        (cl-cc/javascript/objects:%js-set-prop closure "extra" value)
+        (let ((descriptor
+                (cl-cc/javascript/proxies:%js-object-get-own-property-descriptor
+                 closure "extra")))
+          (expect (%js-get-prop closure "extra") :to-equal value)
+          (expect (%js-get-prop descriptor "value") :to-equal value)
+          (expect (%js-get-prop descriptor "writable") :to-equal t)
+          (expect (%js-get-prop descriptor "enumerable") :to-equal t)
+          (expect (%js-get-prop descriptor "configurable") :to-equal t))
+        (cl-cc/javascript/proxies:%js-object-define-property
+         closure symbol-key
+         (%js-make-object "value" 29
+                          "writable" t
+                          "enumerable" t
+                          "configurable" t))
+        (cl-cc/javascript/proxies:%js-object-define-property
+         closure hidden-symbol
+         (%js-make-object "value" 31
+                          "writable" t
+                          "enumerable" nil
+                          "configurable" t))
+        (let ((assigned (cl-cc/javascript/objects:%js-object-assign
+                         (%js-make-object) closure)))
+          (expect (%js-get-prop assigned symbol-key) :to-equal 29)
+          (expect (eq (%js-get-prop assigned hidden-symbol) cl-cc/javascript/objects:+js-undefined+)
+                  :to-be-truthy))
+        (let ((own-keys
+                (coerce (cl-cc/javascript/objects:%js-object-own-keys closure)
+                        (quote list)))
+              (own-symbols
+                (coerce
+                 (cl-cc/javascript/objects:%js-object-get-own-property-symbols closure)
+                 (quote list)))
+              (descriptors
+                (cl-cc/javascript/proxies:%js-object-get-own-property-descriptors
+                 closure)))
+          (expect
+           (some
+            (lambda (key)
+              (and (cl-cc/javascript/objects:%js-symbol-p key)
+                   (string= symbol-storage-key
+                            (cl-cc/javascript/objects:%js-symbol-as-key key))))
+            own-keys)
+           :to-be-truthy)
+          (expect
+           (some
+            (lambda (key)
+              (string= symbol-storage-key
+                       (cl-cc/javascript/objects:%js-symbol-as-key key)))
+            own-symbols)
+           :to-be-truthy)
+          (expect (nth-value 1 (gethash symbol-storage-key descriptors))
+                  :to-equal t)
+          (expect (%js-get-prop (gethash symbol-storage-key descriptors) "value")
+                  :to-equal 29))))
+    (it-sequential "js-rt-vm-closure-accessor-properties"
+      (let* ((closure (make-closure))
+             (value 5)
+             (getter (lambda () value))
+             (setter (lambda (next-value) (setf value next-value))))
+        (cl-cc/javascript/proxies:%js-object-define-property
+         closure "computed"
+         (%js-make-object "get" getter "set" setter
+                          "enumerable" t "configurable" t))
+        (expect (%js-get-prop closure "computed") :to-equal 5)
+        (cl-cc/javascript/objects:%js-set-prop closure "computed" 11)
+        (expect (%js-get-prop closure "computed") :to-equal 11)
+        (let ((descriptor
+                (cl-cc/javascript/proxies:%js-object-get-own-property-descriptor
+                 closure "computed")))
+          (expect (%js-get-prop descriptor "get") :to-be-truthy)
+          (expect (%js-get-prop descriptor "set") :to-be-truthy)
+          (expect (%js-get-prop descriptor "value") :to-equal cl-cc/javascript/objects:+js-undefined+)
+          (expect (%js-get-prop descriptor "writable") :to-equal cl-cc/javascript/objects:+js-undefined+))
+        (cl-cc/javascript/proxies:%js-object-define-property
+         closure "computed" (%js-make-object "enumerable" nil))
+        (let ((descriptor
+                (cl-cc/javascript/proxies:%js-object-get-own-property-descriptor
+                 closure "computed")))
+          (expect (%js-get-prop closure "computed") :to-equal 11)
+          (expect (%js-get-prop descriptor "get") :to-be-truthy)
+          (expect (%js-get-prop descriptor "set") :to-be-truthy)
+          (expect (%js-get-prop descriptor "enumerable") :to-equal nil))))
+    (it-sequential "js-rt-vm-closure-seal-integrity-level"
+      (let* ((closure (make-closure))
+             (descriptor (%js-make-object "value" 1))
+             (prototype-descriptor
+               (cl-cc/javascript/proxies:%js-object-get-own-property-descriptor
+                closure "prototype")))
+        (expect (%js-object-seal closure) :to-be closure)
+        (expect (%js-object-extensible-p closure) :to-equal nil)
+        (expect (%js-object-sealed-p closure) :to-equal t)
+        (expect (%js-object-frozen-p closure) :to-equal nil)
+        (expect (%js-get-prop prototype-descriptor "writable") :to-equal t)
+        (expect (%js-get-prop prototype-descriptor "configurable") :to-equal nil)
+        (expect
+         (cl-cc/javascript/proxies:%js-reflect-define-property
+          closure "added" descriptor)
+         :to-equal nil)))
+    (it-sequential "js-rt-vm-closure-freeze-integrity-level"
+      (let* ((closure (make-closure))
+             (descriptor (%js-make-object "value" 1)))
+        (expect (%js-object-freeze closure) :to-be closure)
+        (expect (%js-object-extensible-p closure) :to-equal nil)
+        (expect (%js-object-sealed-p closure) :to-equal t)
+        (expect (%js-object-frozen-p closure) :to-equal t)
+        (let ((prototype-descriptor
+                (cl-cc/javascript/proxies:%js-object-get-own-property-descriptor
+                 closure "prototype")))
+          (expect (%js-get-prop prototype-descriptor "writable") :to-equal nil)
+          (expect (%js-get-prop prototype-descriptor "configurable") :to-equal nil))
+        (expect
+         (cl-cc/javascript/proxies:%js-reflect-define-property
+          closure "added" descriptor)
+         :to-equal nil)))))
+
+(defun %register-proxies-runtime-object-closure-empty-integrity-test ()
+  (it-sequential "js-rt-vm-closure-empty-prevent-extensions-is-sealed-and-frozen"
+    (let ((closure
+            (make-instance (quote cl-cc/vm:vm-closure-object)
+                           :entry-label "empty"
+                           :params nil)))
+      (expect (%js-object-prevent-extensions closure) :to-be closure)
+      (expect (%js-object-extensible-p closure) :to-equal nil)
+      (expect (%js-object-sealed-p closure) :to-equal t)
+      (expect (%js-object-frozen-p closure) :to-equal t))))

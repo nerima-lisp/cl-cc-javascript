@@ -15,14 +15,13 @@
   (let ((tok (js-peek stream)))
     (case (js-tok-type tok)
       (:T-STRING
-        (multiple-value-bind (str-tok rest) (js-consume stream)
-          (values (list (js-tok-value str-tok)) rest)))
+       (multiple-value-bind (str-tok rest) (js-consume stream)
+         (values (list (js-tok-value str-tok)) rest)))
       (:T-TEMPLATE-PARTS
-        (multiple-value-bind (parts-tok rest) (js-consume stream)
-          (values (js-tok-value parts-tok) rest)))
+       (multiple-value-bind (parts-tok rest) (js-consume stream)
+         (values (js-tok-value parts-tok) rest)))
       (:T-TEMPLATE-START
-        (%js-consume-then (rest (js-consume stream))
-          (%js-template-parts-and-rest rest)))
+       (%js-consume-then (rest (js-consume stream)) (%js-template-parts-and-rest rest)))
       (t (error "JS parse error: expected template literal, got ~S" tok)))))
 
 (defun %js-parse-tagged-template (tag-ast stream)
@@ -44,24 +43,22 @@ lexer segment, not one concatenated run."
       (dolist (part parts)
         (cond
           ((and (consp part) (eq (car part) :text))
-           (push (make-ast-quote :value (second part)) cooked)
-           (push (make-ast-quote :value (third part)) raw))
+            (push (make-ast-quote :value (second part)) cooked)
+            (push (make-ast-quote :value (third part)) raw))
           ((and (consp part) (eq (car part) :template-expr))
            (multiple-value-bind (expr _r) (js-parse-assignment-expr (cadr part))
              (declare (ignore _r))
              (push expr values)))))
       (values
-        (make-ast-call
-          :func
-          tag-ast
-          :args
-          (cons
-            (%js-call
-              '%js-make-tagged-template-strings
-              (apply #'%js-call '%js-make-array (nreverse cooked))
-              (apply #'%js-call '%js-make-array (nreverse raw)))
-            (nreverse values)))
-        rest))))
+       (make-ast-call :func
+                      tag-ast
+                      :args
+                      (cons
+                       (%js-call '%js-make-tagged-template-strings
+                                 (apply #'%js-call '%js-make-array (nreverse cooked))
+                                 (apply #'%js-call '%js-make-array (nreverse raw)))
+                       (nreverse values)))
+       rest))))
 
 (defun %js-parse-template-literal (stream)
   "Parse a template literal starting at :T-TEMPLATE-START or :T-STRING.
@@ -104,42 +101,43 @@ Returns (values ast rest)."
 ;;; Prefix ++/--, unary -, and yield have special logic and are handled explicitly.
 ;;; OP-string unaries: maps operator string -> (lambda (expr) -> ast).
 ;;; Excludes - (constant folding), ++ and -- (place/var dispatch).
-(define-builder-table
-  *js-unary-op-builders*
-  (:documentation
-    "Data table: JS unary OP string -> AST builder (lambda (expr) -> ast).
+(define-builder-table *js-unary-op-builders*
+                      (:documentation
+                       "Data table: JS unary OP string -> AST builder (lambda (expr) -> ast).
 Only for simple single-argument operators; -, ++, --, yield handled separately.")
-  ("!"
-    (lambda (expr)
-      (%js-not (%js-call '%js-truthy expr))))
-  ("~"
-    (lambda (expr)
-      (%js-call '%js-bitwise-not expr)))
-  ("+"
-    (lambda (expr)
-      (%js-call '%js-unary-plus expr))))
+                      ("!"
+                       (lambda (expr)
+                         (%js-not (%js-call '%js-truthy expr))))
+                      ("~"
+                       (lambda (expr)
+                         (%js-call '%js-bitwise-not expr)))
+                      ("+"
+                       (lambda (expr)
+                         (%js-call '%js-unary-plus expr))))
 
 ;;; Keyword unaries: maps token type -> (lambda (expr) -> ast).
 ;;; typeof/void/delete/await all follow the same consume-one-token pattern.
-(define-builder-table
-  *js-unary-kw-builders*
-  (:test
-    #'eq
-    :documentation
-    "Data table: keyword unary token type -> AST builder (lambda (expr) -> ast).
-typeof/void/delete/await all consume one token and wrap the sub-expression.")
-  (:T-TYPEOF
-    (lambda (expr)
-      (%js-call '%js-typeof expr)))
-  (:T-DELETE
-    (lambda (expr)
-      (%js-call '%js-delete expr)))
-  (:T-AWAIT
-    (lambda (expr)
-      (%js-call '%js-await expr)))
-  (:T-VOID
-    (lambda (expr)
-      (make-ast-progn :forms (list expr (make-ast-quote :value :js-undefined))))))
+(define-builder-table *js-unary-kw-builders*
+                      (:test (function eq)
+                             :documentation
+                             "Data table: keyword unary token type to AST builder. typeof/void/delete/await consume one token and wrap the sub-expression.")
+                      (:T-TYPEOF
+                       (lambda (expr)
+                         (let ((global-name
+                                (and cl-cc/javascript/syntax:*js-gdi-global-reference-mode*
+                                     (js-call-parser-handler :gdi-reference-name expr))))
+                           (if global-name
+                               (js-call-parser-handler :gdi-global-typeof-ast global-name)
+                               (%js-call '%js-typeof expr)))))
+                      (:T-DELETE
+                       (lambda (expr)
+                         (%js-call '%js-delete expr)))
+                      (:T-AWAIT
+                       (lambda (expr)
+                         (%js-call '%js-await expr)))
+                      (:T-VOID
+                       (lambda (expr)
+                         (make-ast-progn :forms (list expr (make-ast-quote :value :js-undefined))))))
 
 (defun %js-parse-yield-expr (stream)
   "Parse 'yield', 'yield expr', or 'yield* expr'. STREAM points at the yield

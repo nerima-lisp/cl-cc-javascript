@@ -16,116 +16,180 @@ INIT-AST is the already-parsed init form (or NIL for no-init).
 Returns (values ast rest)."
   (let* ((rest2 (%js-consume-expected :T-SEMI current))
          (cond-expr
-        (if (eq (js-peek-type rest2) :T-SEMI) (make-ast-quote :value t)
-          (multiple-value-bind (e r) (js-call-parser-handler :expression rest2)
-            (setf rest2 r)
-            e)))
+          (if (eq (js-peek-type rest2) :T-SEMI)
+              (make-ast-quote :value t)
+              (multiple-value-bind (e r) (js-call-parser-handler :expression rest2)
+                (setf rest2 r)
+                e)))
          (rest3 (%js-consume-expected :T-SEMI rest2))
          (update-expr
-        (if (eq (js-peek-type rest3) :T-RPAREN) (make-ast-quote :value nil)
-          (multiple-value-bind (e r) (js-call-parser-handler :expression rest3)
-            (setf rest3 r)
-            e)))
+          (if (eq (js-peek-type rest3) :T-RPAREN)
+              (make-ast-quote :value nil)
+              (multiple-value-bind (e r) (js-call-parser-handler :expression rest3)
+                (setf rest3 r)
+                e)))
          (rest4 (%js-consume-expected :T-RPAREN rest3)))
-    (with-js-loop-tags
-      (loop-tag end-tag "FOR")
-      (multiple-value-bind (body-ast rest5) (%js-parse-stmt-body rest4)
-        (let* ((body-stmts
-              (if (ast-progn-p body-ast) (ast-progn-forms body-ast)
-                (list body-ast)))
-               (loop-ast
-              (%js-lower-while-with-tags
-                (%js-truthy-call cond-expr)
-                (append body-stmts (list update-expr))
-                loop-tag
-                end-tag)))
-          (values
-            (if init-ast (make-ast-progn :forms (list init-ast loop-ast))
-              loop-ast)
-            rest5))))))
+    (with-js-loop-tags (loop-tag end-tag "FOR")
+                       (multiple-value-bind (body-ast rest5) (%js-parse-stmt-body rest4)
+                         (let* ((body-stmts
+                                 (if (ast-progn-p body-ast)
+                                     (ast-progn-forms body-ast)
+                                     (list body-ast)))
+                                (loop-ast
+                                 (%js-lower-while-with-tags (%js-truthy-call cond-expr)
+                                                            (append body-stmts (list update-expr))
+                                                            loop-tag
+                                                            end-tag)))
+                           (values
+                            (if init-ast
+                                (make-ast-progn :forms (list init-ast loop-ast))
+                                loop-ast)
+                            rest5))))))
 
-(defun %js-lower-for-of-in (binding iter-expr body-fn-name loop-tag end-tag &optional await-p)
-  "Shared lowering for for-in and for-of loops.
-ITER-EXPR is the call that produces the iteration list.
-BINDING is either a plain symbol (simple) or an (:array-pattern/:object-pattern …)
-destructuring pattern — in the latter case we emit full destructuring bindings inside
-the loop so `for (let [a,b] of pairs)' correctly unpacks each element.
-AWAIT-P (for-await-of only) wraps each element access in a %js-await call, so a
-per-iteration promise (what a real async iterator yields) is unwrapped before the
-loop body sees it — this runtime's promises are already simplified to always-settled
-synchronously (see runtime-promise.lisp's header), so unwrapping is itself synchronous.
-Returns a closure that accepts the parsed body-ast."
+(defun %js-lower-for-of-in (binding iter-expr
+                                    body-fn-name
+                                    loop-tag
+                                    end-tag
+                                    &optional
+                                    await-p
+                                    global-var-p)
+  "Lower a for-in/of loop body, writing top-level var bindings globally."
   (declare (ignore body-fn-name))
-  (let ((var-sym  (%js-binding-to-sym binding))
+  (let ((var-sym (%js-binding-to-sym binding))
         (iter-sym (gensym "FOR-ITER-")))
     (lambda (body-ast)
-      (let* ((body-stmts (if (ast-progn-p body-ast)
-                             (ast-progn-forms body-ast)
-                             (list body-ast)))
-             (raw-elem-access (make-ast-call
-                           :func (make-ast-var :name 'car)
-                           :args (list (make-ast-var :name iter-sym))))
-             (elem-access (if await-p
-                              (make-ast-call :func (make-ast-var :name '%js-await)
-                                             :args (list raw-elem-access))
-                              raw-elem-access))
-             ;; For destructuring patterns emit all inner bindings inside the loop.
-             ;; %js-emit-destructure-bindings returns ((gensym . source) name1 name2 …).
-             ;; The first binding is (gensym . (var gensym)) — a self-reference placeholder;
-             ;; we replace its RHS with the actual (car iter-sym) element access.
+      (let* ((body-stmts
+              (if (ast-progn-p body-ast)
+                  (ast-progn-forms body-ast)
+                  (list body-ast)))
+             (raw-elem-access
+              (make-ast-call :func
+                             (make-ast-var :name (quote car))
+                             :args
+                             (list (make-ast-var :name iter-sym))))
+             (elem-access
+              (if await-p
+                  (make-ast-call :func (make-ast-var :name '%js-await) :args (list raw-elem-access))
+                  raw-elem-access))
              (loop-bindings
               (if (listp binding)
-                  (multiple-value-bind (dest-bindings _)
+                  (multiple-value-bind (dest-bindings extras)
                       (%js-emit-destructure-bindings binding (make-ast-var :name var-sym))
-                    (declare (ignore _))
+                    (declare (ignore extras))
                     (cons (cons var-sym elem-access) (rest dest-bindings)))
                   (list (cons var-sym elem-access)))))
-        (let* ((iter-advance (make-ast-setq
-                               :var iter-sym
-                               :value (make-ast-call
-                                       :func (make-ast-var :name 'cdr)
-                                       :args (list (make-ast-var :name iter-sym)))))
+        (let* ((iter-advance
+                (make-ast-setq :var
+                               iter-sym
+                               :value
+                               (make-ast-call :func
+                                              (make-ast-var :name (quote cdr))
+                                              :args
+                                              (list (make-ast-var :name iter-sym)))))
                (combined-body (append body-stmts (list iter-advance)))
-               ;; For destructuring, build nested single-binding lets so each binding
-               ;; sees all earlier ones (let* semantics).  %js-emit-destructure-bindings
-               ;; returns bindings in dependency order, so folding from the inside out
-               ;; is correct for any nesting depth.
                (inner-form
-                (if (listp binding)
-                    (let ((r combined-body))
-                      (dolist (b (reverse loop-bindings) (first r))
-                        (setf r (list (make-ast-let :bindings (list b) :body r)))))
-                    (make-ast-let :bindings loop-bindings :body combined-body))))
-          (make-ast-let
-           :bindings (list (cons iter-sym iter-expr))
-           :body (list (%js-lower-while-with-tags
-                        (%js-truthy-call (make-ast-var :name iter-sym))
-                        (list inner-form)
-                        loop-tag end-tag))))))))
+                (if global-var-p
+                    (let ((forms combined-body))
+                      (dolist (binding-pair (reverse loop-bindings))
+                        (let ((name (car binding-pair))
+                              (value (cdr binding-pair)))
+                          (when
+                              (and (symbolp name)
+                                   (eq (symbol-package name) (find-package :cl-cc/javascript)))
+                            (setf forms (cons
+                                         (js-call-parser-handler :gdi-global-write-ast name value)
+                                         forms)))
+                          (setf forms (list
+                                       (make-ast-let :bindings (list binding-pair) :body forms)))))
+                      (make-ast-progn :forms forms))
+                    (if (listp binding)
+                        (let ((forms combined-body))
+                          (dolist (binding-pair (reverse loop-bindings))
+                            (setf forms (list
+                                         (make-ast-let :bindings (list binding-pair) :body forms))))
+                          (first forms))
+                        (make-ast-let :bindings loop-bindings :body combined-body)))))
+          (make-ast-let :bindings
+                        (list (cons iter-sym iter-expr))
+                        :body
+                        (list
+                         (%js-lower-while-with-tags (%js-truthy-call (make-ast-var :name iter-sym))
+                                                    (list inner-form)
+                                                    loop-tag
+                                                    end-tag))))))))
 
 (defun %js-parse-for-in-of-stmt (binding kind rest2 tag-prefix wrap-fn-name &optional await-p)
-  "Shared parse+lower for 'for (KIND BINDING in/of EXPR) body'. REST2 points at
-'in'/'of'. TAG-PREFIX (\"FOR-IN\"/\"FOR-OF\") is passed straight through to
-WITH-JS-LOOP-TAGS. WRAP-FN-NAME is %js-iter-keys (for-in) or %js-iter-values
-(for-of/for-await-of). AWAIT-P is passed straight through to
-%js-lower-for-of-in — see its docstring. Returns (values ast rest)."
+  "Parse and lower a declared for-in/of loop."
   (multiple-value-bind (expr rest3) (js-call-parser-handler :expression (cdr rest2))
     (setf rest3 (%js-consume-expected :T-RPAREN rest3))
-    (with-js-loop-tags
-      (loop-tag end-tag tag-prefix)
-      (multiple-value-bind (body-ast rest4) (%js-parse-stmt-body rest3)
-        (let ((lower
-              (funcall
-                (%js-lower-for-of-in
-                  binding
-                  (make-ast-call :func (make-ast-var :name wrap-fn-name) :args (list expr))
-                  nil
-                  loop-tag
-                  end-tag
-                  await-p)
-                body-ast)))
-          (setf (ast-let-declarations lower) (list kind))
-          (values lower rest4))))))
+    (let ((shadow-names
+           (when (member kind (list :let :const) :test (function eq))
+             (multiple-value-bind (bindings extras)
+                 (%js-emit-destructure-bindings binding (make-ast-quote :value :js-undefined))
+               (declare (ignore extras))
+               (loop for binding-pair in bindings
+                     for name = (car binding-pair)
+                     when (and (symbolp name)
+                               (eq (symbol-package name) (find-package :cl-cc/javascript)))
+                       collect name)))))
+      (with-js-loop-tags (loop-tag end-tag tag-prefix)
+                         (let ((cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+                                (append
+                                 (when *js-gdi-mode*
+                                   shadow-names)
+                                 cl-cc/javascript/syntax:*js-gdi-shadowed-names*)))
+                           (multiple-value-bind (body-ast rest4) (%js-parse-stmt-body rest3)
+                             (let* ((gdi-var-p
+                                     (and *js-gdi-mode*
+                                          (zerop *js-gdi-function-depth*)
+                                          (eq kind :var)))
+                                    (global-var-p (and gdi-var-p *js-gdi-lower-var-declarations*))
+                                    (lower
+                                     (funcall
+                                      (%js-lower-for-of-in binding
+                                                           (make-ast-call :func
+                                                                          (make-ast-var :name
+                                                                                        wrap-fn-name)
+                                                                          :args
+                                                                          (list expr))
+                                                           nil
+                                                           loop-tag
+                                                           end-tag
+                                                           await-p
+                                                           global-var-p)
+                                      body-ast)))
+                               (if gdi-var-p
+                                   (multiple-value-bind (declared-bindings extras)
+                                       (%js-emit-destructure-bindings binding
+                                                                      (make-ast-quote :value
+                                                                                      :js-undefined))
+                                     (declare (ignore extras))
+                                     (setf (ast-let-declarations lower) nil)
+                                     (values
+                                      (make-ast-progn :forms
+                                                      (cons
+                                                       (make-ast-let :bindings
+                                                                     (remove-if-not
+                                                                      (lambda (declaration-binding)
+                                                                        (let ((name
+                                                                               (car
+                                                                                declaration-binding)))
+                                                                          (and (symbolp name)
+                                                                               (eq
+                                                                                (symbol-package
+                                                                                 name)
+                                                                                (find-package
+                                                                                 :cl-cc/javascript)))))
+                                                                      declared-bindings)
+                                                                     :declarations
+                                                                     (list :var)
+                                                                     :body
+                                                                     nil)
+                                                       (list lower)))
+                                      rest4))
+                                   (progn
+                                     (setf (ast-let-declarations lower) (list kind))
+                                     (values lower rest4))))))))))
 
 (defun %js-parse-for-in-stmt (binding kind rest2)
   "Parse and lower 'for (KIND BINDING in obj) body'. REST2 points at 'in'.
@@ -139,25 +203,50 @@ points at 'of'. Returns (values ast rest)."
   (%js-parse-for-in-of-stmt binding kind rest2 "FOR-OF" '%js-iter-values await-p))
 
 (defun %js-parse-for-c-style-declared-stmt (binding kind rest2)
-  "Parse and lower 'for (KIND BINDING [= init] ; cond ; update) body'.
-REST2 points just past the binding (at '=' or ';'). Returns (values ast rest)."
-  (let ((init-val (make-ast-quote :value nil))
-        (rest-at-semi rest2))
+  "Parse and lower a declared C-style for loop."
+  (let* ((shadow-names
+          (when (member kind (list :let :const) :test (function eq))
+            (multiple-value-bind (bindings extras)
+                (%js-emit-destructure-bindings binding (make-ast-quote :value :js-undefined))
+              (declare (ignore extras))
+              (loop for binding-pair in bindings
+                    for name = (car binding-pair)
+                    when (and (symbolp name)
+                              (eq (symbol-package name) (find-package :cl-cc/javascript)))
+                      collect name))))
+         (cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+          (append
+           (when *js-gdi-mode*
+             shadow-names)
+           cl-cc/javascript/syntax:*js-gdi-shadowed-names*))
+         (var-sym (%js-binding-to-sym binding))
+         (init-val (make-ast-quote :value nil))
+         (has-init nil)
+         (rest-at-semi rest2))
     (when (and (eq (js-peek-type rest2) :T-OP) (equal (js-peek-value rest2) "="))
-      (multiple-value-bind (e r) (js-call-parser-handler :expression (cdr rest2))
-        (setf init-val e
-              rest-at-semi r)))
-    (let ((init-bindings
-          (make-ast-let
-            :bindings
-            (list (cons (%js-binding-to-sym binding) init-val))
-            :declarations
-            (list kind)
-            :body
-            nil)))
-      (multiple-value-bind (loop-ast rest6) (%js-lower-for-c-style rest-at-semi nil)
-        (setf (ast-let-body init-bindings) (list loop-ast))
-        (values init-bindings rest6)))))
+      (multiple-value-bind (expr rest) (js-call-parser-handler :expression (cdr rest2))
+        (setf init-val expr
+              has-init t
+              rest-at-semi rest)))
+    (if (and *js-gdi-mode*
+             *js-gdi-lower-var-declarations*
+             (zerop *js-gdi-function-depth*)
+             (eq kind :var))
+        (multiple-value-bind (loop-ast rest) (%js-lower-for-c-style rest-at-semi nil)
+          (values
+           (if has-init
+               (make-ast-progn :forms
+                               (list (js-call-parser-handler :gdi-global-write-ast var-sym init-val)
+                                     loop-ast))
+               loop-ast)
+           rest))
+        (multiple-value-bind (bindings extras) (%js-emit-destructure-bindings binding init-val)
+          (declare (ignore extras))
+          (let ((init-bindings
+                 (make-ast-let :bindings bindings :declarations (list kind) :body nil)))
+            (multiple-value-bind (loop-ast rest) (%js-lower-for-c-style rest-at-semi nil)
+              (setf (ast-let-body init-bindings) (list loop-ast))
+              (values init-bindings rest)))))))
 
 (defun js-parse-for-stmt (stream)
   "Handle for(init;cond;update){}, for(var x in obj){},

@@ -59,26 +59,34 @@ Handles elision (holes), spread elements, and assignment expressions."
 (defun %js-parse-object-property-spread (stream)
   "...expr — STREAM points at the ellipsis token."
   (%js-consume-then (rest (js-consume stream))
-    (multiple-value-bind (expr rest2) (js-parse-assignment-expr rest)
-      (values :spread expr nil nil rest2))))
+                    (multiple-value-bind (expr rest2) (js-parse-assignment-expr rest)
+                      (values :spread expr nil nil rest2))))
 
 (defun %js-parse-object-property-computed (stream)
   "[expr]: value or [expr](...) {} — STREAM points at '['."
   (%js-consume-then (rest (js-consume stream))
-    (multiple-value-bind (key-expr rest2) (js-parse-assignment-expr rest)
-      (%js-consume-then (rest3 (js-expect :T-RBRACKET rest2))
-        (if (eq (js-peek-type rest3) :T-LPAREN) (multiple-value-bind (fn-ast rest4) (js-parse-function-expr rest3 :name nil)
-            (values key-expr fn-ast t t rest4))
-          (%js-consume-then (rest4 (js-expect :T-COLON rest3))
-            (multiple-value-bind (val-expr rest5) (js-parse-assignment-expr rest4)
-              (values key-expr val-expr nil t rest5))))))))
+                    (multiple-value-bind (key-expr rest2) (js-parse-assignment-expr rest)
+                      (%js-consume-then (rest3 (js-expect :T-RBRACKET rest2))
+                                        (if (eq (js-peek-type rest3) :T-LPAREN)
+                                            (multiple-value-bind (fn-ast rest4)
+                                                (js-parse-function-expr rest3 :name nil)
+                                              (values key-expr fn-ast t t rest4))
+                                            (%js-consume-then (rest4 (js-expect :T-COLON rest3))
+                                                              (multiple-value-bind (val-expr rest5)
+                                                                  (js-parse-assignment-expr rest4)
+                                                                (values key-expr
+                                                                        val-expr
+                                                                        nil
+                                                                        t
+                                                                        rest5))))))))
 
 (defun %js-parse-object-property-generator-method (stream)
   "*name(...) {} — STREAM points past '*'."
   (let ((key-str (js-peek-value stream)))
     (%js-consume-then (rest (js-consume stream))
-      (multiple-value-bind (fn-ast rest2) (js-parse-function-expr rest :generator-p t :name (js-ident-sym key-str))
-        (values (make-ast-quote :value key-str) fn-ast t nil rest2)))))
+                      (multiple-value-bind (fn-ast rest2)
+                          (js-parse-function-expr rest :generator-p t :name (js-ident-sym key-str))
+                        (values (make-ast-quote :value key-str) fn-ast t nil rest2)))))
 
 (defun %js-parse-object-property-async-method (stream)
   "async [*]name(...) {} or the {async} shorthand — STREAM points past 'async'."
@@ -111,19 +119,28 @@ Handles elision (holes), spread elements, and assignment expressions."
                (multiple-value-bind (val-expr rest3) (js-parse-assignment-expr rest2)
                  (values (make-ast-quote :value "async") val-expr nil nil rest3)))
              (values (make-ast-quote :value "async")
-                     (make-ast-var :name key-sym)
+                     (%js-gdi-reference-ast key-sym)
                      nil nil stream)))))))
 
 (defun %js-parse-object-property-accessor (stream)
   "get name() {} / set name(x) {} — STREAM points at the T-GET/T-SET token."
   (let ((accessor-kind (js-tok-value (car stream))))
     (%js-consume-then (rest (js-consume stream))
-      (let ((key-str (js-peek-value rest)))
-        (%js-consume-then (rest2 (js-consume rest))
-          (multiple-value-bind (fn-ast rest3) (js-parse-function-expr rest2 :name (js-ident-sym key-str))
-            (let ((tagged-fn
-                  (%js-call '%js-accessor (make-ast-quote :value accessor-kind) fn-ast)))
-              (values (make-ast-quote :value key-str) tagged-fn t nil rest3))))))))
+                      (let ((key-str (js-peek-value rest)))
+                        (%js-consume-then (rest2 (js-consume rest))
+                                          (multiple-value-bind (fn-ast rest3)
+                                              (js-parse-function-expr rest2
+                                                                      :name
+                                                                      (js-ident-sym key-str))
+                                            (let ((tagged-fn
+                                                   (%js-call '%js-accessor
+                                                             (make-ast-quote :value accessor-kind)
+                                                             fn-ast)))
+                                              (values (make-ast-quote :value key-str)
+                                                      tagged-fn
+                                                      t
+                                                      nil
+                                                      rest3))))))))
 
 (defun %js-parse-object-property-shorthand-or-method-or-kv (stream key-str)
   "name(...) {} / name: value / {name} shorthand — STREAM points past the
@@ -143,7 +160,7 @@ already-consumed key token; KEY-STR is that key's value."
       ;; Shorthand: { name } — same as { name: name }
       (t
        (values (make-ast-quote :value key-str)
-               (make-ast-var :name (js-ident-sym key-str))
+               (%js-gdi-reference-ast (js-ident-sym key-str))
                nil nil stream)))))
 
 (defun %js-parse-object-property (stream)
@@ -264,34 +281,3 @@ this AST-building logic at its deepest, hardest-to-read level."
                          (make-ast-var :name name)))
             result)))))
 
-(defun js-parse-function-expr (stream &key async-p generator-p name)
-  "Parse function [*] [name] (params) { body } as expression.
-ASYNC-P and GENERATOR-P are boolean flags from the calling context.
-NAME is an optional symbol for the function name.
-Returns (values ast rest)."
-  (let ((current stream)
-        (is-generator generator-p))
-    ;; Consume optional * for generators
-    (when (js-at-op-p current "*")
-      (%js-consume-then (rest (js-consume current))
-        (setf is-generator t
-              current rest)))
-    ;; Optional function name
-    (when (and (null name) (eq (js-peek-type current) :T-IDENT))
-      (multiple-value-bind (name-tok rest) (js-consume current)
-        (setf name (js-ident-sym (js-tok-value name-tok))
-              current rest)))
-    ;; Parameter list
-    (multiple-value-bind (params optionals rest-sym rest2)
-        (js-call-parser-handler :function-params current)
-      ;; Body: { stmts... }
-      (%js-consume-then (rest3 (js-expect :T-LBRACE rest2))
-        (multiple-value-bind (body-forms rest4)
-            (js-parse-function-body rest3)
-          (values (%js-build-function-expr-ast
-                   params optionals rest-sym body-forms async-p is-generator name)
-                  rest4))))))
-
-(defun js-parse-function-body (stream)
-  "Parse statements inside { } until matching }."
-  (js-call-parser-handler :statement-list stream))

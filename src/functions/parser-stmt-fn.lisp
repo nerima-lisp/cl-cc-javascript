@@ -12,46 +12,45 @@
 ;;; ─── Function Declaration Parsing ───────────────────────────────────────────
 (defun %js-parse-param-list (stream)
   "Parse (param, ...) parameter list.
-  Returns (values params-list rest optionals rest-sym param-patterns), where
-  OPTIONALS is an alist (sym . default-ast) for parameters with `= default',
-  REST-SYM is the ...rest parameter symbol (or NIL), and PARAM-PATTERNS is an
-  alist (param-gensym . binding-pattern) for destructuring parameters like
-  function f([a,b]) / f({x,y}) — the caller prepends a destructuring let to the
-  body that unpacks the gensym param into the pattern's names.  Callers binding
-  only the first values are unaffected."
+Returns (values params-list rest optionals rest-sym param-patterns), where
+OPTIONALS is an alist (sym . default-ast), REST-SYM is the ...rest parameter
+symbol, and PARAM-PATTERNS maps destructuring parameter symbols to patterns."
   (let ((current (%js-consume-expected :T-LPAREN stream))
-        (params nil) (optionals nil) (rest-sym nil) (param-patterns nil))
+        (params nil)
+        (optionals nil)
+        (rest-sym nil)
+        (param-patterns nil))
     (loop
       (when (or (js-at-eof-p current)
                 (eq (js-peek-type current) :T-RPAREN))
         (return))
       (cond
-        ;; Rest parameter: ...name — the AST rest-param, not a positional one.
         ((eq (js-peek-type current) :T-ELLIPSIS)
          (setf current (cdr current))
          (multiple-value-bind (tok rest) (js-consume current)
            (setf rest-sym (%js-binding-sym (js-tok-value tok))
                  current rest))
-         (return))                ; rest must be last
+         (return))
         (t
          (multiple-value-bind (binding rest) (%js-parse-binding-pattern current)
            (let ((sym (%js-binding-to-sym binding)))
-             (push sym params)
-             ;; A destructuring param (binding is a (:array-pattern|:object-pattern
-             ;; gensym desc) list, not a bare symbol): record it so the caller can
-             ;; unpack the gensym into the named locals at the top of the body.
              (when (listp binding)
                (push (cons sym binding) param-patterns))
              (setf current rest)
-             ;; Default parameter value: = expr — recorded so the param becomes
-             ;; an &optional with that default (was parsed and discarded).
              (when (and current
                         (eq (js-peek-type current) :T-OP)
                         (equal (js-peek-value current) "="))
                (setf current (cdr current))
-               (multiple-value-bind (default-ast rest2) (js-call-parser-handler :expression current)
-                 (push (cons sym default-ast) optionals)
-                 (setf current rest2)))))))
+               ;; The current parameter shadows outer globals during its default,
+               ;; where JavaScript requires an uninitialized local binding.
+               (let ((cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+                       (append (cons sym (reverse params))
+                               cl-cc/javascript/syntax:*js-gdi-shadowed-names*)))
+                 (multiple-value-bind (default-ast rest2)
+                     (js-call-parser-handler :assignment-expression current)
+                   (push (cons sym default-ast) optionals)
+                   (setf current rest2))))
+             (push sym params)))))
       (when (eq (js-peek-type current) :T-COMMA)
         (setf current (cdr current))))
     (values (nreverse params)
@@ -68,16 +67,18 @@ the rest of the body via %js-finish-let-bindings — without that the unbodied l
 fails to compile, the top-level handler-case drops the whole defun, and calls hit
 'Undefined function'.  Re-running the pass is idempotent: already-bodied lets in
 BODY-STMTS pass through unchanged."
-  (if param-patterns (%js-finish-let-bindings
-      (append
+  (if param-patterns
+      (%js-finish-let-bindings
+       (append
         (mapcar
-          (lambda (pp)
-            (multiple-value-bind (bindings _extras) (%js-emit-destructure-bindings (cdr pp) (make-ast-var :name (car pp)))
-              (declare (ignore _extras))
-              (make-ast-let :bindings bindings :body nil :declarations (list :let))))
-          param-patterns)
+         (lambda (pp)
+           (multiple-value-bind (bindings _extras)
+               (%js-emit-destructure-bindings (cdr pp) (make-ast-var :name (car pp)))
+             (declare (ignore _extras))
+             (make-ast-let :bindings bindings :body nil :declarations (list :let))))
+         param-patterns)
         body-stmts))
-    body-stmts))
+      body-stmts))
 
 (defun %js-split-params-by-defaults (params optionals)
   "Split PARAMS into (values required optional-entries). OPTIONALS is the
@@ -85,50 +86,47 @@ BODY-STMTS pass through unchanged."
 it — becomes an optional entry (sym default-ast nil); JS gives a missing argument
 `undefined', so a trailing parameter with no explicit default defaults to
 undefined. This keeps required params as the positional prefix."
-  (if optionals (let ((first-opt
-          (loop for p in params
-                when (assoc p optionals :test #'eq)
-                  return p)))
-      (let ((required nil)
-            (opts nil)
-            (seen nil))
-        (dolist (p params)
-          (when (eq p first-opt)
-            (setf seen t))
-          (if seen (push
-              (list
-                p
-                (or
-                  (cdr (assoc p optionals :test #'eq))
-                  (make-ast-quote :value +js-undefined+))
-                nil)
-              opts)
-            (push p required)))
-        (values (nreverse required) (nreverse opts))))
-    (values params nil)))
+  (if optionals
+      (let ((first-opt
+             (loop for p in params
+                   when (assoc p optionals :test #'eq)
+                     return p)))
+        (let ((required nil)
+              (opts nil)
+              (seen nil))
+          (dolist (p params)
+            (when (eq p first-opt)
+              (setf seen t))
+            (if seen
+                (push
+                 (list p
+                       (or (cdr (assoc p optionals :test #'eq))
+                           (make-ast-quote :value +js-undefined+))
+                       nil)
+                 opts)
+                (push p required)))
+          (values (nreverse required) (nreverse opts))))
+      (values params nil)))
 
 (defun %js-rest-binding (rest-sym body-forms)
   "When REST-SYM is non-nil, return (values rest-param-sym wrapped-body): the AST
 rest-param is a fresh gensym collecting the trailing args as a CL list, and the
 body is wrapped in a let binding REST-SYM to that list converted to a JS array
 (JS rest parameters are arrays). Otherwise (values nil BODY-FORMS)."
-  (if rest-sym (let ((raw (gensym "JS-REST-")))
-      (values
-        raw
-        (list
-          (make-ast-let
-            :bindings
-            (list
-              (cons
-                rest-sym
-                (make-ast-call
-                  :func
-                  (make-ast-var :name '%js-list-to-array)
-                  :args
-                  (list (make-ast-var :name raw)))))
-            :body
-            body-forms))))
-    (values nil body-forms)))
+  (if rest-sym
+      (let ((raw (gensym "JS-REST-")))
+        (values raw
+                (list
+                 (make-ast-let :bindings
+                               (list
+                                (cons rest-sym
+                                      (make-ast-call :func
+                                                     (make-ast-var :name '%js-list-to-array)
+                                                     :args
+                                                     (list (make-ast-var :name raw)))))
+                               :body
+                               body-forms))))
+      (values nil body-forms)))
 
 (defun %js-wrap-callable-body (body-forms generator-p async-p)
   "Wrap BODY-FORMS so calling the compiled defun returns the right runtime
@@ -139,48 +137,70 @@ none:
   async function f(…) { … }    ->  (%js-async (lambda () ...))
 A plain function returns BODY-FORMS unchanged."
   (cond
-    (generator-p (list (%js-call '%js-object-make-generator
-                                  (make-ast-lambda :params nil :body body-forms))))
-    (async-p (list (%js-call '%js-async
-                              (make-ast-lambda :params nil :body body-forms))))
+    (generator-p
+     (list (%js-call '%js-object-make-generator (make-ast-lambda :params nil :body body-forms))))
+    (async-p (list (%js-call '%js-async (make-ast-lambda :params nil :body body-forms))))
     (t body-forms)))
 
 (defun js-parse-function-decl (stream &key async-p generator-p)
-  "Parse function [*] name (params) { body }.
-  Returns (values ast-defun rest).
-  ASYNC-P and GENERATOR-P affect the :js-async / :js-generator declaration metadata."
-  ;; Consume optional * for generators
+  "Parse function [*] name (params) { body } and return its AST."
   (let ((current stream))
-    (when (and (eq (js-peek-type current) :T-OP)
-               (equal (js-peek-value current) "*"))
+    (when (and (eq (js-peek-type current) :T-OP) (equal (js-peek-value current) "*"))
       (setf generator-p t
             current (cdr current)))
-    ;; Function name (optional for expressions, but required for declarations)
     (let ((fn-name nil))
       (when (eq (js-peek-type current) :T-IDENT)
         (multiple-value-bind (tok rest) (js-consume current)
           (setf fn-name (js-ident-sym (js-tok-value tok))
                 current rest)))
-      (multiple-value-bind (params rest optionals rest-sym param-patterns)
-          (%js-parse-param-list current)
-        (multiple-value-bind (body-ast rest2) (js-parse-block rest)
-          (let ((body-stmts (%js-prepend-param-destructuring
-                             param-patterns (ast-progn-forms body-ast)))
-                (decls nil))
-            (when async-p     (push :js-async     decls))
-            (when generator-p (push :js-generator decls))
-            (multiple-value-bind (required opts)
-                (%js-split-params-by-defaults params optionals)
-              (multiple-value-bind (rest-param body-forms)
-                  (%js-rest-binding rest-sym (%js-callable-body body-stmts))
-                (values (make-ast-defun
-                         :name (or fn-name (gensym "JS-FN-"))
-                         :params required
-                         :optional-params opts
-                         :rest-param rest-param
-                         :declarations (nreverse decls)
-                         :body (%js-wrap-callable-body body-forms generator-p async-p))
-                        rest2)))))))))
+      (let* ((first-pass (multiple-value-list (%js-parse-param-list current)))
+             (all-params (first first-pass)))
+        (multiple-value-bind (params rest optionals rest-sym param-patterns)
+            (let ((cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+                   (append all-params cl-cc/javascript/syntax:*js-gdi-shadowed-names*)))
+              (%js-parse-param-list current))
+          (%js-consume-then (body-stream (js-expect :T-LBRACE rest))
+                            (let ((cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+                                   (append params
+                                           (when
+                                               (and fn-name
+                                                    (or
+                                                     (not cl-cc/javascript/statements:*js-gdi-mode*)
+                                                     (plusp
+                                                      cl-cc/javascript/statements:*js-gdi-function-depth*)
+                                                     (plusp
+                                                      cl-cc/javascript/statements:*js-gdi-lexical-scope-depth*)))
+                                             (list fn-name))
+                                           cl-cc/javascript/syntax:*js-gdi-shadowed-names*)))
+                              (multiple-value-bind (body-stmts rest2)
+                                  (js-parse-function-body body-stream)
+                                (let ((body-stmts
+                                       (%js-prepend-param-destructuring param-patterns body-stmts))
+                                      (decls nil))
+                                  (when async-p
+                                    (push :js-async decls))
+                                  (when generator-p
+                                    (push :js-generator decls))
+                                  (multiple-value-bind (required opts)
+                                      (%js-split-params-by-defaults params optionals)
+                                    (multiple-value-bind (rest-param body-forms)
+                                        (%js-rest-binding rest-sym (%js-callable-body body-stmts))
+                                      (values
+                                       (make-ast-defun :name
+                                                       (or fn-name (gensym "JS-FN-"))
+                                                       :params
+                                                       required
+                                                       :optional-params
+                                                       opts
+                                                       :rest-param
+                                                       rest-param
+                                                       :declarations
+                                                       (nreverse decls)
+                                                       :body
+                                                       (%js-wrap-callable-body body-forms
+                                                                               generator-p
+                                                                               async-p))
+                                       rest2))))))))))))
 
 ;;; ─── If Statement ────────────────────────────────────────────────────────────
 (defun %js-parse-if-tail (stream)
@@ -216,9 +236,7 @@ A plain function returns BODY-FORMS unchanged."
     (multiple-value-bind (cond-expr rest2) (js-call-parser-handler :expression rest)
       (setf rest2 (%js-consume-expected :T-RPAREN rest2))
       (multiple-value-bind (then-ast rest3 else-ast) (%js-parse-if-tail rest2)
-        (values
-          (make-ast-if :cond (%js-truthy-call cond-expr) :then then-ast :else else-ast)
-          rest3)))))
+        (values (make-ast-if :cond (%js-truthy-call cond-expr) :then then-ast :else else-ast) rest3)))))
 
 ;;; ─── While Statement ─────────────────────────────────────────────────────────
 (defun js-parse-while-stmt (stream)
@@ -226,19 +244,18 @@ A plain function returns BODY-FORMS unchanged."
   (let ((rest (%js-consume-expected :T-LPAREN stream)))
     (multiple-value-bind (cond-expr rest2) (js-call-parser-handler :expression rest)
       (setf rest2 (%js-consume-expected :T-RPAREN rest2))
-      (with-js-loop-tags
-        (loop-tag end-tag "WHILE")
-        (multiple-value-bind (body-ast rest3) (%js-parse-stmt-body rest2)
-          (let ((body-stmts
-                (if (ast-progn-p body-ast) (ast-progn-forms body-ast)
-                  (list body-ast))))
-            (values
-              (%js-lower-while-with-tags
-                (%js-truthy-call cond-expr)
-                body-stmts
-                loop-tag
-                end-tag)
-              rest3)))))))
+      (with-js-loop-tags (loop-tag end-tag "WHILE")
+                         (multiple-value-bind (body-ast rest3) (%js-parse-stmt-body rest2)
+                           (let ((body-stmts
+                                  (if (ast-progn-p body-ast)
+                                      (ast-progn-forms body-ast)
+                                      (list body-ast))))
+                             (values
+                              (%js-lower-while-with-tags (%js-truthy-call cond-expr)
+                                                         body-stmts
+                                                         loop-tag
+                                                         end-tag)
+                              rest3)))))))
 
 ;;; ─── Do-While Statement ──────────────────────────────────────────────────────
 (defun js-parse-do-while-stmt (stream)
@@ -260,23 +277,24 @@ A plain function returns BODY-FORMS unchanged."
                    body-stmts
                    loop-tag end-tag)
                   rest2))))))
+
 ;;; ─── Do-While Statement ──────────────────────────────────────────────────────
 (eval-when (:load-toplevel :execute)
   (register-js-parser-handler :function-rest-binding (function %js-rest-binding))
   (register-js-parser-handler :function-split-params (function %js-split-params-by-defaults)))
+
 ;;; ─── Do-While Statement ──────────────────────────────────────────────────────
 (eval-when (:load-toplevel :execute)
   (register-js-parser-handler '(:statement :T-FUNCTION) (function js-parse-function-decl))
-  (register-js-parser-handler
-   :statement-async-function
-   (lambda (stream) (js-parse-function-decl stream :async-p t)))
+  (register-js-parser-handler :statement-async-function
+                              (lambda (stream)
+                                (js-parse-function-decl stream :async-p t)))
   (register-js-parser-handler '(:statement :T-IF) (function js-parse-if-stmt))
   (register-js-parser-handler '(:statement :T-WHILE) (function js-parse-while-stmt))
-  (register-js-parser-handler '(:statement :T-DO) (function js-parse-do-while-stmt)))
+  (register-js-parser-handler '(:statement :T-DO) (function js-parse-do-while-stmt))
+  (register-js-parser-handler :function-declaration (function js-parse-function-decl)))
 
 ;;; ─── For Statement ───────────────────────────────────────────────────────────
 ;;; See parser-stmt-control.lisp for: for-loop lowering, switch, break/continue,
 ;;; return, throw, try/catch/finally, debugger, using, js-parse-stmt dispatcher,
 ;;; top-level list parsers, and public entry points parse-js-source/parse-js-module.
-
-(eval-when (:load-toplevel :execute) (register-js-parser-handler :function-declaration (function js-parse-function-decl)))

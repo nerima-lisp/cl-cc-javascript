@@ -9,11 +9,9 @@
 ;;;; postfix, template literal, and unary parsers.
 ;;;;
 ;;;; Load order: after parser-expr.lisp, before parser-stmt.lisp.
-
 (in-package #:cl-cc/javascript/expressions)
 
 ;;; ─── Primary Expression ──────────────────────────────────────────────────────
-
 ;;; Data table: token type -> zero-arg AST builder, for primary tokens that
 ;;; consume exactly one token and always build the same fixed AST node
 ;;; (booleans, null, undefined, this, super). Mirrors *js-unary-kw-builders*
@@ -117,7 +115,7 @@ yield, await, import()."
        (%js-consume-then (rest (js-consume stream))
          (if (eq (js-peek-type rest) :T-ARROW)
              (js-call-parser-handler :function-finish-arrow (list (js-ident-sym val)) rest)
-             (values (make-ast-var :name (js-ident-sym val)) rest))))
+             (values (%js-gdi-reference-ast (js-ident-sym val)) rest))))
       ;; Private field identifier #name — as standalone (for #name in obj)
       (:T-PRIVATE-IDENT
        (%js-consume-then (rest (js-consume stream))
@@ -129,14 +127,12 @@ yield, await, import()."
        ;; with parser-stmt-binding.lisp) lives here instead of as a clause key.
        (if (member type *js-contextual-keyword-token-types* :test #'eq)
            (%js-consume-then (rest (js-consume stream))
-             (values (make-ast-var :name (js-ident-sym val)) rest))
+             (values (%js-gdi-reference-ast (js-ident-sym val)) rest))
            (error "JS parse error: unexpected token ~S in expression" (js-peek stream))))))))
-
 
 ;;; Arrow/paren/async/class/import expression helpers → see parser-arrow.lisp
 ;;; Main Pratt parser → see below (js-parse-expr, js-parse-assignment-expr)
 ;;; ─── Main Pratt Parser ───────────────────────────────────────────────────────
-
 (defun js-parse-expr (stream &optional (min-prec 0))
   "Main Pratt expression parser. Returns (values ast rest).
 Handles all infix operators at precedence >= MIN-PREC including
@@ -197,57 +193,54 @@ assignment (right-assoc), ternary, binary ops, and comma."
 
 (defun %js-lower-assignment (op-val lhs rhs)
   "Lower an assignment expression LHS op RHS to the appropriate AST."
-  (cond
-    ;; Simple variable assignment
-    ((ast-var-p lhs)
-     (let ((var-sym (ast-var-name lhs)))
+  (let ((global-name (%js-gdi-reference-name lhs)))
+    (cond
+      (global-name
        (cond
-         ((string= op-val "=")
-          (make-ast-setq :var var-sym :value rhs))
-         ;; Logical assign
+         ((string= op-val "=") (%js-gdi-global-write-ast global-name rhs))
          ((assoc op-val *js-logical-assign-ops* :test #'string=)
-          (%js-lower-logical-assign op-val var-sym rhs))
-         ;; Compound assign
-         (t
-          (make-ast-setq :var var-sym
-                         :value (%js-compound-rhs op-val lhs rhs))))))
-    ;; Property assignment: obj.prop = val or obj[key] = val
-    ((and (ast-call-p lhs)
-          (ast-var-p (ast-call-func lhs))
-          (eq (ast-var-name (ast-call-func lhs)) '%js-get-prop))
-     (let ((obj (first  (ast-call-args lhs)))
-           (key (second (ast-call-args lhs))))
-       (cond
-         ((string= op-val "=")
-          (%js-call '%js-set-prop obj key rhs))
-         (t
-          ;; Compound prop assign: obj.k op= rhs → obj.k = (obj.k op rhs)
-          (let ((obj-tmp (gensym "JS-OBJ-"))
-                (key-tmp (gensym "JS-KEY-")))
-            (make-ast-let
-             :bindings (list (cons obj-tmp obj) (cons key-tmp key))
-             :body (list (%js-call '%js-set-prop
-                                   (make-ast-var :name obj-tmp)
-                                   (make-ast-var :name key-tmp)
-                                   (%js-compound-rhs op-val lhs rhs)))))))))
-    ;; Private field assignment
-    ((and (ast-call-p lhs)
-          (ast-var-p (ast-call-func lhs))
-          (eq (ast-var-name (ast-call-func lhs)) '%js-class-private-field-get))
-     (let ((obj (first  (ast-call-args lhs)))
-           (key (second (ast-call-args lhs))))
-       (%js-call '%js-class-private-field-set obj key rhs)))
-    ;; Destructuring assignment (array or object pattern) — lower to runtime helper
-    (t
-     (%js-call '%js-assign-pattern lhs rhs))))
+          (%js-gdi-lower-global-logical-assign op-val global-name lhs rhs))
+         (t (%js-gdi-global-write-ast global-name (%js-compound-rhs op-val lhs rhs)))))
+      ((ast-var-p lhs)
+       (let ((var-sym (ast-var-name lhs)))
+         (cond
+           ((string= op-val "=") (make-ast-setq :var var-sym :value rhs))
+           ((assoc op-val *js-logical-assign-ops* :test #'string=)
+            (%js-lower-logical-assign op-val var-sym rhs))
+           (t (make-ast-setq :var var-sym :value (%js-compound-rhs op-val lhs rhs))))))
+      ((and (ast-call-p lhs)
+            (ast-var-p (ast-call-func lhs))
+            (eq (ast-var-name (ast-call-func lhs)) '%js-get-prop))
+       (let ((obj (first (ast-call-args lhs)))
+             (key (second (ast-call-args lhs))))
+         (cond
+           ((string= op-val "=") (%js-call '%js-set-prop obj key rhs))
+           (t
+            (let ((obj-tmp (gensym "JS-OBJ-"))
+                  (key-tmp (gensym "JS-KEY-")))
+              (make-ast-let :bindings
+                            (list (cons obj-tmp obj) (cons key-tmp key))
+                            :body
+                            (list
+                             (%js-call '%js-set-prop
+                                       (make-ast-var :name obj-tmp)
+                                       (make-ast-var :name key-tmp)
+                                       (%js-compound-rhs op-val lhs rhs)))))))))
+      ((and (ast-call-p lhs)
+            (ast-var-p (ast-call-func lhs))
+            (eq (ast-var-name (ast-call-func lhs)) '%js-class-private-field-get))
+       (let ((obj (first (ast-call-args lhs)))
+             (key (second (ast-call-args lhs))))
+         (%js-call '%js-class-private-field-set obj key rhs)))
+      (t (%js-call '%js-assign-pattern lhs rhs)))))
 
 (defun js-parse-assignment-expr (stream)
   "Like js-parse-expr but stops at comma (min-prec = 2).
 Use for function arguments and array/object elements."
   (js-parse-expr stream 2))
+
 (eval-when (:load-toplevel :execute)
   (register-js-parser-handler :expression (function js-parse-expr))
   (register-js-parser-handler :assignment-expression (function js-parse-assignment-expr)))
 
 ;;; ─── Entry Point Helpers ─────────────────────────────────────────────────────
-

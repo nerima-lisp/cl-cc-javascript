@@ -47,9 +47,9 @@ rebuilt once per instance here, matching how field inits already work."
         for fn = (%js-wrap-method-super (%js-slot-to-method-lambda slot) super-expr)
         when fn
           collect (%js-call '%js-class-private-field-set
-                             (make-ast-var :name '%js-this)
-                             (make-ast-quote :value orig-name)
-                             fn)))
+                            (make-ast-var :name '%js-this)
+                            (make-ast-quote :value orig-name)
+                            fn)))
 
 (defun %js-lower-class-ctor (ctor-slot field-inits super-expr)
   "Build the class's constructor lambda: an explicit ctor gets FIELD-INITS
@@ -57,27 +57,25 @@ prepended; a class with fields but no explicit ctor gets a synthetic one
 (forwarding to super for a derived class so the parent still initializes)."
   (cond
     (ctor-slot
-      (let ((lam (%js-slot-to-method-lambda ctor-slot)))
-        (when field-inits
-          (setf (ast-lambda-body lam) (append field-inits (ast-lambda-body lam))))
-        (%js-wrap-method-super lam super-expr)))
+     (let ((lam (%js-slot-to-method-lambda ctor-slot)))
+       (when field-inits
+         (setf (ast-lambda-body lam) (append field-inits (ast-lambda-body lam))))
+       (%js-wrap-method-super lam super-expr)))
     (field-inits
-      (make-ast-lambda
-        :params
-        nil
-        :rest-param
-        (when super-expr
-          'js-ctor-rest-args)
-        :body
-        (append
-          (when super-expr
-            (list
-              (%js-call
-                '%js-run-constructor
-                (%js-super-ref super-expr)
-                (make-ast-var :name '%js-this)
-                (make-ast-var :name 'js-ctor-rest-args))))
-          field-inits)))
+     (make-ast-lambda :params
+                      nil
+                      :rest-param
+                      (when super-expr
+                        'js-ctor-rest-args)
+                      :body
+                      (append
+                       (when super-expr
+                         (list
+                          (%js-call '%js-run-constructor
+                                    (%js-super-ref super-expr)
+                                    (make-ast-var :name '%js-this)
+                                    (make-ast-var :name 'js-ctor-rest-args))))
+                       field-inits)))
     (t (make-ast-quote :value nil))))
 
 (defun %js-lower-class-method-args (method-slots super-expr)
@@ -105,12 +103,14 @@ further \"@@private-static\" marker for private)."
 object alongside the static methods via the same \"@@static\" marker."
   (loop for slot in static-field-slots
         for orig-name = (%js-class-member-orig-name slot)
-        append (list
-      (%js-class-member-key-ast slot orig-name)
-      (or (ast-slot-initform slot) (make-ast-quote :value +js-undefined+)))))
+        append (list (%js-class-member-key-ast slot orig-name)
+                     (or (ast-slot-initform slot) (make-ast-quote :value +js-undefined+)))))
 
-(defun %js-lower-class-make-class-call
-    (super-expr ctor-lambda method-args static-args static-field-args private-static-args)
+(defun %js-lower-class-make-class-call (super-expr ctor-lambda
+                                                   method-args
+                                                   static-args
+                                                   static-field-args
+                                                   private-static-args)
   "The %js-make-class call itself: super ctor inst-methods...
 [@@static statics... [@@private-static private-statics...]]. The
 \"@@private-static\" marker (and everything after \"@@static\") is only
@@ -118,22 +118,19 @@ emitted when PRIVATE-STATIC-ARGS is non-empty, since %js-make-class's own
 marker search only looks for it within whatever follows \"@@static\" --
 so \"@@static\" itself must be present whenever private static methods are,
 even if there are no ordinary static methods/fields to go with it."
-  (make-ast-call
-    :func
-    (make-ast-var :name '%js-make-class)
-    :args
-    (list*
-      (or super-expr (make-ast-quote :value nil))
-      ctor-lambda
-      (append
-        method-args
-        (when (or static-args static-field-args private-static-args)
-          (append
-            (list (make-ast-quote :value "@@static"))
-            static-args
-            static-field-args
-            (when private-static-args
-              (cons (make-ast-quote :value "@@private-static") private-static-args))))))))
+  (make-ast-call :func
+                 (make-ast-var :name '%js-make-class)
+                 :args
+                 (list* (or super-expr (make-ast-quote :value nil))
+                        ctor-lambda
+                        (append method-args
+                                (when (or static-args static-field-args private-static-args)
+                                  (append (list (make-ast-quote :value "@@static"))
+                                          static-args
+                                          static-field-args
+                                          (when private-static-args
+                                            (cons (make-ast-quote :value "@@private-static")
+                                                  private-static-args))))))))
 
 ;;; ─── %js-lower-class-to-ast ──────────────────────────────────────────────────
 (defun %js-lower-class-to-ast (name-sym super-expr members decorators)
@@ -160,6 +157,10 @@ DECORATORS — list of AST nodes for class-level decorators"
          (make-class-call (%js-lower-class-make-class-call
                             super-expr ctor-lambda method-args static-args
                             static-field-args private-static-args))
+         (superclass-name
+           (or (and (ast-var-p super-expr) (ast-var-name super-expr))
+               (and super-expr
+                    (js-call-parser-handler :gdi-reference-name super-expr))))
          ;; Single primary ast-defclass node — carries full semantic info for
          ;; tools/tests AND encodes the runtime implementation. :php-kind
          ;; :javascript tells codegen-clos to compile the :metaclass make-class-call
@@ -168,8 +169,7 @@ DECORATORS — list of AST nodes for class-level decorators"
          (class-node
           (make-ast-defclass
            :name effective-name
-           :superclasses (when (and super-expr (ast-var-p super-expr))
-                           (list (ast-var-name super-expr)))
+           :superclasses (when superclass-name (list superclass-name))
            :slots members
            :php-kind :javascript
            :metaclass make-class-call)))
@@ -185,60 +185,57 @@ DECORATORS   — list of decorator AST nodes collected before the class keyword.
 
 Returns (values ast-list rest) where AST-LIST is a list of AST nodes produced
 by %js-lower-class-to-ast."
-  ;; The 'class' keyword has already been consumed by the caller.
+  ;; The class keyword has already been consumed by the caller.
   (let ((current stream)
         (class-name nil)
         (super-expr nil))
-    ;; Optional class name: present in declarations, optional in expressions
+    ;; Optional class name: present in declarations, optional in expressions.
     (when (eq (js-peek-type current) :T-IDENT)
       (multiple-value-bind (tok rest) (js-consume current)
         (setf class-name (js-ident-sym (js-tok-value tok))
               current rest)))
     (unless (or expression-p class-name)
       (error "JS parse error: class declaration requires a name"))
-    ;; Optional: extends SuperClass
-    (when (and current (eq (js-peek-type current) :T-EXTENDS))
-      (setf current (cdr current))   ; consume 'extends'
-      ;; Parse super-class reference (simple identifier or member expression)
-      (multiple-value-bind (tok rest) (js-expect :T-IDENT current)
-        (setf super-expr (make-ast-var :name (js-ident-sym (js-tok-value tok)))
-              current rest)
-        ;; Walk optional .Member access on super expression
-        (loop while (and current (eq (js-peek-type current) :T-DOT))
-              do (setf current (cdr current))   ; consume '.'
-              (multiple-value-bind (mem-tok rest2) (js-expect :T-IDENT current)
-                (setf super-expr
-                      (make-ast-call
-                       :func (make-ast-var :name (js-ident-sym "%JS-GET-PROP"))
-                       :args (list super-expr
-                                   (make-ast-quote
-                                    :value (js-tok-value mem-tok))))
-                      current rest2)))))
-    ;; Class body
-    (multiple-value-bind (members rest) (%js-parse-class-body current class-name)
-      (values (%js-lower-class-to-ast class-name super-expr members decorators)
-              rest))))
+    ;; The name of a class expression is in scope during heritage evaluation and
+    ;; throughout the class body.
+    (let ((cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+            (if (and expression-p class-name)
+                (cons class-name cl-cc/javascript/syntax:*js-gdi-shadowed-names*)
+                cl-cc/javascript/syntax:*js-gdi-shadowed-names*)))
+      ;; Parse the heritage as an expression so GDI resolves its identifiers.
+      (when (and current (eq (js-peek-type current) :T-EXTENDS))
+        (setf current (cdr current))
+        (multiple-value-bind (expr rest) (js-call-parser-handler :expression current)
+          (setf super-expr expr
+                current rest)))
+      (multiple-value-bind (members rest)
+          (%js-parse-class-body current class-name)
+        (values (%js-lower-class-to-ast class-name super-expr members decorators)
+                rest)))))
+
 ;;; ─── js-parse-class-decl (public entry point) ───────────────────────────────
 (eval-when (:load-toplevel :execute)
-  (register-js-parser-handler
-   '(:statement :T-CLASS)
-   (lambda (stream)
-     (multiple-value-bind (ast-list rest) (js-parse-class-decl stream)
-       (values (if (and (consp ast-list) (= (length ast-list) 1))
-                   (first ast-list)
-                   (make-ast-progn :forms ast-list))
-               rest))))
-  (register-js-parser-handler
-   :statement-decorated-class
-   (lambda (stream)
-     (multiple-value-bind (decorators rest) (%js-parse-decorators stream)
-       (unless (eq (js-peek-type rest) :T-CLASS)
-         (error "JS parse error: decorators must precede a class declaration"))
-       (multiple-value-bind (ast-list rest2)
-           (js-parse-class-decl (cdr rest) :decorators decorators)
-         (values (if (and (consp ast-list) (= (length ast-list) 1))
-                     (first ast-list)
-                     (make-ast-progn :forms ast-list))
-                 rest2))))))
+  (register-js-parser-handler '(:statement :T-CLASS)
+                              (lambda (stream)
+                                (multiple-value-bind (ast-list rest) (js-parse-class-decl stream)
+                                  (values
+                                   (if (and (consp ast-list) (= (length ast-list) 1))
+                                       (first ast-list)
+                                       (make-ast-progn :forms ast-list))
+                                   rest))))
+  (register-js-parser-handler :statement-decorated-class
+                              (lambda (stream)
+                                (multiple-value-bind (decorators rest) (%js-parse-decorators stream)
+                                  (unless (eq (js-peek-type rest) :T-CLASS)
+                                    (error
+                                     "JS parse error: decorators must precede a class declaration"))
+                                  (multiple-value-bind (ast-list rest2)
+                                      (js-parse-class-decl (cdr rest) :decorators decorators)
+                                    (values
+                                     (if (and (consp ast-list) (= (length ast-list) 1))
+                                         (first ast-list)
+                                         (make-ast-progn :forms ast-list))
+                                     rest2))))))
 
-(eval-when (:load-toplevel :execute) (register-js-parser-handler :class-declaration (function js-parse-class-decl)))
+(eval-when (:load-toplevel :execute)
+  (register-js-parser-handler :class-declaration (function js-parse-class-decl)))

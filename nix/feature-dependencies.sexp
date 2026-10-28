@@ -116,4 +116,4 @@
   :facade-packages ("cl-cc/javascript")
   :domain-package "cl-cc/javascript/backend"
   :infra-package nil
-  :depends-on ("arrays" "async" "classes" "dates" "errors" "expressions" "functions" "intl" "iterators" "json" "numbers" "objects" "proxies" "regex" "strings" "syntax")))
+  :depends-on ("arrays" "async" "classes" "dates" "errors" "expressions" "functions" "intl" "iterators" "json" "numbers" "objects" "proxies" "regex" "statements" "strings" "syntax")))

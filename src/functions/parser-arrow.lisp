@@ -14,150 +14,163 @@
 (in-package #:cl-cc/javascript/functions)
 
 (defun %js-parse-arrow-or-paren-item (current)
-  "Parse one non-rest item in a parenthesized-expression/arrow-param list at
-CURRENT: try it as an assignment-expr, then classify it as a default param
-(`x = e`), a plain identifier param, a destructurable pattern, or (if none of
-those fit) a plain expression that disqualifies the arrow-function reading.
-Returns (values new-current expr-form param-sym optional-pair pattern-pair
-arrow-candidate-p): PARAM-SYM/OPTIONAL-PAIR/PATTERN-PAIR are NIL when not
-applicable to this item; EXPR-FORM is always this item's expression-position
-AST (the non-arrow fallback); ARROW-CANDIDATE-P is NIL only when this item
-rules out the whole list being arrow params."
-  (multiple-value-bind (expr rest2) (js-call-parser-handler :assignment-expression current)
-    (setf current rest2)
-    ;; Default parameter: `var = default'.  js-parse-assignment-expr
-    ;; stops at the `=' here (it is not an assignment operator in this
-    ;; position), so consume it ourselves and parse the default.
-    (if (and (ast-var-p expr)
-             (js-at-op-p current "="))
-        (multiple-value-bind (eq-tok rest3) (js-consume current)
-          (declare (ignore eq-tok))
-          (multiple-value-bind (default-expr rest4)
-              (js-call-parser-handler :assignment-expression rest3)
-            (values rest4
-                    ;; non-arrow fallback: a parenthesized assignment expr
-                    (make-ast-setq :var (ast-var-name expr) :value default-expr)
-                    (ast-var-name expr)
-                    (cons (ast-var-name expr) default-expr)
-                    nil
-                    t)))
+  "Parse one expression item and classify it as an arrow parameter when possible."
+  (let ((start current))
+    (multiple-value-bind (expr rest2) (js-call-parser-handler :assignment-expression current)
+      (setf current rest2)
+      (let* ((assignment-p
+              (and (cl-cc/ast:ast-setq-p expr)
+                   (eq (js-peek-type start) :T-IDENT)
+                   (js-at-op-p (cdr start) "=")))
+             (param-sym
+              (or (and (ast-var-p expr) (ast-var-name expr))
+                  (js-call-parser-handler :gdi-reference-name expr)
+                  (and assignment-p (cl-cc/ast:ast-setq-var expr)))))
         (cond
-          ((ast-var-p expr)
-           (values current expr (ast-var-name expr) nil nil t))
-          ;; Array/object literal in param position: an arrow
-          ;; destructuring pattern.  Give it a gensym param and
-          ;; record the pattern for body-prologue unpacking.
+          ((and param-sym assignment-p)
+           (values current expr param-sym (cons param-sym (cl-cc/ast:ast-setq-value expr)) nil t))
+          ((and param-sym (js-at-op-p current "="))
+           (multiple-value-bind (eq-tok rest3) (js-consume current)
+             (declare (ignore eq-tok))
+             (let ((cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+                    (cons param-sym cl-cc/javascript/syntax:*js-gdi-shadowed-names*)))
+               (multiple-value-bind (default-expr rest4)
+                   (js-call-parser-handler :assignment-expression rest3)
+                 (values rest4
+                         (make-ast-setq :var param-sym :value default-expr)
+                         param-sym
+                         (cons param-sym default-expr)
+                         nil
+                         t)))))
+          (param-sym (values current expr param-sym nil nil t))
           (t
            (let ((pat (%js-expr-to-binding-pattern expr)))
              (if (and pat (listp pat))
                  (let ((g (second pat)))
                    (values current expr g nil (cons g pat) t))
-                 ;; not a valid pattern -> not an arrow
-                 (values current expr nil nil nil nil))))))))
+                 (values current expr nil nil nil nil)))))))))
 
 (defun %js-parse-paren-or-arrow (stream)
-  "Parse ( ... ) — either a parenthesized expression or arrow function params.
+  "Parse ( ... ) as either a parenthesized expression or arrow parameters.
 Returns (values ast rest)."
-  ;; We use a speculative approach: try to detect => after the closing )
-  ;; by collecting the paren contents and peeking ahead.
-  ;; Strategy: parse a comma-separated list of assignment-exprs or patterns,
-  ;; then check for =>.
-  (multiple-value-bind (tok rest) (js-consume stream) ; consume (
+  (multiple-value-bind (tok rest) (js-consume stream)
     (declare (ignore tok))
     (if (eq (js-peek-type rest) :T-RPAREN)
-        ;; () => ... (arrow with no params) — must be followed by =>
         (multiple-value-bind (tok2 rest2) (js-consume rest)
           (declare (ignore tok2))
           (if (eq (js-peek-type rest2) :T-ARROW)
               (%js-finish-arrow-function nil rest2)
-              ;; () as expression is a syntax error in JS but we emit undefined for tolerance
               (values (make-ast-quote :value :js-undefined) rest2)))
-        ;; Non-empty: collect items, recording BOTH an arrow-param interpretation
-        ;; (params + optionals + rest-sym) and an expression fallback (exprs), then
-        ;; commit once we can peek past the ) for =>.  A default param `x = e` is
-        ;; ambiguous with a parenthesized assignment `(x = e)`, so we keep both.
         (let ((exprs nil)
               (params nil)
-              (optionals nil)        ; (sym . default-ast) alist for `x = default'
-              (param-patterns nil)   ; (gensym . binding-pattern) for [a,b]/{x,y} params
+              (optionals nil)
+              (param-patterns nil)
               (is-arrow-candidate t)
               (current rest)
               (rest-sym nil))
-          ;; Collect items
-          (loop
-            (cond
-              ;; ...rest param
-              ((eq (js-peek-type current) :T-ELLIPSIS)
-               (multiple-value-bind (tok2 rest2) (js-consume current)
-                 (declare (ignore tok2))
-                 (multiple-value-bind (name-tok rest3) (js-expect :T-IDENT rest2)
-                   (let ((sym (js-ident-sym (js-tok-value name-tok))))
-                     (setf rest-sym sym
-                           current rest3))))
-               (return)) ; rest param must be last
-              (t
-               ;; Try as assignment-expr, then classify it
-               (multiple-value-bind (new-current expr-form param-sym optional-pair
-                                      pattern-pair arrow-candidate-p)
-                   (%js-parse-arrow-or-paren-item current)
-                 (setf current new-current)
-                 (push expr-form exprs)
-                 (when param-sym (push param-sym params))
-                 (when optional-pair (push optional-pair optionals))
-                 (when pattern-pair (push pattern-pair param-patterns))
-                 (unless arrow-candidate-p (setf is-arrow-candidate nil)))))
-            (multiple-value-bind (next-stream more-p) (%js-comma-list-step current :T-RPAREN)
-              (setf current next-stream)
-              (unless more-p (return))))
+          (loop do (if (eq (js-peek-type current) :T-ELLIPSIS)
+                       (progn
+                         (multiple-value-bind (tok2 rest2) (js-consume current)
+                           (declare (ignore tok2))
+                           (multiple-value-bind (name-tok rest3) (js-expect :T-IDENT rest2)
+                             (setf rest-sym (js-ident-sym (js-tok-value name-tok))
+                                   current rest3)))
+                         (return))
+                       (let ((reparse-fallback-p
+                              (and params cl-cc/javascript/syntax:*js-gdi-global-reference-mode*))
+                             (fallback-expr nil))
+                         (when reparse-fallback-p
+                           (multiple-value-bind (_stream expr-form
+                                                         _param
+                                                         _optional
+                                                         _pattern
+                                                         _candidate)
+                               (%js-parse-arrow-or-paren-item current)
+                             (declare (ignore _stream _param _optional _pattern _candidate))
+                             (setf fallback-expr expr-form)))
+                         (multiple-value-bind (new-current expr-form
+                                                           param-sym
+                                                           optional-pair
+                                                           pattern-pair
+                                                           arrow-candidate-p)
+                             (let ((cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+                                    (append (reverse params)
+                                            cl-cc/javascript/syntax:*js-gdi-shadowed-names*)))
+                               (%js-parse-arrow-or-paren-item current))
+                           (setf current new-current)
+                           (push
+                            (if reparse-fallback-p
+                                fallback-expr
+                                expr-form)
+                            exprs)
+                           (when param-sym
+                             (push param-sym params))
+                           (when optional-pair
+                             (push optional-pair optionals))
+                           (when pattern-pair
+                             (push pattern-pair param-patterns))
+                           (unless arrow-candidate-p
+                             (setf is-arrow-candidate nil)))))
+                do (multiple-value-bind (next-stream more-p) (%js-comma-list-step current :T-RPAREN)
+                     (setf current next-stream)
+                     (unless more-p
+                       (return))))
           (multiple-value-bind (tok2 rest2) (js-expect :T-RPAREN current)
             (declare (ignore tok2))
-            ;; Check for =>
             (if (and is-arrow-candidate (eq (js-peek-type rest2) :T-ARROW))
-                (%js-finish-arrow-function (nreverse params) rest2
-                                           :optionals (nreverse optionals)
-                                           :rest-sym rest-sym
-                                           :param-patterns (nreverse param-patterns))
-                ;; Parenthesized expression — return last expression (or progn)
+                (let* ((first-pass (multiple-value-list (%js-parse-param-list stream)))
+                       (all-params (first first-pass)))
+                  (multiple-value-bind (new-params new-stream
+                                                   new-optionals
+                                                   new-rest-sym
+                                                   new-patterns)
+                      (let ((cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+                             (append all-params cl-cc/javascript/syntax:*js-gdi-shadowed-names*)))
+                        (%js-parse-param-list stream))
+                    (%js-finish-arrow-function new-params
+                                               new-stream
+                                               :optionals
+                                               new-optionals
+                                               :rest-sym
+                                               new-rest-sym
+                                               :param-patterns
+                                               new-patterns)))
                 (let ((all-exprs (nreverse exprs)))
-                  (values (if (cdr all-exprs) (make-ast-progn :forms all-exprs) (car all-exprs))
-                          rest2))))))))
+                  (values
+                   (if (cdr all-exprs)
+                       (make-ast-progn :forms all-exprs)
+                       (car all-exprs))
+                   rest2))))))))
 
 (defun %js-finish-arrow-function (params stream &key optionals rest-sym param-patterns)
-  "Consume => and parse arrow function body. PARAMS is the list of required-param
-symbols; OPTIONALS is a (sym . default-ast) alist for defaulted params; REST-SYM
-is the rest-parameter symbol (or nil); PARAM-PATTERNS is a (gensym . pattern)
-alist for destructuring params like ([a,b])=>… (the gensym param is unpacked by a
-body-prologue let, exactly as for named functions).  Returns (values ast rest)."
+  "Parse => body and build a lambda."
   (multiple-value-bind (tok rest) (js-expect :T-ARROW stream)
     (declare (ignore tok))
-    (multiple-value-bind (required opts) (%js-split-params-by-defaults params optionals)
-      ;; FINISH builds the lambda from a body-form list: defaults become
-      ;; optional-params; the rest param is routed through %js-rest-binding, which
-      ;; wraps the body to bind REST-SYM to a JS array of the trailing args.
-      (flet ((finish (body-forms rest2)
-               (multiple-value-bind (rest-param wrapped-body)
-                   (%js-rest-binding rest-sym
-                                     (%js-prepend-param-destructuring
-                                      param-patterns body-forms))
-                 (values (make-ast-lambda :params required
-                                          :optional-params opts
-                                          :rest-param rest-param
-                                          :body wrapped-body)
-                         rest2))))
-        (if (eq (js-peek-type rest) :T-LBRACE)
-            ;; Block body: => { stmts }. Wrap in (block nil ...) via %js-callable-body
-            ;; so `return' (which lowers to return-from nil) works — a bare lambda
-            ;; establishes no block, so without this the body fails to compile and the
-            ;; enclosing form is silently dropped (same fix as regular functions).
-            (multiple-value-bind (tok2 rest2) (js-consume rest)
-              (declare (ignore tok2))
-              (multiple-value-bind (body-forms rest3)
-                  (js-parse-function-body rest2)
-                (finish (%js-callable-body body-forms) rest3)))
-            ;; Concise body: => expr. The lambda yields EXPR directly as its value;
-            ;; no return-from/block is needed (and a bare lambda binds no block nil).
-            (multiple-value-bind (expr rest2) (js-call-parser-handler :assignment-expression rest)
-              (finish (list expr) rest2)))))))
+    (let ((cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+           (append params cl-cc/javascript/syntax:*js-gdi-shadowed-names*)))
+      (multiple-value-bind (required opts) (%js-split-params-by-defaults params optionals)
+        (flet ((finish (body-forms rest2)
+                 (multiple-value-bind (rest-param wrapped-body)
+                     (%js-rest-binding rest-sym
+                                       (%js-prepend-param-destructuring param-patterns body-forms))
+                   (values
+                    (make-ast-lambda :params
+                                     required
+                                     :optional-params
+                                     opts
+                                     :rest-param
+                                     rest-param
+                                     :body
+                                     wrapped-body)
+                    rest2))))
+          (if (eq (js-peek-type rest) :T-LBRACE)
+              (multiple-value-bind (tok2 rest2) (js-consume rest)
+                (declare (ignore tok2))
+                (multiple-value-bind (body-forms rest3)
+                    (js-call-parser-handler :function-body rest2)
+                  (finish (%js-callable-body body-forms) rest3)))
+              (multiple-value-bind (expr rest2) (js-call-parser-handler :assignment-expression rest)
+                (finish (list expr) rest2))))))))
 
 ;;; ─── Async Expression ────────────────────────────────────────────────────────
 (defun %js-parse-async-expr (stream)
@@ -201,21 +214,25 @@ Returns (values ast rest)."
          (values (make-ast-var :name (js-ident-sym "async")) rest))))))
 
 (defun %js-finish-async-arrow (params stream)
-  "Parse => body for an async arrow function. Returns (values ast rest)."
+  "Parse => body for an async arrow function."
   (multiple-value-bind (tok rest) (js-expect :T-ARROW stream)
     (declare (ignore tok))
-    (let ((body-and-rest
-          (if (eq (js-peek-type rest) :T-LBRACE) (multiple-value-bind (tok2 rest2) (js-consume rest)
-              (declare (ignore tok2))
-              (multiple-value-bind (body-forms rest3) (js-parse-function-body rest2)
-                (list (%js-callable-body body-forms) rest3)))
-            (multiple-value-bind (expr rest2) (js-call-parser-handler :assignment-expression rest)
-              (list (list expr) rest2)))))
-      (values
-        (%js-call
-          '%js-object-make-async
-          (make-ast-lambda :params params :body (car body-and-rest)))
-        (cadr body-and-rest)))))
+    (let ((cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+           (append params cl-cc/javascript/syntax:*js-gdi-shadowed-names*)))
+      (let ((body-and-rest
+             (if (eq (js-peek-type rest) :T-LBRACE)
+                 (multiple-value-bind (tok2 rest2) (js-consume rest)
+                   (declare (ignore tok2))
+                   (multiple-value-bind (body-forms rest3)
+                       (js-call-parser-handler :function-body rest2)
+                     (list (%js-callable-body body-forms) rest3)))
+                 (multiple-value-bind (expr rest2)
+                     (js-call-parser-handler :assignment-expression rest)
+                   (list (list expr) rest2)))))
+        (values
+         (%js-call (quote %js-object-make-async)
+                   (make-ast-lambda :params params :body (car body-and-rest)))
+         (cadr body-and-rest))))))
 
 ;;; ─── Class Expression ────────────────────────────────────────────────────────
 (defun %js-parse-class-expr (stream)
@@ -258,6 +275,7 @@ Returns (values ast rest)."
              (values (%js-call '%js-import spec-ast) rest4)))))
       (t
        (error "JS parse error: unexpected token after 'import': ~S" (js-peek rest))))))
+
 ;;; ─── import() Dynamic Import ─────────────────────────────────────────────────
 (eval-when (:load-toplevel :execute)
   (register-js-parser-handler :function-paren-or-arrow (function %js-parse-paren-or-arrow))

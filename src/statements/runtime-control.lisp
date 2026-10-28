@@ -3,7 +3,6 @@
 ;;;; Statement control-flow helpers extracted from runtime.lisp.
 ;;;; Includes try/catch/finally and for-in lowering.
 ;;;; Load order: directly after runtime.lisp.
-
 (in-package #:cl-cc/javascript/statements)
 
 (defun %js-try-catch-finally (try-thunk catch-thunk finally-thunk)
@@ -14,11 +13,10 @@
    raw CL:FUNCALL which cannot call a vm-closure."
   (let ((result +js-undefined+))
     (unwind-protect
-         (handler-case
-             (setf result (%js-object-funcall try-thunk))
-           (js-exception (c)
-             (when catch-thunk
-               (setf result (%js-object-funcall catch-thunk (js-exception-value c))))))
+        (handler-case (setf result (%js-object-funcall try-thunk))
+          (js-exception (c)
+            (when catch-thunk
+              (setf result (%js-object-funcall catch-thunk (js-exception-value c))))))
       (when finally-thunk
         (%js-object-funcall finally-thunk)))
     result))
@@ -26,7 +24,6 @@
 ;;; -----------------------------------------------------------------------
 ;;;  Iteration protocol
 ;;; -----------------------------------------------------------------------
-
 (defun %js-for-in (obj body-fn)
   "Execute BODY-FN for each enumerable string key in OBJ, in the same order
 Object.keys/values/entries use: array-index keys numerically ascending
@@ -37,7 +34,7 @@ accessor (getter/setter) property enumerates under its real property name
 plain data property) -- internal runtime keys (__proto__, __class__, the
 __get_X/__set_X storage keys themselves) are still excluded."
   (when (%js-ht-p obj)
-    (loop for k across (%js-object-own-string-property-keys obj)
+    (loop for k across (%js-object-own-string-property-keys obj t)
           do (%js-object-funcall body-fn k)))
   +js-undefined+)
 
@@ -45,5 +42,7 @@ __get_X/__set_X storage keys themselves) are still excluded."
   "Collect OBJ's enumerable string keys into a fresh CL list — the 1-arg
 companion to %js-for-in, used by the for-in loop lowering (see %js-iter-values)."
   (let ((acc nil))
-    (%js-for-in obj (lambda (k) (push k acc)))
+    (%js-for-in obj
+                (lambda (k)
+                  (push k acc)))
     (nreverse acc)))

@@ -58,46 +58,46 @@
   "Lower switch(expr){case x:...; default:...} to a let/tagbody dispatch form."
   (let* ((value-sym (gensym "SWITCH-VAL-"))
          (default-tag
-        (when default-body
-          (gensym "SWITCH-DEFAULT-")))
+          (when default-body
+            (gensym "SWITCH-DEFAULT-")))
          (case-labels
-        (loop repeat (length cases)
-              collect (gensym "SWITCH-CASE-")))
+          (loop repeat (length cases)
+                collect (gensym "SWITCH-CASE-")))
          (dispatch-forms
-        (append
+          (append
+           (loop for case in cases
+                 for label in case-labels
+                 collect (make-ast-if :cond
+                                      (make-ast-call :func
+                                                     (make-ast-var :name '%js-strict-eq)
+                                                     :args
+                                                     (list (make-ast-var :name value-sym)
+                                                           (car case)))
+                                      :then
+                                      (make-ast-go :tag label)
+                                      :else
+                                      (make-ast-quote :value nil)))
+           (list (make-ast-go :tag (or default-tag break-tag)))))
+         (case-forms
           (loop for case in cases
                 for label in case-labels
-                collect (make-ast-if
-              :cond
-              (make-ast-call
-                :func
-                (make-ast-var :name '%js-strict-eq)
-                :args
-                (list (make-ast-var :name value-sym) (car case)))
-              :then
-              (make-ast-go :tag label)
-              :else
-              (make-ast-quote :value nil)))
-          (list (make-ast-go :tag (or default-tag break-tag)))))
-         (case-forms
-        (loop for case in cases
-              for label in case-labels
-              append (cons label (cdr case))))
+                append (cons label (cdr case))))
          (default-forms
-        (when default-body
-          (cons default-tag default-body))))
-    (make-ast-let
-      :bindings
-      (list (cons value-sym switch-expr))
-      :body
-      (list
-        (make-ast-block
-          :name
-          nil
-          :body
-          (list
-            (%js-make-tagbody
-              (append dispatch-forms case-forms default-forms (list break-tag)))))))))
+          (when default-body
+            (cons default-tag default-body))))
+    (make-ast-let :bindings
+                  (list (cons value-sym switch-expr))
+                  :body
+                  (list
+                   (make-ast-block :name
+                                   nil
+                                   :body
+                                   (list
+                                    (%js-make-tagbody
+                                     (append dispatch-forms
+                                             case-forms
+                                             default-forms
+                                             (list break-tag)))))))))
 
 (defun js-parse-switch-stmt (stream)
   "Parse switch(expr){case x:...; default:...}.
@@ -107,7 +107,29 @@
     (multiple-value-bind (switch-expr rest2) (js-call-parser-handler :expression rest)
       (setf rest2 (%js-consume-expected :T-RPAREN rest2))
       (let* ((break-tag (gensym "SWITCH-END-"))
+             (*js-gdi-lexical-scope-depth* (1+ *js-gdi-lexical-scope-depth*))
              (*js-loop-break-target* break-tag)
              (*js-break-targets* (cons break-tag *js-break-targets*)))
-        (multiple-value-bind (cases default-body rest3) (%js-parse-switch-body rest2 break-tag)
+        (multiple-value-bind (cases default-body rest3)
+            (if cl-cc/javascript/syntax:*js-gdi-global-reference-mode*
+                (multiple-value-bind (raw-cases raw-default-body raw-rest)
+                    (let ((cl-cc/javascript/syntax:*js-gdi-global-reference-mode* nil)
+                          (cl-cc/javascript/syntax:*js-gdi-global-lexical-names* nil)
+                          (cl-cc/javascript/syntax:*js-gdi-global-var-names* nil))
+                      (%js-parse-switch-body rest2 break-tag))
+                  (declare (ignore raw-rest))
+                  (let* ((switch-lexical-names
+                          (remove-duplicates
+                           (append
+                            (%js-gdi-block-lexical-names
+                             (loop for case in raw-cases
+                                   append (cdr case)))
+                            (%js-gdi-block-lexical-names raw-default-body))
+                           :test
+                           (function eq)))
+                         (cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+                          (append switch-lexical-names
+                                  cl-cc/javascript/syntax:*js-gdi-shadowed-names*)))
+                    (%js-parse-switch-body rest2 break-tag)))
+                (%js-parse-switch-body rest2 break-tag))
           (values (%js-lower-switch switch-expr cases default-body break-tag) rest3))))))
