@@ -14,20 +14,27 @@
 (in-package #:cl-cc/javascript/backend)
 
 (defun %js-host-bridge-entries ()
-  "Return (symbol . function) pairs for every fbound, non-macro %JS-* function
-homed in :cl-cc/javascript."
-  (let ((pkg (find-package :cl-cc/javascript))
+  "Return (symbol . function) pairs for runtime helpers owned by this frontend."
+  (let ((packages (remove nil
+                          (list (find-package :cl-cc/javascript)
+                                (find-package :cl-cc/javascript/backend))))
         (entries '()))
-    (when pkg
-      (do-symbols (sym pkg)
-        (when (and (eq (symbol-package sym) pkg)
-                   (fboundp sym)
-                   (not (macro-function sym))
-                   (not (special-operator-p sym))
-                   (let ((name (symbol-name sym)))
-                     (and (>= (length name) 4)
-                          (string= "%JS-" name :end2 4))))
-          (push (cons sym (fdefinition sym)) entries))))
+    (dolist (pkg packages)
+      (let ((prefix (if (eq pkg (find-package :cl-cc/javascript))
+                        "%JS-"
+                        "%JS-GDI-"))
+            (prefix-length (if (eq pkg (find-package :cl-cc/javascript))
+                               4
+                               8)))
+        (do-symbols (sym pkg)
+          (when (and (eq (symbol-package sym) pkg)
+                     (fboundp sym)
+                     (not (macro-function sym))
+                     (not (special-operator-p sym))
+                     (let ((name (symbol-name sym)))
+                       (and (>= (length name) prefix-length)
+                            (string= prefix name :end2 prefix-length))))
+            (push (cons sym (fdefinition sym)) entries)))))
     (nreverse entries)))
 
 (register-backend-bridge-provider #'%js-host-bridge-entries)

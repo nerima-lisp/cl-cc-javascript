@@ -8,5 +8,4 @@
   (%register-objects-runtime-console-tests)
   (%register-objects-runtime-object-ops-tests)
   (%register-objects-runtime-symbol-tests)
-  (%register-objects-runtime-structured-clone-tests)
-)
+  (%register-objects-runtime-structured-clone-tests))

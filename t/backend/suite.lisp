@@ -2,6 +2,9 @@
 
 (describe-concurrent "JavaScript Backend"
   (%register-backend-runtime-builtins-platform-tests)
+  (%register-backend-gdi-tests)
+  (%register-backend-gdi-instantiation-tests)
+  (%register-backend-gdi-prelude-global-properties-tests)
   (%register-backend-runtime-method-resolver-dispatch-tests)
   (%register-backend-runtime-misc-tests)
   (%register-backend-runtime-absent-builtins-tests)

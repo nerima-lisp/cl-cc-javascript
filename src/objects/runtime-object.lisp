@@ -53,85 +53,70 @@ all share, and %JS-OBJECT-OWN-STRING-PROPERTY-KEYS applies below."
        (every #'digit-char-p k)
        (or (string= k "0") (char/= (char k 0) #\0))))
 
-(defun %js-object-own-string-property-keys (obj)
-  "Return public own string property names for OBJ, translating accessor slots
-back to their JS property names and filtering runtime-only keys. Canonical
-array-index keys (see %JS-CANONICAL-ARRAY-INDEX-KEY-P) are moved to the
-front, sorted numerically ascending; every other key keeps its encounter
-order after them."
+(defun %js-object-own-string-property-keys (obj &optional enumerable-only)
+  "Return public own string keys, including descriptor-backed properties.
+Canonical array indices sort numerically before other keys in encounter order."
   (let ((result (make-array 0 :element-type t :adjustable t :fill-pointer 0))
         (seen (%js-make-ht)))
     (labels ((add-key (key)
                (unless (%js-symbol-p key)
-            (let ((k (%js-to-string key)))
-              (unless (or
-                  (%js-symbol-storage-key-p k)
-                  (%js-internal-key-p k)
-                  (nth-value 1 (gethash k seen)))
-                (setf (gethash k seen) t)
-                (vector-push-extend k result)))))
+                 (let ((k (%js-to-string key)))
+                   (unless (or (%js-symbol-storage-key-p k)
+                               (%js-internal-key-p k)
+                               (nth-value 1 (gethash k seen)))
+                     (setf (gethash k seen) t)
+                     (vector-push-extend k result)))))
              (add-accessor-key (slot-key)
                (let ((property-name (%js-object-accessor-property-name slot-key)))
-            (when property-name
-              (unless (nth-value 1 (gethash property-name seen))
-                (setf (gethash property-name seen) t)
-                (vector-push-extend property-name result))))))
+                 (when property-name
+                   (add-key property-name)))))
       (cond
         ((%js-object-proxy-p obj)
-          (dolist (key (%js-object-proxy-key-list (%js-object-proxy-own-keys obj)))
-            (add-key key)))
+         (dolist (key (%js-object-proxy-key-list (%js-object-proxy-own-keys obj)))
+           (add-key key)))
         ((%js-ht-p obj)
-          (maphash
-            (lambda (k v)
-              (declare (ignore v))
-              (add-key k))
-            obj)
-          (maphash
-            (lambda (k v)
-              (declare (ignore v))
-              (add-accessor-key k))
-            obj))))
-    ;; Reorder in place: array-index keys first (numerically ascending),
-    ;; then every other key in its original encounter order. Rebuilt as the
-    ;; same adjustable, fill-pointered vector shape RESULT already was (not
-    ;; via CONCATENATE, whose fresh simple-vector result would break
-    ;; %JS-OBJECT-OWN-PROPERTY-KEYS's VECTOR-PUSH-EXTEND onto this return
-    ;; value) so every caller keeps working with it the same way.
-    (let* ((index-keys (sort (remove-if-not #'%js-canonical-array-index-key-p result)
-                              #'< :key #'parse-integer))
-           (other-keys (remove-if #'%js-canonical-array-index-key-p result))
+         (maphash (lambda (key value) (declare (ignore value)) (add-key key)) obj)
+         (maphash (lambda (key value) (declare (ignore value)) (add-accessor-key key)) obj)))
+      (map nil (function add-key) (%js-property-descriptor-keys obj)))
+    (let* ((index-keys (sort (remove-if-not (function %js-canonical-array-index-key-p) result)
+                             (function <) :key (function parse-integer)))
+           (other-keys (remove-if (function %js-canonical-array-index-key-p) result))
            (ordered (make-array (length result) :element-type t
-                                 :adjustable t :fill-pointer 0)))
-      (map nil (lambda (k) (vector-push-extend k ordered)) index-keys)
-      (map nil (lambda (k) (vector-push-extend k ordered)) other-keys)
-      ordered)))
+                                :adjustable t :fill-pointer 0)))
+      (map nil (lambda (key) (vector-push-extend key ordered)) index-keys)
+      (map nil (lambda (key) (vector-push-extend key ordered)) other-keys)
+      (if enumerable-only
+          (remove-if-not (lambda (key) (%js-property-enumerable-p obj key)) ordered)
+          ordered))))
 
 (defun %js-object-own-symbol-property-keys (obj)
   "Return public own Symbol property keys for OBJ."
   (let ((result (make-array 0 :element-type t :adjustable t :fill-pointer 0))
         (seen (%js-make-ht)))
     (labels ((add-symbol-key (key)
-               (let ((sym
-                (cond
-                  ((%js-symbol-p key) key)
-                  ((%js-symbol-storage-key-p key) (%js-symbol-from-storage-key key))
-                  (t +js-undefined+))))
-            (when (and
-                (%js-symbol-p sym)
-                (not (nth-value 1 (gethash (%js-symbol-as-key sym) seen))))
-              (setf (gethash (%js-symbol-as-key sym) seen) t)
-              (vector-push-extend sym result)))))
+               (let ((sym (cond
+                            ((%js-symbol-p key) key)
+                            ((%js-symbol-storage-key-p key)
+                             (%js-symbol-from-storage-key key))
+                            (t +js-undefined+))))
+                 (when (and (%js-symbol-p sym)
+                            (not (nth-value 1
+                                            (gethash (%js-symbol-as-key sym)
+                                                     seen))))
+                   (setf (gethash (%js-symbol-as-key sym) seen) t)
+                   (vector-push-extend sym result)))))
       (cond
         ((%js-object-proxy-p obj)
-          (dolist (key (%js-object-proxy-key-list (%js-object-proxy-own-keys obj)))
-            (add-symbol-key key)))
+         (dolist (key (%js-object-proxy-key-list (%js-object-proxy-own-keys obj)))
+           (add-symbol-key key)))
         ((%js-ht-p obj)
-          (maphash
-            (lambda (k v)
-              (declare (ignore v))
-              (add-symbol-key k))
-            obj))))
-    result))
+         (maphash (lambda (key value)
+                    (declare (ignore value))
+                    (add-symbol-key key))
+                  obj))
+        ((%js-vm-closure-p obj)
+         (map nil (function add-symbol-key) (%js-property-descriptor-keys obj))))
+    result)))
 
 (defun %js-object-own-property-keys (obj)
   "Return public own string and Symbol property keys for Reflect.ownKeys."
@@ -146,14 +131,14 @@ order after them."
 ;;; Internal: iterate non-internal properties of OBJ, collecting (select-fn k v)
 ;;; into a fresh adjustable vector. Returns an empty array when OBJ is not a HT.
 (defun %js-object-collect (obj select-fn)
-  (if (or (%js-object-proxy-p obj) (%js-ht-p obj)) (let ((result (make-array 0 :element-type t :adjustable t :fill-pointer 0)))
-      (map
-        nil
-        (lambda (k)
-          (vector-push-extend (funcall select-fn k (%js-get-prop obj k)) result))
-        (%js-object-own-string-property-keys obj))
-      result)
-    (%js-object-make-array)))
+  (if (or (%js-object-proxy-p obj) (%js-ht-p obj) (%js-vm-closure-p obj))
+      (let ((result (make-array 0 :element-type t :adjustable t :fill-pointer 0)))
+        (map nil
+             (lambda (key)
+               (vector-push-extend (funcall select-fn key (%js-get-prop obj key)) result))
+             (%js-object-own-string-property-keys obj t))
+        result)
+      (%js-object-make-array)))
 
 (defun %js-object-keys (obj)
   (%js-object-collect
@@ -187,17 +172,13 @@ order after them."
 (defun %js-object-assign (target &rest sources)
   "Copy all enumerable own properties from SOURCES to TARGET."
   (dolist (src sources)
-    (when (or (%js-object-proxy-p src) (%js-ht-p src))
-      (map
-        nil
-        (lambda (key)
-          (%js-set-prop target key (%js-get-prop src key)))
-        (%js-object-own-string-property-keys src))
-      (map
-        nil
-        (lambda (key)
-          (%js-set-prop target key (%js-get-prop src key)))
-        (%js-object-own-symbol-property-keys src))))
+    (when (or (%js-object-proxy-p src) (%js-ht-p src) (%js-vm-closure-p src))
+      (map nil (lambda (key) (%js-set-prop target key (%js-get-prop src key)))
+           (%js-object-own-string-property-keys src t))
+      (map nil (lambda (key)
+                 (when (%js-property-enumerable-p src key)
+                   (%js-set-prop target key (%js-get-prop src key))))
+           (%js-object-own-symbol-property-keys src))))
   target)
 
 (defun %js-object-spread-set (obj key value)
@@ -230,58 +211,81 @@ follow a spread (the fold threads the object, and %js-set-prop returns the value
   obj)
 
 (defun %js-object-internal-flag (obj key default)
-  "Look up internal flag KEY. Arrays keep their flags in the separate
-*JS-ARRAY-FLAGS* side table (see runtime-property.lisp) rather than as a
-gethash on the object itself, since a JS array is a CL vector, not a
-hash-table, and can't hold arbitrary string keys directly."
+  "Look up internal flag KEY. Arrays keep their flags in *JS-ARRAY-FLAGS* and VM closures use the identity-keyed integrity table because neither stores flags directly."
   (cond
     ((%js-ht-p obj) (multiple-value-bind (value present-p) (gethash key obj)
         (if present-p value
           default)))
     ((%js-vec-p obj) (%js-array-flag obj key default))
+    ((%js-vm-closure-p obj) (%js-object-integrity-flag obj key default))
     (t default)))
 
 (defun %js-object-extensible-p (obj)
   (and
-    (or (%js-ht-p obj) (%js-vec-p obj))
+    (or (%js-ht-p obj) (%js-vec-p obj) (%js-vm-closure-p obj))
     (not (null (%js-object-internal-flag obj "__extensible__" t)))))
 
+(defun %js-vm-closure-integrity-level-p (obj frozen-p)
+  (and
+    (not (%js-object-extensible-p obj))
+    (every
+      (lambda (key)
+        (multiple-value-bind (descriptor found-p) (%js-property-descriptor obj key)
+          (and found-p
+               (not (getf descriptor :configurable))
+               (or (not frozen-p) (member :get descriptor)
+                   (member :set descriptor) (not (getf descriptor :writable))))))
+      (%js-property-descriptor-keys obj))))
+
 (defun %js-object-sealed-p (obj)
-  (and
-    (or (%js-ht-p obj) (%js-vec-p obj))
-    (not (null (%js-object-internal-flag obj "__sealed__" nil)))))
-
+  (cond
+    ((%js-vm-closure-p obj)
+     (%js-vm-closure-integrity-level-p obj nil))
+    ((or (%js-ht-p obj) (%js-vec-p obj))
+     (not (null (%js-object-internal-flag obj "__sealed__" nil))))
+    (t nil)))
 (defun %js-object-frozen-p (obj)
-  (and
-    (or (%js-ht-p obj) (%js-vec-p obj))
-    (not (null (%js-object-internal-flag obj "__frozen__" nil)))))
-
+  (cond
+    ((%js-vm-closure-p obj)
+     (%js-vm-closure-integrity-level-p obj t))
+    ((or (%js-ht-p obj) (%js-vec-p obj))
+     (not (null (%js-object-internal-flag obj "__frozen__" nil))))
+    (t nil)))
 (defun %js-object-prevent-extensions (obj)
   (cond
     ((%js-ht-p obj) (setf (gethash "__extensible__" obj) nil))
-    ((%js-vec-p obj) (%js-set-array-flag obj "__extensible__" nil)))
+    ((%js-vec-p obj) (%js-set-array-flag obj "__extensible__" nil))
+    ((%js-vm-closure-p obj)
+     (%js-set-object-integrity-flag obj "__extensible__" nil)))
   obj)
 
 (defun %js-object-seal (obj)
   (%js-object-prevent-extensions obj)
   (cond
     ((%js-ht-p obj) (setf (gethash "__sealed__" obj) t))
-    ((%js-vec-p obj) (%js-set-array-flag obj "__sealed__" t)))
+    ((%js-vec-p obj) (%js-set-array-flag obj "__sealed__" t))
+    ((%js-vm-closure-p obj)
+     (%js-set-object-integrity-flag obj "__sealed__" t)))
+  (%js-seal-property-descriptors obj nil)
   obj)
 
 (defun %js-object-freeze (obj)
   (%js-object-seal obj)
   (cond
     ((%js-ht-p obj) (setf (gethash "__frozen__" obj) t))
-    ((%js-vec-p obj) (%js-set-array-flag obj "__frozen__" t)))
+    ((%js-vec-p obj) (%js-set-array-flag obj "__frozen__" t))
+    ((%js-vm-closure-p obj)
+     (%js-set-object-integrity-flag obj "__frozen__" t)))
+  (%js-seal-property-descriptors obj t)
   obj)
 
 (defun %js-object-has-own (obj key)
   "True if OBJ has own property KEY."
   (cond
     ((%js-object-proxy-p obj)
-      (not (eq (%js-object-proxy-get-own-property-descriptor obj key) +js-undefined+)))
+     (not (eq (%js-object-proxy-get-own-property-descriptor obj key) +js-undefined+)))
     ((%js-ht-p obj) (%js-object-proxy-own-property-or-accessor-present-p obj key))
+    ((%js-vm-closure-p obj) (nth-value 1 (%js-property-descriptor obj key)))
     (t nil)))
 
 (defun %js-object-from-entries (iterable)
@@ -294,4 +298,3 @@ hash-table, and can't hold arbitrary string keys directly."
               (v (%js-get-prop entry 1)))
           (%js-set-prop ht k v))))
     ht))
-

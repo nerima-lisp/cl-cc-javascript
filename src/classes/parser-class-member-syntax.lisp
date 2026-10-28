@@ -11,13 +11,13 @@
 (defun js-private-ident-sym (str)
   "Intern a JS private field name (without #) with a %JS-PRIV- prefix."
   (intern
-    (concatenate
-      'string
-      "%JS-PRIV-"
-      (string-upcase
-        (if (stringp str) str
-          (symbol-name str))))
-    :cl-cc/javascript))
+   (concatenate 'string
+                "%JS-PRIV-"
+                (string-upcase
+                 (if (stringp str)
+                     str
+                     (symbol-name str))))
+   :cl-cc/javascript))
 
 (defun %js-skip-balanced-until (stream delimiter-types)
   "Advance STREAM past tokens until reaching one whose type is in
@@ -28,13 +28,10 @@ decorator argument or parameter default that is itself `foo(1,2)' or
 matched delimiter, or at EOF if none was found before the token list ran
 out."
   (let ((depth 0))
-    (loop while (and stream
-                     (or (plusp depth)
-                         (not (member (js-peek-type stream) delimiter-types))))
+    (loop while (and stream (or (plusp depth) (not (member (js-peek-type stream) delimiter-types))))
           do (case (js-peek-type stream)
                ((:T-LPAREN :T-LBRACKET :T-LBRACE) (incf depth))
-               ((:T-RPAREN :T-RBRACKET :T-RBRACE) (decf depth)))
-             (setf stream (cdr stream))))
+               ((:T-RPAREN :T-RBRACKET :T-RBRACE) (decf depth))) (setf stream (cdr stream))))
   stream)
 
 ;;; ─── Decorator parser ────────────────────────────────────────────────────────
@@ -43,11 +40,14 @@ out."
 into one SYM named \"FOO.BAR.BAZ\"). Returns (values extended-sym rest)."
   (let ((current stream))
     (loop while (and current (eq (js-peek-type current) :T-DOT))
-          do (setf current (cdr current))
-             (multiple-value-bind (mem-tok rest) (js-expect :T-IDENT current)
-               (setf sym (js-ident-sym
-                          (concatenate 'string (symbol-name sym) "." (js-tok-value mem-tok)))
-                     current rest)))
+          do (setf current (cdr current)) (multiple-value-bind (mem-tok rest)
+                                              (js-expect :T-IDENT current)
+                                            (setf sym (js-ident-sym
+                                                       (concatenate 'string
+                                                                    (symbol-name sym)
+                                                                    "."
+                                                                    (js-tok-value mem-tok)))
+                                                  current rest)))
     (values sym current)))
 
 (defun %js-parse-decorator-args (stream)
@@ -64,10 +64,18 @@ commas, nor its own closing delimiter for the decorator's. Returns
 (values args-list rest)."
   (let ((args nil))
     (loop until (or (js-at-eof-p stream) (eq (js-peek-type stream) :T-RPAREN))
-          do (push (make-ast-var :name (js-ident-sym "_decorator-arg_")) args)
-             (setf stream (%js-skip-balanced-until stream '(:T-COMMA :T-RPAREN)))
-             (when (and stream (eq (js-peek-type stream) :T-COMMA))
-               (setf stream (cdr stream))))
+          do (push (make-ast-var :name (js-ident-sym "_decorator-arg_")) args) (setf stream (%js-skip-balanced-until
+                                                                                             stream
+                                                                                             '(:T-COMMA
+                                                                                               :T-RPAREN))) (when
+                                                                                                                (and
+                                                                                                                 stream
+                                                                                                                 (eq
+                                                                                                                  (js-peek-type
+                                                                                                                   stream)
+                                                                                                                  :T-COMMA))
+                                                                                                              (setf stream (cdr
+                                                                                                                            stream))))
     (values (nreverse args) stream)))
 
 (defun %js-parse-decorator (stream)
@@ -96,8 +104,8 @@ Returns (values decorators-list rest)."
         (current stream))
     (loop while (and current (eq (js-peek-type current) :T-AT))
           do (multiple-value-bind (dec rest) (%js-parse-decorator current)
-        (push dec decorators)
-        (setf current rest)))
+               (push dec decorators)
+               (setf current rest)))
     (values (nreverse decorators) current)))
 
 ;;; ─── Computed member name ────────────────────────────────────────────────────
@@ -153,98 +161,97 @@ methods under ORIG-NAME); NIL for computed names."
     (multiple-value-bind (params body rest2) (%js-parse-method-params-body rest)
       (let* ((computed-p (not (symbolp name)))
              (sym
-            (if computed-p (gensym
-                (if (eq kind :getter) "JS-GETTER-"
-                  "JS-SETTER-"))
-              name))
+              (if computed-p
+                  (gensym
+                   (if (eq kind :getter)
+                       "JS-GETTER-"
+                       "JS-SETTER-"))
+                  name))
              (slot
-            (make-ast-slot-def
-              :name
-              sym
-              :initform
-              (make-ast-defun
-                :name
-                sym
-                :params
-                (unless (eq kind :getter)
-                  params)
-                :body
-                (list body))
-              :allocation
-              (if static-p :class
-                :instance)
-              :imports
-              (append
-                (when computed-p
-                  (list :js-computed-key-ast name))
-                (%js-member-kind-metadata kind static-p private-p nil nil decorators)))))
+              (make-ast-slot-def :name
+                                 sym
+                                 :initform
+                                 (make-ast-defun :name
+                                                 sym
+                                                 :params
+                                                 (unless (eq kind :getter)
+                                                   params)
+                                                 :body
+                                                 (list body))
+                                 :allocation
+                                 (if static-p
+                                     :class
+                                     :instance)
+                                 :imports
+                                 (append
+                                  (when computed-p
+                                    (list :js-computed-key-ast name))
+                                  (%js-member-kind-metadata kind
+                                                            static-p
+                                                            private-p
+                                                            nil
+                                                            nil
+                                                            decorators)))))
         (values slot (js-skip-semis rest2))))))
 
 (defun %js-parse-method-params-body (stream)
-  "Parse ( params ) { body } for a method. Returns (values params body rest).
-Params is a list of symbols; body is an ast-progn of properly-parsed AST nodes.
-
-Previously this function collected method body tokens verbatim and stored them
-as (ast-progn (ast-quote raw-token-list)). That meant class method bodies were
-never compiled - every method silently became a no-op. Now the body is parsed
-via js-parse-stmt-list (the real statement parser) so methods execute normally."
-  ;; Parameter list
+  "Parse ( params ) { body } for a method."
   (let ((rest (nth-value 1 (js-expect :T-LPAREN stream)))
         (params nil))
     (loop until (or (js-at-eof-p rest) (eq (js-peek-type rest) :T-RPAREN))
           do (cond
-               ;; Rest parameter ...name
                ((eq (js-peek-type rest) :T-ELLIPSIS)
-                (setf rest (cdr rest))
-                (multiple-value-bind (tok rest2) (js-expect :T-IDENT rest)
-                  (push (list :rest (js-ident-sym (js-tok-value tok))) params)
-                  (setf rest rest2)))
-               ;; Normal identifier param (ignore defaults for now)
-               ((member (js-peek-type rest) '(:T-IDENT :T-THIS))
+                 (setf rest (cdr rest))
+                 (multiple-value-bind (tok rest2) (js-expect :T-IDENT rest)
+                   (push (list :rest (js-ident-sym (js-tok-value tok))) params)
+                   (setf rest rest2)))
+               ((member (js-peek-type rest) (quote (:T-IDENT :T-THIS)))
                 (multiple-value-bind (tok rest2) (js-consume rest)
                   (push (js-ident-sym (js-tok-value tok)) params)
                   (setf rest rest2)
-                  ;; Skip default value = expr. %JS-SKIP-BALANCED-UNTIL
-                  ;; tracks nesting depth so a default that is itself a call
-                  ;; or bracketed literal (m(a, b=foo(1,2))) doesn't stop at
-                  ;; its own internal comma/close-paren instead of the
-                  ;; parameter list's.
-                  (when (and rest (eq (js-peek-type rest) :T-OP)
-                             (equal "=" (js-peek-value rest)))
+                  (when (and rest (eq (js-peek-type rest) :T-OP) (equal "=" (js-peek-value rest)))
                     (setf rest (cdr rest))
-                    (setf rest (%js-skip-balanced-until rest '(:T-COMMA :T-RPAREN))))))
+                    (setf rest (%js-skip-balanced-until rest (quote (:T-COMMA :T-RPAREN)))))))
                (t
-                ;; Destructuring params or other complex params - skip token
-                (setf rest (cdr rest))))
-          ;; consume comma separator
-          (when (and rest (eq (js-peek-type rest) :T-COMMA))
-            (setf rest (cdr rest))))
+                (setf rest (cdr rest)))) (when (and rest (eq (js-peek-type rest) :T-COMMA))
+                                           (setf rest (cdr rest))))
     (multiple-value-bind (_ rest2) (js-expect :T-RPAREN rest)
       (declare (ignore _))
-      ;; Method body { stmts... }
-      ;; js-parse-stmt-list consumes the opening { and closing } and returns
-      ;; (values stmt-list rest-after-rbrace) - the real statement parser used
-      ;; by js-parse-block and js-parse-function-body.
       (multiple-value-bind (_ rest3) (js-expect :T-LBRACE rest2)
         (declare (ignore _))
-        (multiple-value-bind (body-stmts rest4) (js-call-parser-handler :statement-list rest3)
+        (multiple-value-bind (body-stmts rest4)
+            (let ((cl-cc/javascript/syntax:*js-gdi-shadowed-names*
+                   (append
+                    (mapcar
+                     (lambda (param)
+                       (if (and (consp param) (eq (first param) :rest))
+                           (second param)
+                           param))
+                     (reverse params))
+                    cl-cc/javascript/syntax:*js-gdi-shadowed-names*)))
+              (js-call-parser-handler :function-body rest3))
           (let ((body-ast (make-ast-progn :forms (%js-callable-body body-stmts))))
             (values (nreverse params) body-ast rest4)))))))
 
-(defun %js-member-kind-metadata (kind static-p private-p async-p generator-p decorators &optional orig-name)
+(defun %js-member-kind-metadata (kind static-p
+                                      private-p
+                                      async-p
+                                      generator-p
+                                      decorators
+                                      &optional
+                                      orig-name)
   "Build the :imports plist for a class member slot.
 ORIG-NAME is the original-case method name string (case-sensitive key for prototype)."
-  (append
-    (list :js-member-kind kind)
-    (when orig-name
-      (list :js-orig-name orig-name))
-    (when static-p
-      (list :js-static t))
-    (when private-p
-      (list :js-private t))
-    (when async-p
-      (list :js-async t))
-    (when generator-p
-      (list :js-generator t))
-    (when decorators
-      (list :js-decorators decorators))))
+  (append (list :js-member-kind kind)
+          (when orig-name
+            (list :js-orig-name orig-name))
+          (when static-p
+            (list :js-static t))
+          (when private-p
+            (list :js-private t))
+          (when async-p
+            (list :js-async t))
+          (when generator-p
+            (list :js-generator t))
+          (when decorators
+            (list :js-decorators decorators))))

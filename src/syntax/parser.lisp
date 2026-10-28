@@ -14,11 +14,9 @@
 ;;;; parser-expr.lisp, parser-class.lisp, and parser-module.lisp. Binding-
 ;;;; pattern parsing lives in parser-stmt-binding.lisp
 ;;;; (%js-parse-binding-pattern and friends).
-
 (in-package #:cl-cc/javascript/syntax)
 
 ;;; ─── Token Accessors ────────────────────────────────────────────────────────
-
 (defun js-tok-type (tok)
   "Return the :type field of a token plist."
   (getf tok :type))
@@ -28,18 +26,19 @@
   (getf tok :value))
 
 ;;; ─── Stream Peek / Consume ──────────────────────────────────────────────────
-
 (defun js-peek (stream)
   "Return the first token of STREAM without consuming it, or NIL if empty."
   (car stream))
 
 (defun js-peek-type (stream)
   "Return the :type of the first token in STREAM, or NIL if STREAM is empty."
-  (when stream (getf (car stream) :type)))
+  (when stream
+    (getf (car stream) :type)))
 
 (defun js-peek-value (stream)
   "Return the :value of the first token in STREAM, or NIL if STREAM is empty."
-  (when stream (getf (car stream) :value)))
+  (when stream
+    (getf (car stream) :value)))
 
 (defun js-at-op-p (stream op)
   "True when the first token in STREAM is the operator token spelled OP.
@@ -47,15 +46,13 @@
 An operator is two facts about one token — type :T-OP and a particular
 spelling — and every caller that cares needs both, so testing them separately
 is a conjunction repeated at each site rather than one question asked once."
-  (and (eq (js-peek-type stream) :T-OP)
-       (string= (js-peek-value stream) op)))
+  (and (eq (js-peek-type stream) :T-OP) (string= (js-peek-value stream) op)))
 
 (defun js-consume (stream)
   "Return (values first-token rest-of-stream). Does not error on empty stream."
   (values (car stream) (cdr stream)))
 
 ;;; ─── Expect / Try-consume ───────────────────────────────────────────────────
-
 (defun js-expect (type stream &optional value)
   "Consume a token of TYPE (optionally matching VALUE) from STREAM.
 Returns (values token rest-stream). Signals an error on mismatch."
@@ -63,8 +60,7 @@ Returns (values token rest-stream). Signals an error on mismatch."
            (eq (js-peek-type stream) type)
            (or (null value) (equal (js-peek-value stream) value)))
       (js-consume stream)
-      (error "JS parse error: expected ~S~@[ ~S~] but got ~S"
-             type value (js-peek stream))))
+      (error "JS parse error: expected ~S~@[ ~S~] but got ~S" type value (js-peek stream))))
 
 (defun js-at-eof-p (stream)
   "Return T when STREAM is exhausted or its first token is :T-EOF."
@@ -88,11 +84,21 @@ no further use for the token value itself."
 ;;; bound, so pathologically nested input (e.g. "((((((…))))))" or "[[[[…]]]]")
 ;;; could exhaust the control stack (CWE-674 DoS) when parsing untrusted source.
 ;;; with-js-parse-depth bounds the recursion and errors gracefully instead.
+(progn
+  (defvar *js-gdi-global-reference-mode*
+    nil)
+  (defvar *js-gdi-shadowed-names*
+    nil)
+  (defvar *js-gdi-global-lexical-names*
+    nil)
+  (defvar *js-gdi-global-var-names*
+    nil)
+  (defvar *js-parse-depth*
+    0
+    "Current expression/statement recursion depth during parsing."))
 
-(defvar *js-parse-depth* 0
-  "Current expression/statement recursion depth during parsing.")
-
-(defparameter *js-max-parse-depth* 2500
+(defparameter *js-max-parse-depth*
+  2500
   "Maximum expression/statement nesting depth before a graceful parse error.")
 
 (defmacro with-js-parse-depth (&body body)
@@ -113,25 +119,25 @@ by the expression side (parser-expr-primary.lisp) and the binding-pattern
 side (parser-stmt-binding.lisp) so the two can't silently drift apart.")
 
 ;;; ─── Name Helpers ───────────────────────────────────────────────────────────
-
 (defun js-ident-sym (str)
   "Convert a JS identifier string STR to an interned CL symbol in :cl-cc/javascript.
 Accepts both strings and symbols.  Preserves CASE — JavaScript is case-sensitive,
 so `a'/`A', `foo'/`Foo', and a lowercase instance var vs its Class name must be
 distinct symbols.  Must stay in sync with %js-binding-sym (binding side) and the
 parser-class.lisp copy."
-  (intern (if (stringp str) str (symbol-name str))
-          :cl-cc/javascript))
+  (intern
+   (if (stringp str)
+       str
+       (symbol-name str))
+   :cl-cc/javascript))
 
 ;;; ─── Forward Reference Declarations ────────────────────────────────────────
-
 (declaim (ftype (function (t) (values list t)) js-parse-source-tokens))
 
 ;;; ─── Top-Level Entry Points ─────────────────────────────────────────────────
 ;;;
 ;;; The actual statement-parsing work is delegated to %js-parse-all-stmts,
 ;;; which is implemented in parser-stmt.lisp (loaded after this file).
-
 (defun parse-js-source (source)
   "Parse a JavaScript SOURCE string and return a list of top-level AST nodes."
   (let ((tokens (tokenize-js-source source)))
@@ -192,5 +198,4 @@ function'. A NIL/empty body passes through unchanged."
 
 (defun %js-call (name &rest args)
   "Build an AST call to a JS runtime helper NAME with ARGS."
-  (make-ast-call :func (make-ast-var :name name)
-                 :args args))
+  (make-ast-call :func (make-ast-var :name name) :args args))
